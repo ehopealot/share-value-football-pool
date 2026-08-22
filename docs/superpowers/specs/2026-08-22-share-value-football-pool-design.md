@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-22
 
-**Status:** Draft for operator approval
+**Status:** Approved by the operator on 2026-08-22
 **Product record:** [`PRODUCT.md`](../../../PRODUCT.md)
 
 ## 1. Objective
