@@ -1,0 +1,139 @@
+import { applyD1Migrations, env } from "cloudflare:test";
+import migration from "../../src/db/migrations/0001_initial.sql?raw";
+import { beforeEach, describe, expect, it } from "vitest";
+import { createWorkerApp } from "../../src/worker/app";
+import { RateLimiter } from "../../src/security/rate-limit";
+import { createAuthAbuseGuard, verifyTurnstile } from "../../src/security/turnstile";
+import { createPoolRequest, joinPoolRequest } from "../../src/contracts/http";
+import { handleInternalSettlement } from "../../src/index";
+import { canonicalizeWagerQuote, revalidateWagerOffers } from "../../src/worker/offer-quotes";
+import type { PoolCommand } from "../../src/durable/pool-commands";
+import { CANONICAL_BOOK_POLICY_VERSION } from "../../src/odds/types";
+
+const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string; SETTLEMENT_SERVICE_TOKEN: string };
+let migrated = false;
+const request = (path: string, body: unknown, headers: Record<string, string> = {}, method = "POST") => new Request(`https://pool.example.test${path}`, { method, headers: { "content-type": "application/json", origin: "https://pool.example.test", ...headers }, body: JSON.stringify(body) });
+
+beforeEach(async () => {
+  if (!migrated) { await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]); migrated = true; }
+  await bindings.DB.exec("DELETE FROM pool_registry_command_response; DELETE FROM pool_registry; INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('owner', 'Owner', 'owner@example.test', 1, 0, 0), ('member', 'Member', 'member@example.test', 1, 0, 0);");
+});
+
+const appFor = (user: { id: string; name: string } | null, options: { turnstileSecret?: string; allowInsecureLocalAuth?: boolean; fetcher?: typeof fetch; limiter?: RateLimiter; recentlyAuthenticated?: boolean } = {}) => {
+  const { recentlyAuthenticated, ...dependencies } = options;
+  return createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, recentlyAuthenticated: async () => recentlyAuthenticated === true, ...dependencies });
+};
+
+describe("authenticated pool HTTP boundary", () => {
+  it("rejects unauthenticated and cross-origin mutations", async () => {
+    const body = { slug: "secure-pool", poolName: "Secure Pool", password: "correct-password", idempotencyKey: "create" };
+    expect((await appFor(null).fetch(request("/api/pools", body))).status).toBe(401);
+    expect((await appFor({ id: "owner", name: "Owner" }).fetch(request("/api/pools", body, { origin: "https://attacker.test" }))).status).toBe(403);
+    const missingOrigin = new Request("https://pool.example.test/api/pools", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await appFor({ id: "owner", name: "Owner" }).fetch(missingOrigin)).status).toBe(403);
+  });
+
+  it("validates, Turnstile-protects, creates, joins, and routes authoritative mutations", async () => {
+    const turnstile = async () => new Response(JSON.stringify({ success: true }));
+    const owner = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: turnstile, recentlyAuthenticated: true });
+    expect((await owner.fetch(request("/api/pools", { slug: "secure-pool", poolName: "Secure Pool", password: "correct-password", idempotencyKey: "create", turnstileToken: "token" }))).status).toBe(201);
+    const staleOwner = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: turnstile });
+    expect((await staleOwner.fetch(request("/api/p/secure-pool/admin/settings", { password: "rotated-password", idempotencyKey: "settings" }, { "x-recent-auth": "true" }))).status).toBe(403);
+    expect((await owner.fetch(request("/api/p/secure-pool/admin/settings", { password: "rotated-password", idempotencyKey: "settings" }))).status).toBe(200);
+    const member = appFor({ id: "member", name: "Member" }, { turnstileSecret: "turnstile-secret", fetcher: turnstile });
+    expect((await member.fetch(request("/api/p/secure-pool/join", { password: "rotated-password", idempotencyKey: "join", turnstileToken: "token" }))).status).toBe(200);
+    expect((await owner.fetch(request("/api/p/secure-pool/admin/seasons", { seasonId: "s1", label: "2026", idempotencyKey: "draft" }))).status).toBe(200);
+    expect((await owner.fetch(request("/api/p/secure-pool/admin/seasons/s1/open", { idempotencyKey: "open" }))).status).toBe(200);
+    expect((await owner.fetch(request("/api/p/secure-pool/admin/seasons/s1/close", { idempotencyKey: "close", reason: "season closed" }, { "x-recent-auth": "true" }))).status).toBe(404);
+  }, 90_000);
+
+  it("fails closed for a missing production Turnstile secret and permits only explicit local opt-in", async () => {
+    const body = { slug: "missing-secret", poolName: "Missing Secret", password: "correct-password", idempotencyKey: "create" };
+    const production = appFor({ id: "owner", name: "Owner" });
+    expect((await production.fetch(request("/api/pools", body))).status).toBe(403);
+    expect((await production.fetch(request("/api/p/missing-secret/join", { password: "correct-password", idempotencyKey: "join" }))).status).toBe(403);
+    expect(await verifyTurnstile({ allowInsecureLocalAuth: true, hostname: "127.0.0.1" })).toBe(true);
+    expect(await verifyTurnstile({ allowInsecureLocalAuth: true, hostname: "pool.example.test" })).toBe(false);
+  });
+
+  it("fails closed for missing or fabricated Turnstile tokens and applies rate limits", async () => {
+    const app = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: async (_url, init) => new Response(JSON.stringify({ success: new URLSearchParams(String(init?.body)).get("response") === "valid-response" })), limiter: new RateLimiter(1) });
+    const body = { slug: "another-pool", poolName: "Another Pool", password: "correct-password", idempotencyKey: "create" };
+    expect((await app.fetch(request("/api/pools", body))).status).toBe(403);
+    expect((await app.fetch(request("/api/pools", { ...body, turnstileToken: "local" }))).status).toBe(403);
+    expect((await app.fetch(request("/api/pools", { ...body, turnstileToken: "valid-response" }))).status).toBe(201);
+    expect((await app.fetch(request("/api/pools", { ...body, slug: "third-pool", idempotencyKey: "second", turnstileToken: "valid-response" }))).status).toBe(429);
+  }, 30_000);
+
+  it("executes the shared signup/signin abuse guard before the auth handler", async () => {
+    const authHandler = async () => Response.json({ handled: true });
+    const secured = createWorkerApp({
+      db: bindings.DB, pools: bindings.POOL_DO, currentUser: async () => null, authHandler,
+      authAbuseGuard: createAuthAbuseGuard({ secret: "turnstile-secret", limiter: new RateLimiter(), fetcher: async () => new Response(JSON.stringify({ success: true })) })
+    });
+    expect((await secured.fetch(request("/api/auth/sign-up/email", { email: "a@example.test" }))).status).toBe(403);
+    expect((await secured.fetch(request("/api/auth/sign-in/email", { email: "a@example.test", turnstileToken: "token" }))).status).toBe(200);
+    expect((await secured.fetch(request("/api/auth/sign-up/email", { email: "a@example.test", turnstileToken: "token" }, { origin: "https://attacker.test" }))).status).toBe(403);
+    const localAuth = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, currentUser: async () => null, authHandler, authAbuseGuard: createAuthAbuseGuard({ allowInsecureLocalAuth: true, limiter: new RateLimiter() }) });
+    const loopbackSignup = new Request("http://127.0.0.1/api/auth/sign-up/email", { method: "POST", headers: { "content-type": "application/json", origin: "http://127.0.0.1" }, body: JSON.stringify({ email: "a@example.test" }) });
+    expect((await localAuth.fetch(loopbackSignup)).status).toBe(200);
+    const limitedAuth = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, currentUser: async () => null, authHandler, authAbuseGuard: createAuthAbuseGuard({ allowInsecureLocalAuth: true, limiter: new RateLimiter(1) }) });
+    const loopbackSignin = () => new Request("http://localhost/api/auth/sign-in/email", { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({}) });
+    expect((await limitedAuth.fetch(loopbackSignin())).status).toBe(200);
+    expect((await limitedAuth.fetch(loopbackSignin())).status).toBe(429);
+  });
+
+  it("denies browser settlement and gates the real PoolDO alarm behind its service token", async () => {
+    const slug = `settlement-${crypto.randomUUID()}`;
+    const stub = bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug));
+    const direct = (token?: string) => stub.fetch("https://pool.example.test/internal/settle", { method: "POST", headers: token ? { "x-settlement-service-token": token } : {} });
+    expect((await direct()).status).toBe(404);
+    expect((await direct("wrong")).status).toBe(404);
+    expect((await direct(bindings.SETTLEMENT_SERVICE_TOKEN)).status).toBe(200);
+    const invoke = (headers: HeadersInit = {}) => handleInternalSettlement(new Request(`https://pool.example.test/internal/pools/${slug}/settle`, { method: "POST", headers }), { POOL_DO: bindings.POOL_DO, SETTLEMENT_SERVICE_TOKEN: bindings.SETTLEMENT_SERVICE_TOKEN });
+    expect((await invoke({ "x-settlement-service-token": bindings.SETTLEMENT_SERVICE_TOKEN, origin: "https://pool.example.test" }))?.status).toBe(404);
+    expect((await invoke({ "x-settlement-service-token": bindings.SETTLEMENT_SERVICE_TOKEN }))?.status).toBe(200);
+  });
+
+  it("revalidates moneyline placement terms against the canonical D1 offer", async () => {
+    const startsAt = "2099-09-10T20:00:00.000Z";
+    const retrievedAt = new Date().toISOString();
+    await bindings.DB.exec("DELETE FROM market_offer; DELETE FROM sports_event; DELETE FROM odds_ingestion;");
+    await bindings.DB.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL)").bind(retrievedAt, retrievedAt).run();
+    await bindings.DB.prepare("INSERT INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, correction_version) VALUES (?, ?, 'nfl', 'Fixture Home', 'Fixture Away', ?, 'scheduled', '1')").bind("trusted-event", "trusted-event", startsAt).run();
+    await bindings.DB.prepare("INSERT INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, 'moneyline', 'DraftKings', ?, 'trusted-v1', ?)").bind("trusted-event", retrievedAt, JSON.stringify({ policyVersion: CANONICAL_BOOK_POLICY_VERSION, outcomes: [{ name: "Fixture Home", price: -135 }, { name: "Fixture Away", price: 115 }] })).run();
+    const command: any = { type: "PlaceStraightWager", commandId: "moneyline", actorId: "member", wagerId: "moneyline", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -135, rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "trusted-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt, policyVersion: CANONICAL_BOOK_POLICY_VERSION, offerVersion: "trusted-v1", canonicalOfferProof: { offerId: "trusted-event:moneyline:home", eventId: "trusted-event", offerVersion: "trusted-v1", canonicalBook: "DraftKings", market: "moneyline", selection: "home", odds: -135, line: null }, market: "moneyline", selection: "home", originalLine: null, adjustedLine: null, originalOdds: -135, eventStartsAt: startsAt, homeTeam: "Fixture Home", awayTeam: "Fixture Away" } };
+    await expect(revalidateWagerOffers(bindings.DB, command)).resolves.toEqual(command);
+    const forged = { ...command, leg: { ...command.leg, canonicalBook: "FanDuel", offerVersion: "forged-v9", originalOdds: 200, canonicalOfferProof: { ...command.leg.canonicalOfferProof, canonicalBook: "FanDuel", offerVersion: "forged-v9", odds: 200 } } };
+    await expect(revalidateWagerOffers(bindings.DB, forged)).rejects.toThrow("LINE_CHANGED");
+
+    const duplicateTeaser = {
+      ...command,
+      type: "PlaceTeaserWager",
+      teaserPoints: 6,
+      acceptedOdds: -110,
+      legs: [command.leg, { ...command.leg }]
+    } as any;
+    await expect(canonicalizeWagerQuote(bindings.DB, duplicateTeaser)).rejects.toThrow("MARKET_UNAVAILABLE");
+    await expect(revalidateWagerOffers(bindings.DB, duplicateTeaser)).rejects.toThrow("MARKET_UNAVAILABLE");
+  });
+
+  it("uses shared contracts and treats both unavailable pool states as retryable", async () => {
+    expect(createPoolRequest.safeParse({ slug: "pool", poolName: "Pool", password: "correct-password", idempotencyKey: "id" }).success).toBe(true);
+    expect(joinPoolRequest.safeParse({ password: "correct-password", idempotencyKey: "id" }).success).toBe(true);
+    const app = appFor({ id: "owner", name: "Owner" }, { allowInsecureLocalAuth: true });
+    const response = await app.fetch(new Request("http://127.0.0.1/api/p/no-such-pool/join", { method: "POST", headers: { "content-type": "application/json", origin: "http://127.0.0.1" }, body: JSON.stringify({ password: "correct-password", idempotencyKey: "join" }) }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "POOL_NOT_AVAILABLE" });
+
+    await bindings.DB.prepare("INSERT INTO pool_registry (pool_id, normalized_slug, do_name, creator_id, status, command_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind("unavailable-id", "unavailable", "unavailable-id", "owner", "ready", "unavailable-command", "now").run();
+    const unavailablePools = {
+      idFromName: () => "ignored",
+      get: () => ({ fetch: async () => { throw new Error("offline"); } })
+    } as unknown as DurableObjectNamespace;
+    const unavailableApp = createWorkerApp({ db: bindings.DB, pools: unavailablePools, currentUser: async () => ({ id: "owner", name: "Owner" }), allowInsecureLocalAuth: true });
+    const unavailable = await unavailableApp.fetch(new Request("http://localhost/api/p/unavailable/join", { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify({ password: "correct-password", idempotencyKey: "offline" }) }));
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({ code: "POOL_UNAVAILABLE" });
+  });
+});

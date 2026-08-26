@@ -1,0 +1,11 @@
+# Local-only non-secret configuration names. Put real production values in Workers secrets.
+# Service tokens are server-to-server only; never expose them to browser code.
+BETTER_AUTH_SECRET=local-development-secret
+POOL_COMMAND_AUTHENTICATOR_KEY=local-command-authenticator
+POOL_PROJECTION_SERVICE_TOKEN=local-projection-service-token
+POOL_BACKUP_SERVICE_TOKEN=local-backup-service-token
+# Canonical base64 encoding of exactly 32 bytes; service-only encryption key name.
+BACKUP_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+# Explicit local fixture opt-in; local requests must also be loopback.
+LOCAL_TEST_CONTROLS=true
+ALLOW_INSECURE_LOCAL_AUTH=true

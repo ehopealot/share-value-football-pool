@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "share-value-football-pool-local",
+  "main": "src/index.local.ts",
+  "compatibility_date": "2025-07-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "dist/client", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "share-value-football-pool", "database_id": "local-development-database", "migrations_dir": "src/db/migrations" }],
+  "durable_objects": { "bindings": [{ "name": "POOL_DO", "class_name": "PoolDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PoolDO"] }],
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "share-value-football-pool-backups" }],
+  "queues": { "producers": [{ "binding": "POOL_EVENTS", "queue": "share-value-football-pool-events" }], "consumers": [{ "queue": "share-value-football-pool-events", "max_batch_size": 10, "max_batch_timeout": 5 }] },
+  "triggers": { "crons": ["*/2 * * * *"] }
+}

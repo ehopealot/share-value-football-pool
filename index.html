@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="turnstile-site-key" content="%VITE_TURNSTILE_SITE_KEY%" />
+    <title>Share Pool</title>
+  </head>
+  <body>
+    <!-- THESIS: a private pool is operated from compact, auditable sports tables, never a generic dashboard. OWN-WORLD: navy and medium-blue bars, gray table fills, white fields, orange action controls, Arial/Verdana, square borders. STORY: members fund shares, confirm locked terms, and follow fair revealed results. FIRST VIEWPORT: centered mostly-fixed desktop canvas; navy masthead and blue navigation above a dense overview table with orange primary action; canvas becomes fluid on narrow screens. FORM: share-pool-operate-2007-v1. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md -->
+    <div id="root"></div>
+    <script>
+      // A local harness has no site key; production loads the real client before protected submissions.
+      (() => {
+        const siteKey = document.querySelector('meta[name="turnstile-site-key"]')?.getAttribute("content");
+        if (siteKey && !siteKey.startsWith("%")) {
+          const script = document.createElement("script");
+          script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+          script.async = true;
+          script.defer = true;
+          document.head.append(script);
+        }
+      })();
+    </script>
+    <script type="module" src="/src/web/main.tsx"></script>
+  </body>
+</html>

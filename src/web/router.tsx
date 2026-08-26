@@ -1,0 +1,20 @@
+import { BrowserRouter, Route, Routes } from "react-router";
+import { HomePage } from "./pages/HomePage";
+import { ForgotPasswordPage, LoginPage, ResetPasswordPage, SignUpPage } from "./pages/AuthPages";
+import { NewPoolPage } from "./pages/NewPoolPage";
+import { PoolGatePage } from "./pages/PoolGatePage";
+import { NotFoundPage } from "./pages/StatePage";
+import { OverviewPage } from "./pages/OverviewPage";
+import { OddsPage } from "./pages/OddsPage";
+import { TeaserPage } from "./pages/TeaserPage";
+import { MyWagersPage } from "./pages/MyWagersPage";
+import { AdminSeasonPage } from "./pages/AdminSeasonPage";
+import { AdminOrdersPage } from "./pages/AdminOrdersPage";
+import { StandingsPage } from "./pages/StandingsPage";
+import { ActivityPage } from "./pages/ActivityPage";
+import { RulesPage } from "./pages/RulesPage";
+import { HistoryPage } from "./pages/HistoryPage";
+import { AdminMembersPage } from "./pages/AdminMembersPage";
+import { AdminCorrectionsPage } from "./pages/AdminCorrectionsPage";
+import { AdminSettingsPage } from "./pages/AdminSettingsPage";
+export function AppRouter() { return <BrowserRouter><Routes><Route path="/" element={<HomePage/>}/><Route path="/sign-up" element={<SignUpPage/>}/><Route path="/login" element={<LoginPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/pools/new" element={<NewPoolPage/>}/><Route path="/p/:slug" element={<PoolGatePage/>}/><Route path="/p/:slug/overview" element={<OverviewPage/>}/><Route path="/p/:slug/odds" element={<OddsPage/>}/><Route path="/p/:slug/teaser" element={<TeaserPage/>}/><Route path="/p/:slug/my-wagers" element={<MyWagersPage/>}/><Route path="/p/:slug/standings" element={<StandingsPage/>}/><Route path="/p/:slug/activity" element={<ActivityPage/>}/><Route path="/p/:slug/rules" element={<RulesPage/>}/><Route path="/p/:slug/history/:season" element={<HistoryPage/>}/><Route path="/p/:slug/admin/members" element={<AdminMembersPage/>}/><Route path="/p/:slug/admin/corrections" element={<AdminCorrectionsPage/>}/><Route path="/p/:slug/admin/settings" element={<AdminSettingsPage/>}/><Route path="/p/:slug/admin/season" element={<AdminSeasonPage/>}/><Route path="/p/:slug/admin/orders" element={<AdminOrdersPage/>}/><Route path="*" element={<NotFoundPage/>}/></Routes></BrowserRouter>; }

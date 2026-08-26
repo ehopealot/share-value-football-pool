@@ -1,0 +1,1 @@
+[{"id":"fixture-nfl-final","commence_time":"2026-02-08T23:30:00.000Z","home_team":"Fixture Home","away_team":"Fixture Away","title":"Super Bowl LX","postseason":true,"bookmakers":[{"key":"fanduel","title":"FanDuel","markets":[{"key":"h2h","outcomes":[{"name":"Fixture Home","price":-135},{"name":"Fixture Away","price":115}]}]}]}]
