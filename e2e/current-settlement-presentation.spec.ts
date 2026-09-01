@@ -36,7 +36,7 @@ test("My Wagers shows only the current settlement economics after real regrades 
   await signInOwner(page, worker.baseURL, worker.mailbox);
   await createAndFundPool(page, worker.baseURL, slug);
 
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
   await page.getByRole("checkbox", { name: "Local Away +3", exact: true }).check();
   await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
   await page.getByRole("button", { name: "Place bets" }).click();

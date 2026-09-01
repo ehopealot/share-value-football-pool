@@ -65,7 +65,7 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   ).toBeVisible();
   await page.getByRole("button", { name: "Confirm order" }).click();
   await expect(page).toHaveURL(/\/p\/orders-pool\/overview$/);
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
   await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   const straightQuoteBodies: Record<string, unknown>[] = [];
@@ -192,7 +192,7 @@ test("commissioner confirms an in-page reversal and preserves immutable order hi
   await expect(page.getByText("Correcting an accidental issue")).toBeVisible();
 });
 
-test("the real browser uses whole-share defaults, filters canonical odds, and focuses an insufficient-risk rejection without changing the balance", async ({
+test("the real browser uses whole-share defaults, filters canonical odds, and blocks an insufficient risk before review", async ({
   page,
   worker,
 }) => {
@@ -215,7 +215,7 @@ test("the real browser uses whole-share defaults, filters canonical odds, and fo
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
   await expect(page).toHaveURL(/\/overview$/);
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
 
   await page.getByLabel("League").selectOption("nfl");
   await expect(
@@ -230,13 +230,8 @@ test("the real browser uses whole-share defaults, filters canonical odds, and fo
   await page.keyboard.press("Space");
   await expect(selection).toBeChecked();
   await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("4");
-  await page.getByRole("button", { name: "Place bets" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Review straight wagers" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Place 1 wager" }).click();
-  const error = page.getByRole("alert");
-  await expect(error).toContainText("Not enough shares.");
+  await expect(page.locator(".bet-slip-error")).toHaveText("Selected bets total 4 shares; only 3 shares are available.");
+  await expect(page.getByRole("button", { name: "Place bets" })).toBeDisabled();
   await page.goto(`${worker.baseURL}/p/recovery-pool/overview`);
   await expect(
     page.getByRole("row", { name: /Available shares/i }),
@@ -264,7 +259,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
   await expect(page).toHaveURL(/\/overview$/);
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
   await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   await page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }).check();
   await page.getByRole("button", { name: "Build teaser" }).click();
@@ -285,11 +280,8 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
       );
   });
   await page.getByLabel("Risk", { exact: true }).fill("1.5");
-  await page.getByRole("button", { name: "Review teaser wager" }).click();
-  await expect(page.getByRole("alert")).toHaveText(
-    "Whole shares required.",
-  );
-  await expect(page.getByRole("alert")).toBeFocused();
+  await expect(page.getByRole("alert")).toHaveText("Whole shares required.");
+  await expect(page.getByRole("button", { name: "Review teaser wager" })).toBeDisabled();
   await expect.poll(() => teaserQuoteRequests).toBe(0);
   await page.getByLabel("Risk", { exact: true }).fill("1");
   await page.getByRole("button", { name: "Review teaser wager" }).click();
@@ -461,10 +453,9 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
     ),
   ).toBe(200);
   await page.getByRole("button", { name: "Place teaser" }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "one or more legs are no longer available",
-  );
-  await expect(page.getByRole("alert")).toBeFocused();
+  const terminalRecovery = page.getByText("A teaser line changed and one or more legs are no longer available. Choose current legs and review again.", { exact: true });
+  await expect(terminalRecovery).toBeVisible();
+  await expect(terminalRecovery).toBeFocused();
   await expect(
     page.getByRole("heading", { name: "Confirm teaser wager" }),
   ).toHaveCount(0);
@@ -488,7 +479,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
         (await fetch("/__local-test/seed", { method: "POST" })).status,
     ),
   ).toBe(200);
-  await page.getByRole("link", { name: "odds board" }).click();
+  await page.getByRole("link", { name: "odds board", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
   await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   await page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }).check();
@@ -560,7 +551,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
   await expect(page).toHaveURL(/\/overview$/);
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
   await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   const quoteBodies: Record<string, unknown>[] = [];
   const placementBodies: Record<string, unknown>[] = [];
@@ -1309,7 +1300,7 @@ test("stale and locked quoted offers reject only that new wager with a focused e
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
   await expect(page).toHaveURL(/\/overview$/);
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
 
   for (const state of ["stale", "locked"] as const) {
     await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
@@ -1366,7 +1357,7 @@ test("stale and locked quoted offers reject only that new wager with a focused e
           ).status,
       );
       expect(restored).toBe(200);
-      await page.getByRole("link", { name: "Games", exact: true }).click();
+      await page.getByRole("link", { name: "Odds board", exact: true }).click();
     }
   }
 });

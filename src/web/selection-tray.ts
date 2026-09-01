@@ -1,5 +1,6 @@
 import { outcomeForSelection, type CanonicalSelection } from "./selection-matcher";
 import type { MarketName } from "../odds/types";
+import { MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
 
 /** Tray items hold identity only; lines and prices always resolve from the current board. */
 export type TrayItem = { eventId: string; market: MarketName; selection: CanonicalSelection; wagerId: string; risk: string };
@@ -45,7 +46,33 @@ export function resolveTrayItem(board: { offers?: BoardOffer[] }, item: { eventI
 /** Teaser legs require a point-bearing spread or total. */
 export function teaserEligible(item: Pick<TrayItem, "market">): boolean { return item.market === "spread" || item.market === "total"; }
 
-/** Whole positive share risks are required for every item before the batch can be quoted. */
-export function straightBatchRiskError(items: TrayItem[]): string {
-  return items.some((item) => !/^\d+$/.test(item.risk) || BigInt(item.risk) <= 0n) ? "Whole shares required." : "";
+/** Advisory slip checks mirror fixed limits before the authoritative quote/placement boundary. */
+export function straightBatchRiskError(items: TrayItem[], limits: { maxSideBetMicros?: string; availableMicros?: string } = {}): string {
+  if (items.some((item) => !/^\d+$/.test(item.risk) || BigInt(item.risk) <= 0n)) return "Whole shares required.";
+  const risks = items.map((item) => BigInt(item.risk) * MICROS_PER_UNIT);
+  if (limits.maxSideBetMicros !== undefined) {
+    const max = parseIntegerText(limits.maxSideBetMicros);
+    if (risks.some((risk) => risk > max)) return `Max bet per side: ${(max / MICROS_PER_UNIT).toString()} shares.`;
+  }
+  if (limits.availableMicros !== undefined) {
+    const available = parseIntegerText(limits.availableMicros);
+    const total = risks.reduce((sum, risk) => sum + risk, 0n);
+    if (total > available) return `Selected bets total ${(total / MICROS_PER_UNIT).toString()} shares; only ${(available / MICROS_PER_UNIT).toString()} shares are available.`;
+  }
+  return "";
+}
+
+/** A teaser has one total-risk cap; the server separately enforces shared per-side exposure. */
+export function teaserRiskError(risk: string, limits: { maxSideBetMicros?: string; availableMicros?: string } = {}): string {
+  if (!/^\d+$/.test(risk) || BigInt(risk) <= 0n) return "Whole shares required.";
+  const riskMicros = BigInt(risk) * MICROS_PER_UNIT;
+  if (limits.maxSideBetMicros !== undefined) {
+    const max = parseIntegerText(limits.maxSideBetMicros);
+    if (riskMicros > max) return `Max bet per side: ${(max / MICROS_PER_UNIT).toString()} shares.`;
+  }
+  if (limits.availableMicros !== undefined) {
+    const available = parseIntegerText(limits.availableMicros);
+    if (riskMicros > available) return `Teaser risk ${risk} shares; only ${(available / MICROS_PER_UNIT).toString()} shares are available.`;
+  }
+  return "";
 }

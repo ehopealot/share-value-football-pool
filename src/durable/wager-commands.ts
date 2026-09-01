@@ -34,6 +34,8 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
   if (!season) throw new Error("SEASON_NOT_ACTIVE");
   if (season.state === "closed") throw new Error("SEASON_CLOSED");
   if (season.state !== "active") throw new Error("SEASON_NOT_ACTIVE");
+  const maxSideBetMicros = parseIntegerText(String(season.max_side_bet_micros));
+  if (risk > maxSideBetMicros) throw new Error("SIDE_BET_LIMIT");
   const account = first(sql, "SELECT available_micros, locked_micros FROM share_account WHERE season_id = ? AND member_id = ?", command.seasonId, command.actorId);
   if (!account || parseIntegerText(String(account.available_micros)) < risk) throw new Error("INSUFFICIENT_SHARES");
   const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
@@ -46,7 +48,7 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
     if (command.rulesetVersion !== TEASER_RULESET_ID || teaserOdds(legs.length, command.teaserPoints) !== command.acceptedOdds || legs.some((leg) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg, command.teaserPoints) !== (leg as Extract<Placement, { type: "PlaceTeaserWager" }>['legs'][number]).adjustedLine)) throw new Error("INVALID_TEASER_TERMS");
   }
   if (legs.some((leg) => new Date(leg.eventStartsAt).getTime() <= Date.now())) throw new Error("MARKET_LOCKED");
-  assertSideBetLimit(sql, command, legs, parseIntegerText(String(season.max_side_bet_micros)));
+  assertSideBetLimit(sql, command, legs, maxSideBetMicros);
 
   const confirmedAt = now();
   sql.exec("UPDATE share_account SET available_micros = ?, locked_micros = ?, row_version = row_version + 1 WHERE season_id = ? AND member_id = ?", (parseIntegerText(String(account.available_micros)) - risk).toString(), (parseIntegerText(String(account.locked_micros ?? "0")) + risk).toString(), command.seasonId, command.actorId);

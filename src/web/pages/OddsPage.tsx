@@ -124,7 +124,7 @@ export function OddsPage() {
   const pending = batch?.tag === "quoting" || batch?.tag === "placing";
 
   const quoteAll = async () => {
-    const riskError = straightBatchRiskError(tray); if (riskError) return setError(riskError);
+    const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (riskError) return setError(riskError);
     if (!view?.activeSeason?.id) return setError("Open an active season before reviewing wagers.");
     setNotice(""); setError("");
     setBatch({ tag: "quoting" });
@@ -212,8 +212,8 @@ export function OddsPage() {
   const toggle = (cell: MarketCell) => persist(toggleMarketExclusive(tray, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem));
   // Teasers need at least two legs, so the builder stays disabled for single-game slips.
   const teaserEligibleCount = tray.filter((item) => teaserEligible(item) && resolveTrayItem(board ?? {}, item) && typeof resolveTrayItem(board ?? {}, item)!.outcome.point === "number").length;
-  const riskError = straightBatchRiskError(tray);
   const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
+  const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros });
   const available = balance ? parseIntegerText(balance.availableMicros) : 0n;
   const total = balance ? available + parseIntegerText(balance.lockedMicros) : 0n;
   const shareValue = view?.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.00";

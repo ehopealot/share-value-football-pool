@@ -35,7 +35,7 @@ test("authenticated browser parser consumes the real same-game teaser export acr
 
   await expect(page).toHaveURL(/\/overview$/);
 
-  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Odds board", exact: true }).click();
   await page.getByRole("checkbox", { name: "Local Home -3", exact: true }).check();
   await page.getByRole("checkbox", { name: "O 45.5", exact: true }).check();
   await page.getByRole("button", { name: "Build teaser" }).click();

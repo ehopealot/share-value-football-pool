@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketExclusive, toggleTrayItem, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
+import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, teaserRiskError, toggleMarketExclusive, toggleTrayItem, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
 
 vi.stubGlobal("sessionStorage", (() => { let store: Record<string, string> = {}; return { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = String(v); }, removeItem: (k: string) => { delete store[k]; }, clear: () => { store = {}; } }; })());
 
@@ -60,5 +60,17 @@ describe("selection tray", () => {
     expect(straightBatchRiskError([item({ risk: "0" })])).not.toBe("");
     expect(straightBatchRiskError([item({ risk: "2.5" })])).not.toBe("");
     expect(straightBatchRiskError([item({ risk: "" })])).not.toBe("");
+  });
+
+  it("reports configured per-side and available-balance risks before quoting", () => {
+    expect(straightBatchRiskError([item({ risk: "801" })], { maxSideBetMicros: "800000000", availableMicros: "1000000000" })).toBe("Max bet per side: 800 shares.");
+    expect(straightBatchRiskError([item({ risk: "500" }), item({ eventId: "e2", risk: "400" })], { maxSideBetMicros: "800000000", availableMicros: "800000000" })).toBe("Selected bets total 900 shares; only 800 shares are available.");
+    expect(straightBatchRiskError([item({ risk: "800" })], { maxSideBetMicros: "800000000", availableMicros: "800000000" })).toBe("");
+  });
+
+  it("caps total teaser risk while checking the available balance before review", () => {
+    expect(teaserRiskError("801", { maxSideBetMicros: "800000000", availableMicros: "3000000000" })).toBe("Max bet per side: 800 shares.");
+    expect(teaserRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "799000000" })).toBe("Teaser risk 800 shares; only 799 shares are available.");
+    expect(teaserRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "800000000" })).toBe("");
   });
 });

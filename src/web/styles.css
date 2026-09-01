@@ -25,6 +25,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .site-name { font-size: 1.25rem; font-weight: 700; }
 .nav-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
 .nav-bar a { color: #fff; }
+.nav-bar a.active { font-weight: 700; }
 .nav-button { margin: 0; padding: 0; border: 0; background: transparent; color: #fff; font: inherit; text-decoration: underline; cursor: pointer; }
 .main-content { padding: var(--space-3); max-width: 75ch; }
 h1 { margin: 0 0 var(--space-1); font-size: 1.55rem; }

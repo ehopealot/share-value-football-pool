@@ -73,6 +73,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   }
 
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
+  await expect(page.getByRole("link", { name: "Odds board" })).toHaveCSS("font-weight", "700");
   await expect(page.getByRole("table", { name: "Current odds" })).toBeVisible();
   await expect(page.getByRole("columnheader")).toHaveCount(5);
   await expectEvenGameRows(page);
@@ -81,6 +82,11 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await page.getByRole("checkbox").first().check();
   await page.getByLabel(/Risk in whole shares/).fill("1.5");
   await expect(page.getByText("Whole shares required.")).toBeVisible();
+  await page.getByLabel(/Risk in whole shares/).fill("801");
+  await expect(page.getByText("Max bet per side: 800 shares.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Place bets" })).toBeDisabled();
+  await page.getByLabel(/Risk in whole shares/).fill("1");
+  await expect(page.getByText("Selected bets total 1 shares; only 0 shares are available.")).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
