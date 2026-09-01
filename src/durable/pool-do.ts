@@ -91,8 +91,8 @@ export class PoolDO {
     if (previous && !isRead) {
       if (previous.type !== command.type || previous.actor_id !== actorId(command) || previous.request_json !== requestFingerprint(command, commandAuthenticatorKey)) throw new Error("IDEMPOTENCY_CONFLICT");
       const response = JSON.parse(String(previous.response_json));
-      // Join notifications need to distinguish a newly-created membership from its idempotent replay; no other command exposes replay metadata.
-      return (command.type === "JoinPool" ? { ...response, replayed: true } : response) as PoolCommandResult;
+      // External notifications need to distinguish newly committed actions from idempotent replays.
+      return (command.type === "JoinPool" || command.type === "ExecuteShareOrder" ? { ...response, replayed: true } : response) as PoolCommandResult;
     }
 
     let result: PoolCommandResult;

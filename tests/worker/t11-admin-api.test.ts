@@ -12,7 +12,7 @@ const origin = "https://pool.example.test";
 const request = (path: string, body?: unknown, method = "POST") => new Request(`${origin}${path}`, { method, headers: body === undefined ? {} : { "content-type": "application/json", origin }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const command = async (poolId: string, value: unknown) => (await bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)).fetch("https://pool.internal/command", { method: "POST", body: JSON.stringify(value) })).json() as Promise<Record<string, any>>;
 const storage = async (poolId: string, callback: (state: DurableObjectState) => unknown) => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => callback(state));
-const app = (user: { id: string; name: string } | null, recentlyAuthenticated?: () => Promise<boolean>, poolJoinNotifier?: { notifyPoolJoin(message: unknown): Promise<void>; notifyCommissionerTransfer(message: unknown): Promise<void> }) => createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, ...(recentlyAuthenticated ? { recentlyAuthenticated: async () => recentlyAuthenticated() } : {}), ...(poolJoinNotifier ? { poolJoinNotifier } : {}) });
+const app = (user: { id: string; name: string } | null, recentlyAuthenticated?: () => Promise<boolean>, poolJoinNotifier?: { notifyPoolJoin(message: unknown): Promise<void>; notifyCommissionerTransfer(message: unknown): Promise<void>; notifyShareOrderFulfilled(message: unknown): Promise<void> }) => createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, ...(recentlyAuthenticated ? { recentlyAuthenticated: async () => recentlyAuthenticated() } : {}), ...(poolJoinNotifier ? { poolJoinNotifier } : {}) });
 const orderKeys = ["createdAt", "memberDisplayName", "memberId", "orderId", "priceMicros", "reason", "sharesMicros", "valueMicros"];
 
 /** Real D1 discovery row plus a real PoolDO lifecycle: archived s0, active s1. */
@@ -245,7 +245,7 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     const body = { memberId: "member", reason: "Documented handover", idempotencyKey: "transfer" };
     expect((await app({ id: "owner", name: "Owner" }, async () => false).fetch(request(`/api/p/${slug}/admin/transfer`, body)))).toMatchObject({ status: 403 });
     const notifications: any[] = [];
-    const notifier = { async notifyPoolJoin(_message: unknown) {}, async notifyCommissionerTransfer(message: unknown) { notifications.push(message); } };
+    const notifier = { async notifyPoolJoin(_message: unknown) {}, async notifyCommissionerTransfer(message: unknown) { notifications.push(message); }, async notifyShareOrderFulfilled(_message: unknown) {} };
     const owner = app({ id: "owner", name: "Owner" }, async () => true, notifier);
     const member = app({ id: "member", name: "Member" }, async () => true);
     expect((await member.fetch(request(`/api/p/${slug}/admin/transfer`, body)))).toMatchObject({ status: 403 });

@@ -48,7 +48,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .error-summary p { margin: var(--space-1) 0 0; }
 .state-notice { margin: var(--space-3) 0; padding: var(--space-2); border: 1px solid var(--line); background: var(--table-gray); }
 .state-notice h2 { margin: 0 0 var(--space-1); font-size: 1.1rem; }
-@media (max-width: 600px) { .masthead { align-items: flex-start; flex-direction: column; } .nav-bar { flex-wrap: wrap; } .main-content { padding: var(--space-2); } .nav-bar a, .nav-button, button, .primary-action, .secondary-action { display: inline-flex; align-items: center; min-height: 44px; } .pool-nickname form input { min-height: 44px; } }
+@media (max-width: 600px) { .masthead { align-items: flex-start; flex-direction: column; } .nav-bar { flex-wrap: wrap; gap: 0.25rem var(--space-2); padding-block: 0.25rem; } .main-content { padding: var(--space-2); } .nav-bar a, .nav-button, button, .primary-action, .secondary-action { display: inline-flex; align-items: center; min-height: 44px; } .pool-nickname form input { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto; transition: none; } }
 /* Compact odds board: two-row game blocks — matchup cell spans both rows, one market per column. */
 .odds-board { margin: var(--space-2) 0; }

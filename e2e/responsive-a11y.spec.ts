@@ -102,6 +102,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
 
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toHaveCSS("row-gap", "4px");
   await expectNoViewportOverflow(page);
   await expectCompactOddsBoard(page);
   await expectEvenGameRows(page);

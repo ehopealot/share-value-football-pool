@@ -1,3 +1,5 @@
+import { formatMicros } from "../domain/fixed-point";
+
 export type EmailKind = "verification" | "password-reset";
 export interface EmailMessage { kind: EmailKind; to: string; token: string; url: string; }
 export interface EmailSender { send(message: EmailMessage): Promise<void>; }
@@ -5,6 +7,7 @@ export interface ResendEmailSenderOptions { apiKey: string; from: string; fetche
 export interface PoolJoinNotifier {
   notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>;
   notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>;
+  notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>;
 }
 
 const resendEndpoint = "https://api.resend.com/emails";
@@ -50,12 +53,22 @@ export function createResendEmailSender(options: ResendEmailSenderOptions): Emai
 
 /** Notifies the current commissioner after a new member joins; delivery never exposes member email data. */
 export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions): PoolJoinNotifier {
+  const amount = (micros: string) => formatMicros(BigInt(micros), 2);
   return {
     async notifyPoolJoin(message) {
       await sendResend(options, message.to, {
         subject: `New member in ${message.poolName}`,
         text: `${message.memberName} joined ${message.poolName}.`,
         html: `<p><strong>${escapeHtmlAttribute(message.memberName)}</strong> joined <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`
+      });
+    },
+    async notifyShareOrderFulfilled(message) {
+      const shares = amount(message.sharesMicros);
+      const value = amount(message.valueMicros);
+      await sendResend(options, message.to, {
+        subject: `Shares added to ${message.poolName}`,
+        text: `Your share order in ${message.poolName} is complete.\n\n${shares} shares were added to your balance (value: $${value}).`,
+        html: `<p>Your share order in <strong>${escapeHtmlAttribute(message.poolName)}</strong> is complete.</p><p><strong>${shares} shares</strong> were added to your balance (value: <strong>$${value}</strong>).</p>`
       });
     },
     async notifyCommissionerTransfer(message) {

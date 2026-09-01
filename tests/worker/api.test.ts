@@ -69,6 +69,31 @@ describe("later wager and member HTTP API", () => {
     expect((await view.json() as any).members).toContainEqual(expect.objectContaining({ memberId: "member", displayName: "Sunday Shark" }));
   }, 90_000);
 
+  it("notifies the funded member once after a new share order is fulfilled", async () => {
+    const poolId = `api-order-email-${crypto.randomUUID()}`;
+    const slug = `api-order-email-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const quote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "email-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2500000" })).json() as { priceMicros: string; commandVersion: string };
+    const notifyShareOrderFulfilled = vi.fn(async () => {});
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled } });
+    const body = { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2500000", quote, reason: "Funding received", idempotencyKey: "email-order" };
+    expect((await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, body))).status).toBe(200);
+    expect((await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, body))).status).toBe(200);
+    expect(notifyShareOrderFulfilled).toHaveBeenCalledOnce();
+    expect(notifyShareOrderFulfilled).toHaveBeenCalledWith({ to: "member-api@example.test", poolName: "API Pool", sharesMicros: "2500000", valueMicros: "2500000" });
+  }, 90_000);
+
+  it("keeps fulfilled funding successful when notification work fails", async () => {
+    const poolId = `api-order-email-failure-${crypto.randomUUID()}`;
+    const slug = `api-order-email-failure-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const quote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "email-failure-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" })).json() as { priceMicros: string; commandVersion: string };
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => { throw new Error("EMAIL_DELIVERY_FAILED"); } } });
+    const response = await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote, reason: "Funding received", idempotencyKey: "email-failure-order" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ sharesMicros: "1000000", valueMicros: "1000000" });
+  }, 90_000);
+
   it("preserves complete stale order replacement terms through the Worker boundary", async () => {
     const poolId = `api-order-stale-${crypto.randomUUID()}`;
     await setupPool(poolId, "api-order-stale-pool");
