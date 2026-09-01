@@ -8,6 +8,7 @@ import { resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketEx
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatAmericanOdds, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
+import { formatCurrentShareValue } from "../share-value";
 export type BoardPick = { offer: any; outcome: any };
 /** Review controls follow the parsed fail-closed board state, never retained editor data. */
 export const boardEnablesWagerReview = (board: { offers?: unknown[]; feed?: { status?: string } } | undefined): boolean => board?.feed?.status === "current" && !!board.offers?.length;
@@ -215,6 +216,8 @@ export function OddsPage() {
   const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
   const available = balance ? parseIntegerText(balance.availableMicros) : 0n;
   const total = balance ? available + parseIntegerText(balance.lockedMicros) : 0n;
+  const shareValue = view?.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.00";
+  const noIssuedShares = !view?.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
   return <Layout signedIn><h1>Odds board</h1>{view && <p className="pool-context"><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""}</p>}<p role="status">Feed status: {board?.feed.status ?? "loading"} — {board?.feed.message}</p>
     {error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}
     {notice && <p role="status">{notice}</p>}
@@ -233,7 +236,7 @@ export function OddsPage() {
       return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
     })}</tbody></table></div>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
-    <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong></p>}
+    <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
       {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board, item, resolved); return <li key={identity(item)}>{resolved ? <span className="tray-item-label">{label}</span> : <em className="tray-item-label">{label}</em>}<label> Risk <input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => identity(candidate) === identity(item) ? { ...candidate, risk: e.target.value } : candidate))} /></label><button onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button className="primary-action" disabled={!view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>

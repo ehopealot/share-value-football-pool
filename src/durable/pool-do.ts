@@ -119,6 +119,7 @@ export class PoolDO {
     switch (command.type) {
       case "InitializePool": payload = { ...base, commandType: command.type, memberId: command.creatorId }; break;
       case "JoinPool": payload = { ...base, commandType: command.type, memberId: command.actorId }; break;
+      case "UpdateMemberNickname": payload = { ...base, commandType: command.type, memberId: command.actorId }; break;
       case "UpdatePoolSettings": payload = { ...base, commandType: command.type }; break;
       case "CreateSeason":
       case "OpenSeason":
@@ -242,6 +243,11 @@ export class PoolDO {
       const result = placeWager(sql, command);
       return { ...result, commandVersion: this.bumpVersion(sql) };
     }
+    if (command.type === "UpdateMemberNickname") {
+      sql.exec("UPDATE member SET display_name = ? WHERE user_id = ?", command.displayName, command.actorId);
+      return { commandVersion: this.bumpVersion(sql), displayName: command.displayName };
+    }
+
     if (pool.commissioner_id !== command.actorId || member.role !== "commissioner") throw new Error("FORBIDDEN");
 
     if (command.type === "TransferCommissioner") {

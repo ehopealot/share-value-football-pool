@@ -57,6 +57,18 @@ describe("later wager and member HTTP API", () => {
     expect((await app.fetch(request("/api/p/api-admin-pool/admin/orders/order-does-not-exist/reverse", body))).status).toBe(400);
     expect((await app.fetch(request("/api/p/api-admin-pool/admin/seasons/s1/close", body))).status).toBe(404);
   }, 90_000);
+  it("lets an active member set a pool-scoped nickname", async () => {
+    const poolId = `api-nickname-${crypto.randomUUID()}`;
+    const slug = `api-nickname-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Account name" }) });
+    const updated = await app.fetch(request(`/api/p/${slug}/nickname`, { displayName: "Sunday Shark", idempotencyKey: "nickname-1" }));
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ displayName: "Sunday Shark", commandVersion: expect.any(String) });
+    const view = await app.fetch(request(`/api/p/${slug}/view`, undefined, "GET"));
+    expect((await view.json() as any).members).toContainEqual(expect.objectContaining({ memberId: "member", displayName: "Sunday Shark" }));
+  }, 90_000);
+
   it("preserves complete stale order replacement terms through the Worker boundary", async () => {
     const poolId = `api-order-stale-${crypto.randomUUID()}`;
     await setupPool(poolId, "api-order-stale-pool");

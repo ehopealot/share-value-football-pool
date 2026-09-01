@@ -242,6 +242,23 @@ describe("T11 authoritative member reads", () => {
     expect((await send(slug, { type: "CreateSeasonAnnotation", commandId: "missing", actorId: "owner", seasonId: "missing", text: "no" }))).toMatchObject({ code: "SEASON_NOT_FOUND" });
   }, 90_000);
 
+  it("uses a member's renamed pool nickname in standings, activity, and closed history", async () => {
+    const slug = `t11-nickname-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "m", "Account Name");
+    await draftSeason(slug, "s1", "2026");
+    await fund(slug, "fund-m", "m");
+    await send(slug, { type: "UpdateMemberNickname", commandId: "nickname-m", actorId: "m", displayName: "Sunday Shark" } as any);
+
+    const standings = await send(slug, { type: "ReadStandings", commandId: "nickname-standings", actorId: "owner" });
+    expect(standings.standings).toContainEqual(expect.objectContaining({ userId: "m", displayName: "Sunday Shark" }));
+    const activity = await send(slug, { type: "ReadActivity", commandId: "nickname-activity", actorId: "owner" });
+    expect(activity.activity.orders).toContainEqual(expect.objectContaining({ memberId: "m", memberDisplayName: "Sunday Shark" }));
+    await send(slug, { type: "CloseSeason", commandId: "nickname-close", actorId: "owner", seasonId: "s1", reason: "archive" });
+    const history = await send(slug, { type: "ReadSeasonHistory", commandId: "nickname-history", actorId: "owner", seasonId: "s1" });
+    expect(history.accounts).toContainEqual(expect.objectContaining({ memberId: "m", memberDisplayName: "Sunday Shark" }));
+  }, 90_000);
+
   it("keeps the production read clock real: no fixture read-time route, table, or shaped reveal", async () => {
     const slug = `t11-read-clock-${crypto.randomUUID()}`;
     await initialize(slug, "Owner");

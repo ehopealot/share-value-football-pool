@@ -59,6 +59,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .selection-tray-list li:last-child { border-bottom: 0; }
 .selection-tray-list label { flex-direction: row; align-items: center; margin: 0; }
 .main-content:has(.odds-board) { max-width: none; }
+.odds-board .odds-game-top, .odds-board .odds-game-bottom { height: 2.4rem; }
 .odds-board .odds-cell, .odds-board .odds-matchup { height: 2.4rem; vertical-align: middle; }
 .odds-matchup span { white-space: nowrap; }
 .site-shell:has(.odds-board) { width: 100%; border-inline: 0; }
@@ -116,6 +117,7 @@ button:not(.primary-action):not(.nav-button):hover:not(:disabled) { background: 
   .odds-board .odds-matchup span { overflow-wrap: anywhere; white-space: normal; }
   .odds-mobile-start { display: block; margin-top: 0.2rem; color: #3b4046; font-size: 0.72rem; font-weight: 400; }
   .odds-board .odds-cell { padding: 0.25rem 0.1rem; text-align: center; }
+  .odds-board .odds-game-top, .odds-board .odds-game-bottom { height: 2.1rem; }
   .odds-board .odds-cell, .odds-board .odds-matchup { height: 2.1rem; }
   .odds-option { width: 100%; justify-content: center; gap: 0.2rem; font-size: 0.78rem; }
   .odds-option input { flex: 0 0 auto; margin: 0; }

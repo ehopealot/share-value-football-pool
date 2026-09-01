@@ -5,7 +5,7 @@ import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
-import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest } from "../contracts/http";
+import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest } from "../contracts/http";
 import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, straightWagerQuoteRequest, teaserWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateWagerOffers } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
@@ -213,6 +213,12 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     }
     limiter.reset(key);
     return c.json(result);
+  }));
+
+  app.post("/api/p/:slug/nickname", (c) => mutation(c, async (user) => {
+    const parsed = updateMemberNicknameRequest.safeParse(await c.req.json());
+    if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
+    return c.json(await router.send(c.req.param("slug"), { type: "UpdateMemberNickname", commandId: parsed.data.idempotencyKey, actorId: user.id, displayName: parsed.data.displayName }));
   }));
 
   app.post("/api/p/:slug/admin/settings", (c) => mutation(c, async (user) => {

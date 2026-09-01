@@ -138,6 +138,7 @@ export const api = {
   resetPassword: (token: string, newPassword: string) => json("/api/auth/reset-password", { method: "POST", body: JSON.stringify({ token, newPassword }) }),
   createPool: (input: { poolName: string; slug: string; password: string; idempotencyKey: string } & Turnstile) => json<{ slug: string }>("/api/pools", { method: "POST", body: JSON.stringify(input) }),
   joinPool: (slug: string, password: string, idempotencyKey: string, security: Turnstile) => json(`/api/p/${encodeURIComponent(slug)}/join`, { method: "POST", body: JSON.stringify({ password, idempotencyKey, ...security }) }),
+  updateNickname: (slug: string, displayName: string, idempotencyKey: string) => api.command(slug, "/nickname", { displayName, idempotencyKey }),
   poolView: async (slug: string): Promise<ReadPoolViewType> => ReadPoolView.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/view`, { method: "GET", headers: {} })),
   // Bound a lost local/network odds response so stale-confirmation replay remains reachable.
   odds: async (slug: string, query = ""): Promise<OddsBoardResponseType> => parseOddsBoardSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/odds${query}`, { method: "GET", headers: {}, signal: AbortSignal.timeout(5_000) })),

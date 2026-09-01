@@ -16,6 +16,7 @@ export const createPoolRequest = z.object({
   turnstileToken
 });
 export const joinPoolRequest = z.object({ displayName: z.string().trim().min(1).max(100).optional(), password, idempotencyKey, turnstileToken });
+export const updateMemberNicknameRequest = z.object({ displayName: z.string().trim().min(1).max(100), idempotencyKey });
 export const updatePoolSettingsRequest = z.object({ poolName: z.string().trim().min(1).max(100).optional(), password: password.optional(), signupsOpen: z.boolean().optional(), maxSideBet: z.string().regex(/^[1-9]\d*$/).optional(), idempotencyKey }).refine((body) => body.poolName !== undefined || body.password !== undefined || body.signupsOpen !== undefined || body.maxSideBet !== undefined, "At least one setting is required.");
 export const createSeasonRequest = z.object({ seasonId: z.string().min(1).max(128), label: z.string().trim().min(1).max(100), defaultOrder: z.object({ mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/) }).optional(), idempotencyKey });
 export const seasonCommandRequest = z.object({ idempotencyKey, reason: z.string().trim().min(1).max(500).optional() });

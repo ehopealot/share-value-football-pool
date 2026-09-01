@@ -14,7 +14,8 @@ export default defineConfig(({ command }) => {
     // Build output is deployable, so never serialize ignored local Worker secrets into it.
     plugins: [react(), cloudflare({ ...(workerConfigPath ? { configPath: workerConfigPath } : {}), ...(command === "build" ? { config: { secrets: { required: [] } } } : {}) })],
     build: {
-      minify: false
+      minify: false,
+      sourcemap: true
     }
   };
 });

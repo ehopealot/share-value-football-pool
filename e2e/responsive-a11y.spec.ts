@@ -21,6 +21,11 @@ async function expectCompactOddsBoard(page: import("@playwright/test").Page) {
   await expect.poll(async () => (await dimensions()).table <= (await dimensions()).viewport + 1, { message: JSON.stringify(await dimensions()) }).toBe(true);
 }
 
+async function expectEvenGameRows(page: import("@playwright/test").Page) {
+  const heights = () => page.locator(".odds-board tbody").evaluate((body) => [...body.querySelectorAll<HTMLTableRowElement>(".odds-game-top")].map((top) => ({ top: top.getBoundingClientRect().height, bottom: top.nextElementSibling!.getBoundingClientRect().height })));
+  await expect.poll(async () => (await heights()).length > 0 && (await heights()).every((row) => Math.abs(row.top - row.bottom) <= 1)).toBe(true);
+}
+
 test("primary signed-out routes pass axe and expose keyboard-visible controls", async ({ page, worker }) => {
   for (const path of ["/", "/sign-up", "/login", "/forgot-password", "/reset-password"]) {
     await page.goto(`${worker.baseURL}${path}`);
@@ -61,6 +66,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
   await expect(page.getByRole("table", { name: "Current odds" })).toBeVisible();
   await expect(page.getByRole("columnheader")).toHaveCount(5);
+  await expectEvenGameRows(page);
   await page.getByRole("checkbox").first().focus();
   await expect(page.locator(":focus-visible")).toHaveCount(1);
   await page.getByRole("checkbox").first().check();
@@ -72,6 +78,9 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
   await expectNoViewportOverflow(page);
   await expectCompactOddsBoard(page);
+  await expectEvenGameRows(page);
+  await expect(page.getByText(/Current share value/)).toContainText("$0.00");
+  await expect(page.getByText(/No shares issued yet/)).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Local Away/ })).toBeVisible();
   await page.getByRole("checkbox").first().check();
   await expect(page.getByRole("button", { name: "Place bets" })).toHaveCSS("min-height", "44px");
@@ -86,10 +95,20 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
   await expectNoViewportOverflow(page);
   await expectCompactOddsBoard(page);
+  await expectEvenGameRows(page);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator("html")).toBeVisible();
   expect(await page.evaluate(() => getComputedStyle(document.body).scrollBehavior)).not.toBe("smooth");
+
+  await page.goto(`${worker.baseURL}/p/${pool.slug}/overview`);
+  await page.getByRole("textbox", { name: "Nickname" }).fill("A11y Alias");
+  await page.getByRole("button", { name: "Save nickname" }).click();
+  await expect(page.getByText("Pool nickname saved.")).toBeVisible();
+  await page.goto(`${worker.baseURL}/p/${pool.slug}/standings`);
+  await expect(page.getByText(/Current share value/)).toContainText("$0.00");
+  await expect(page.getByText(/No shares issued yet/)).toBeVisible();
+  await expect(page.getByRole("row", { name: /A11y Alias/ })).toBeVisible();
 
   await page.evaluate(async (slug) => {
     const response = await fetch("/__local-test/season", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolSlug: slug, state: "closed" }) });

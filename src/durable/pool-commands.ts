@@ -9,6 +9,7 @@ const common = { commandId, actorId: actor };
 const poolCommandSchemaBase = z.discriminatedUnion("type", [
   z.object({ type: z.literal("InitializePool"), commandId, poolId: z.string().min(1), slug: z.string().min(1), creatorId: z.string().min(1), creatorName: z.string().min(1), poolName: z.string().min(1), password: z.string().min(8) }),
   z.object({ type: z.literal("JoinPool"), ...common, displayName: z.string().min(1), password: z.string().min(8) }),
+  z.object({ type: z.literal("UpdateMemberNickname"), ...common, displayName: z.string().trim().min(1).max(100) }),
   z.object({ type: z.literal("UpdatePoolSettings"), ...common, poolName: z.string().trim().min(1).optional(), password: z.string().min(8).optional(), signupsOpen: z.boolean().optional(), maxSideBetMicros: positiveIntegerText.optional() }),
   z.object({ type: z.literal("CreateSeason"), ...common, seasonId: z.string().min(1), label: z.string().min(1), defaultOrder: z.object({ mode: z.enum(["shares", "value"]), amountMicros: positiveIntegerText }).optional() }),
   z.object({ type: z.literal("OpenSeason"), ...common, seasonId: z.string().min(1) }),
