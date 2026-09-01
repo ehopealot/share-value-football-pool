@@ -3,6 +3,7 @@ import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAuthBoundary } from "../../src/auth";
 import { DevelopmentMailbox } from "../../src/auth/development-mailbox";
+import type { EmailSender } from "../../src/auth/email-sender";
 
 const db = (env as unknown as { DB: D1Database }).DB;
 let migrated = false;
@@ -12,6 +13,34 @@ beforeEach(async () => {
 });
 
 describe("Better Auth D1 boundary", () => {
+  it("passes Better Auth's canonical verification URL to email delivery", async () => {
+    const messages: Array<{ kind: "verification" | "password-reset"; to: string; token: string; url?: string }> = [];
+    const emailSender: EmailSender = { async send(message) { messages.push(message); } };
+    const auth = createAuthBoundary({ db, baseURL: "https://officepool.football", secret: "a-long-test-secret-that-is-never-production", emailSender });
+
+    await auth.api.signUpEmail({ body: { name: "Member", email: "member@example.test", password: "first-password" } });
+
+    expect(messages).toHaveLength(1);
+    const verification = messages[0]!;
+    expect(verification.kind).toBe("verification");
+    const url = new URL(verification.url!);
+    expect(url.origin).toBe("https://officepool.football");
+    expect(url.pathname).toBe("/api/auth/verify-email");
+    expect(url.searchParams.get("token")).toBe(verification.token);
+  });
+
+  it("auto-verifies local signups without retaining verification mail", async () => {
+    const mailbox = new DevelopmentMailbox();
+    const auth = createAuthBoundary({ db, baseURL: "http://localhost:5173", secret: "a-long-test-secret-that-is-never-production", emailSender: mailbox, autoVerifyEmail: true });
+
+    const signup = await auth.api.signUpEmail({ body: { name: "Local Member", email: "local-member@example.test", password: "first-password" } });
+
+    expect(mailbox.messages).toEqual([]);
+    expect((await db.prepare("SELECT emailVerified FROM user WHERE email = ?").bind("local-member@example.test").first<{ emailVerified: number }>())?.emailVerified).toBe(1);
+    const login = await auth.api.signInEmail({ body: { email: "local-member@example.test", password: "first-password" }, asResponse: true });
+    expect(login.headers.get("set-cookie")).toMatch(/HttpOnly; SameSite=Lax/);
+  });
+
   it("persists signup/login, verification/reset mail, reset, and rotating sessions", async () => {
     const mailbox = new DevelopmentMailbox();
     const auth = createAuthBoundary({ db, baseURL: "https://pool.example.test", secret: "a-long-test-secret-that-is-never-production", emailSender: mailbox });

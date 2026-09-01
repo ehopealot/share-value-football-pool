@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="turnstile-site-key" content="%VITE_TURNSTILE_SITE_KEY%" />
-    <title>Share Pool</title>
+    <title>Office Pool Reborn</title>
   </head>
   <body>
     <!-- THESIS: a private pool is operated from compact, auditable sports tables, never a generic dashboard. OWN-WORLD: navy and medium-blue bars, gray table fills, white fields, orange action controls, Arial/Verdana, square borders. STORY: members fund shares, confirm locked terms, and follow fair revealed results. FIRST VIEWPORT: centered mostly-fixed desktop canvas; navy masthead and blue navigation above a dense overview table with orange primary action; canvas becomes fluid on narrow screens. FORM: share-pool-operate-2007-v1. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md -->
@@ -15,9 +15,18 @@
         const siteKey = document.querySelector('meta[name="turnstile-site-key"]')?.getAttribute("content");
         if (siteKey && !siteKey.startsWith("%")) {
           const script = document.createElement("script");
+          window.__officePoolRebornTurnstileReady = new Promise((resolve, reject) => {
+            script.addEventListener("load", () => {
+              const client = window.turnstile;
+              if (client && typeof client.render === "function" && typeof client.execute === "function") resolve(client);
+              else reject(new Error("TURNSTILE_SCRIPT_INVALID"));
+            }, { once: true });
+            script.addEventListener("error", () => reject(new Error("TURNSTILE_SCRIPT_FAILED")), { once: true });
+          });
+          // A rejected loader remains observable to callers without an unhandled-rejection console error.
+          void window.__officePoolRebornTurnstileReady.catch(() => undefined);
           script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
           script.async = true;
-          script.defer = true;
           document.head.append(script);
         }
       })();

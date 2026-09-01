@@ -1,4 +1,4 @@
-import { applyD1Migrations, env } from "cloudflare:test";
+import { applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import pollGenerationMigration from "../../src/db/migrations/0002_odds_poll_generation.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -7,13 +7,16 @@ import nflScoresFixture from "../fixtures/odds/nfl-final-scores.json";
 import ncaafFixture from "../fixtures/odds/ncaaf-scheduled.json";
 import ncaafScoresFixture from "../fixtures/odds/ncaaf-scheduled-scores.json";
 import { canonicalize, isSuperBowl } from "../../src/odds/canonicalize";
+import { providerEventSnapshot } from "../../src/contracts/provider";
 import { OddsIngestion, finalReconciliationDue, pollInterval, shouldPollEvent, type IngestionProvider } from "../../src/odds/ingestion";
 import { D1ResultSource } from "../../src/odds/result-source";
+import { settleWagers } from "../../src/durable/settlement";
 import { canonicalizeWagerQuote, OfferQuotes } from "../../src/worker/offer-quotes";
 import { TheOddsApiProvider } from "../../src/odds/the-odds-api-provider";
 import type { ProviderEvent, ProviderPoll, ProviderQuota } from "../../src/odds/types";
 
-const db = (env as unknown as { DB: D1Database }).DB;
+const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
+const db = bindings.DB;
 let migrated = false;
 const event = (overrides: Partial<ProviderEvent> = {}): ProviderEvent => ({
   id: "event-1", sport: "nfl", commenceTime: "2026-09-10T20:00:00.000Z", homeTeam: "Home", awayTeam: "Away", status: "scheduled", bookmakers: [
@@ -54,6 +57,36 @@ class ClaimBarrier {
     this.released = new Promise((resolve) => { this.release = resolve; });
   }
   wait = async (): Promise<void> => { this.markEntered(); await this.released; };
+}
+
+const lastGoodD1Snapshot = async () => ({
+  events: (await db.prepare("SELECT * FROM sports_event ORDER BY provider_event_id").all()).results,
+  offers: (await db.prepare("SELECT * FROM market_offer ORDER BY event_id,market").all()).results,
+  availability: await db.prepare("SELECT canonical_book_availability_json,last_success_at FROM odds_ingestion WHERE provider='odds'").first()
+});
+
+/** Builds and settles an authoritative wager so rejected provider input can prove it did not regrade state. */
+async function settledWagerPool(eventId: string) {
+  const poolId = `provider-rejection-${crypto.randomUUID()}`;
+  const stub = bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId));
+  const command = async (body: unknown) => (await stub.fetch("https://pool.test/command", { method: "POST", body: JSON.stringify(body) })).json() as Promise<any>;
+  await command({ type: "InitializePool", commandId: "init", poolId, slug: poolId, poolName: "Provider rejection", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
+  await command({ type: "JoinPool", commandId: "join", actorId: "member", displayName: "Member", password: "correct-password" });
+  await command({ type: "CreateSeason", commandId: "draft", actorId: "owner", seasonId: "s1", label: "2026" });
+  await command({ type: "OpenSeason", commandId: "open", actorId: "owner", seasonId: "s1" });
+  const orderQuote = await command({ type: "QuoteShareOrder", commandId: "fund-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" });
+  await command({ type: "ExecuteShareOrder", commandId: "fund", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote: { priceMicros: orderQuote.priceMicros, commandVersion: orderQuote.commandVersion }, reason: "virtual funding" });
+  const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const leg = { eventId, league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-09T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: `${eventId}:spread:v1`, canonicalOfferProof: { offerId: `${eventId}:spread:home`, eventId, offerVersion: `${eventId}:spread:v1`, canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3.5 }, market: "spread", selection: "home", originalLine: -3.5, adjustedLine: -3.5, originalOdds: -110, eventStartsAt: startsAt, homeTeam: "Home", awayTeam: "Away" };
+  const view = await command({ type: "ReadPoolView", commandId: "place-view", actorId: "member" });
+  const quoteKey = "wager-quote";
+  const projection = { quoteKey, ownerMemberId: "member", commandVersion: view.commandVersion, fingerprint: "provider-rejection-proof", wagerId: "wager", actorId: "member", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg };
+  const wagerQuote = await command({ type: "QuoteStraightWager", commandId: quoteKey, actorId: "member", identity: { actorId: "member", quoteKey, fingerprint: projection.fingerprint }, projection });
+  await command({ type: "PlaceStraightWager", commandId: "place", actorId: "member", wagerId: "wager", quoteKey, quotedCommandVersion: wagerQuote.commandVersion, seasonId: wagerQuote.seasonId, riskMicros: wagerQuote.riskMicros, acceptedOdds: wagerQuote.acceptedOdds, rulesetVersion: wagerQuote.rulesetVersion, leg: wagerQuote.leg });
+  await runInDurableObject(stub, (_instance, state) => state.storage.sql.exec("UPDATE event_reconciliation SET next_attempt_at = ? WHERE event_id = ?", new Date(Date.now() - 1_000).toISOString(), eventId));
+  await runDurableObjectAlarm(stub);
+  const snapshot = () => runInDurableObject(stub, (_instance, state) => Object.fromEntries(["pool", "processed_command", "wager", "wager_leg", "wager_leg_snapshot", "share_account", "ledger_entry", "settlement", "event_reconciliation", "outbox", "administration_audit"].map((table) => [table, JSON.stringify([...state.storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`)])] )));
+  return { snapshot, stub };
 }
 
 beforeEach(async () => {
@@ -116,6 +149,116 @@ describe("odds ingestion", () => {
     const normalized = (await new TheOddsApiProvider("key", async () => responses.shift()!).events("nfl")).events[0]!;
     expect(() => canonicalize(normalized, "2026-09-10T00:00:00.000Z")).toThrow("Duplicate market key");
   });
+
+  it("calls the injected provider fetcher without binding it to the adapter instance", async () => {
+    const responses = [new Response(JSON.stringify(nflFixture)), new Response(JSON.stringify(nflScoresFixture))];
+    let receiver: unknown = "not-called";
+    const fetcher = function(this: unknown) { receiver = this; return Promise.resolve(responses.shift()!); } as typeof fetch;
+
+    await expect(new TheOddsApiProvider("key", fetcher).events("nfl")).resolves.toMatchObject({ events: expect.any(Array) });
+    expect(receiver).toBeUndefined();
+  });
+
+  it.each(["forward", "reverse"] as const)("rejects %s same-ID odds and score responses with swapped ordered sides", async (direction) => {
+    const ordered = { home_team: "Home", away_team: "Away" };
+    const swapped = { home_team: "Away", away_team: "Home" };
+    const odds = { id: "swapped-sides", commence_time: "2026-09-10T20:00:00.000Z", ...(direction === "forward" ? ordered : swapped), bookmakers: [] };
+    const score = { id: "swapped-sides", commence_time: "2026-09-10T20:00:00.000Z", ...(direction === "forward" ? swapped : ordered), completed: true, scores: [] };
+    const responses = [new Response(JSON.stringify([odds])), new Response(JSON.stringify([score]))];
+    await expect(new TheOddsApiProvider("key", async () => responses.shift()!).events("nfl")).rejects.toThrow("Conflicting raw odds/score event sides: swapped-sides");
+  });
+
+  it.each(["forward", "reverse"] as const)("records provider-error health and preserves last-good D1 and PoolDO bytes for %s swapped odds and score sides", async (direction) => {
+    const eventId = "last-good";
+    await new OddsIngestion(db, new Provider([event({ id: eventId, status: "final", homeScore: 24, awayScore: 17 })]), { now: () => new Date("2026-09-09T00:00:00.000Z") }).poll();
+    await db.exec("UPDATE sports_event SET last_polled_at='2026-09-09T00:00:00.000Z' WHERE provider_event_id='last-good'; UPDATE odds_league_poll SET last_discovery_at='2026-09-09T06:01:00.000Z' WHERE league='ncaaf';");
+    const { snapshot, stub } = await settledWagerPool(eventId);
+    const beforeD1 = await lastGoodD1Snapshot();
+    const beforeDurable = await snapshot();
+    const ordered = { home_team: "Home", away_team: "Away" };
+    const swapped = { home_team: "Away", away_team: "Home" };
+    const odds = { id: "swapped-sides", commence_time: "2026-09-10T20:00:00.000Z", ...(direction === "forward" ? ordered : swapped), bookmakers: [] };
+    const score = { id: "swapped-sides", commence_time: "2026-09-10T20:00:00.000Z", ...(direction === "forward" ? swapped : ordered), completed: true, scores: [] };
+    const responses = [new Response(JSON.stringify([odds])), new Response(JSON.stringify([score]))];
+    await expect(new OddsIngestion(db, new TheOddsApiProvider("key", async () => responses.shift()!), { now: () => new Date("2026-09-09T06:01:00.000Z") }).poll()).rejects.toThrow("Conflicting raw odds/score event sides: swapped-sides");
+    expect(await lastGoodD1Snapshot()).toEqual(beforeD1);
+    expect(await db.prepare("SELECT last_error FROM odds_ingestion WHERE provider='odds'").first()).toEqual({ last_error: "Conflicting raw odds/score event sides: swapped-sides" });
+    const results = await new D1ResultSource(db).getFinalResults([eventId]);
+    await runInDurableObject(stub, (_instance, state) => settleWagers(state.storage.sql, results));
+    expect(await snapshot()).toEqual(beforeDurable);
+  }, 30_000);
+
+  it.each(["", " ", "+1", "-1", "1.0", "1e2", "01", "00", "9007199254740992"])("rejects noncanonical raw score string %j at the external adapter boundary", async (score) => {
+    const rawScore = { id: "malformed-score", commence_time: "2026-09-10T20:00:00.000Z", home_team: "Home", away_team: "Away", completed: true, scores: [{ name: "Home", score }, { name: "Away", score: "17" }] };
+    const responses = [new Response("[]"), new Response(JSON.stringify([rawScore]))];
+    await expect(new TheOddsApiProvider("key", async () => responses.shift()!).events("nfl")).rejects.toThrow();
+  });
+
+  it.each([0, Number.MAX_SAFE_INTEGER + 1])("rejects raw American price %d at the external adapter boundary", async (price) => {
+    const rawOdds = { id: "malformed-price", commence_time: "2026-09-10T20:00:00.000Z", home_team: "Home", away_team: "Away", bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spreads", outcomes: [{ name: "Home", price, point: -3 }, { name: "Away", price: -110, point: 3 }] }] }] };
+    const responses = [new Response(JSON.stringify([rawOdds])), new Response("[]")];
+    await expect(new TheOddsApiProvider("key", async () => responses.shift()!).events("nfl")).rejects.toThrow();
+  });
+
+  it.each([0, Number.MAX_SAFE_INTEGER + 1])("rejects normalized American price %d before canonicalization", (price) => {
+    const unsafe = event({ bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spread", outcomes: [{ name: "Home", price, point: -3 }, { name: "Away", price: -110, point: 3 }] }] }] });
+    expect(providerEventSnapshot.safeParse(unsafe).success).toBe(false);
+    expect(() => canonicalize(unsafe, "2026-09-10T00:00:00.000Z")).toThrow("Outcome price is invalid");
+  });
+
+  it("rejects malformed provider scores and prices through ingestion without mutating last-good D1 or settled PoolDO state", async () => {
+    const eventId = "malformed-number-state";
+    await new OddsIngestion(db, new Provider([event({ id: eventId, status: "final", homeScore: 24, awayScore: 17 })]), { now: () => new Date("2026-09-09T00:00:00.000Z") }).poll();
+    await db.exec(`UPDATE sports_event SET last_polled_at='2026-09-09T00:00:00.000Z' WHERE provider_event_id='${eventId}'; UPDATE odds_league_poll SET last_discovery_at='2026-09-09T06:01:00.000Z' WHERE league='ncaaf';`);
+    const { snapshot, stub } = await settledWagerPool(eventId);
+    const beforeD1 = await lastGoodD1Snapshot();
+    const beforeDurable = await snapshot();
+    const assertRetained = async () => {
+      expect(await lastGoodD1Snapshot()).toEqual(beforeD1);
+      const results = await new D1ResultSource(db).getFinalResults([eventId]);
+      await runInDurableObject(stub, (_instance, state) => settleWagers(state.storage.sql, results));
+      expect(await snapshot()).toEqual(beforeDurable);
+    };
+
+    for (const score of ["", " ", "+1", "-1", "1.0", "1e2", "01", "00", "9007199254740992"]) {
+      const scoreOnly = { id: eventId, commence_time: "2026-09-10T20:00:00.000Z", home_team: "Home", away_team: "Away", completed: true, scores: [{ name: "Home", score }, { name: "Away", score: "17" }] };
+      const responses = [new Response("[]"), new Response(JSON.stringify([scoreOnly]))];
+      await expect(new OddsIngestion(db, new TheOddsApiProvider("key", async () => responses.shift()!), { now: () => new Date("2026-09-09T06:01:00.000Z") }).poll()).rejects.toThrow();
+      await assertRetained();
+    }
+
+    for (const price of [0, Number.MAX_SAFE_INTEGER + 1]) {
+      const rawOdds = { id: eventId, commence_time: "2026-09-10T20:00:00.000Z", home_team: "Home", away_team: "Away", bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spreads", outcomes: [{ name: "Home", price, point: -3.5 }, { name: "Away", price: -110, point: 3.5 }] }] }] };
+      const goodScore = { id: eventId, commence_time: "2026-09-10T20:00:00.000Z", home_team: "Home", away_team: "Away", completed: true, scores: [{ name: "Home", score: "24" }, { name: "Away", score: "17" }] };
+      const responses = [new Response(JSON.stringify([rawOdds])), new Response(JSON.stringify([goodScore]))];
+      await expect(new OddsIngestion(db, new TheOddsApiProvider("key", async () => responses.shift()!), { now: () => new Date("2026-09-09T06:01:00.000Z") }).poll()).rejects.toThrow();
+      await assertRetained();
+    }
+
+    for (const price of [0, Number.MAX_SAFE_INTEGER + 1]) {
+      const malformed = event({ id: eventId, status: "final", homeScore: 24, awayScore: 17, bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spread", outcomes: [{ name: "Home", price, point: -3.5 }, { name: "Away", price: -110, point: 3.5 }] }] }] });
+      await expect(new OddsIngestion(db, new Provider([malformed]), { now: () => new Date("2026-09-09T06:01:00.000Z") }).poll()).rejects.toThrow();
+      await assertRetained();
+    }
+    expect(await db.prepare("SELECT last_error FROM odds_ingestion WHERE provider='odds'").first<{ last_error: string }>()).toMatchObject({ last_error: expect.stringMatching(/^Malformed provider response:/) });
+  }, 30_000);
+
+  it("rejects a later score-only event whose ordered sides differ from the persisted event without mutating last-good D1 or PoolDO settlement state", async () => {
+    const eventId = "persisted-sides";
+    await new OddsIngestion(db, new Provider([event({ id: eventId, status: "final", homeScore: 24, awayScore: 17 })]), { now: () => new Date("2026-09-09T00:00:00.000Z") }).poll();
+    await db.exec(`UPDATE sports_event SET last_polled_at='2026-09-09T00:00:00.000Z' WHERE provider_event_id='${eventId}'; UPDATE odds_league_poll SET last_discovery_at='2026-09-09T06:01:00.000Z' WHERE league='ncaaf';`);
+    const { snapshot } = await settledWagerPool(eventId);
+    const beforeDurable = await snapshot();
+    expect(JSON.parse(String(beforeDurable.wager))).toEqual([expect.objectContaining({ id: "wager", status: "won" })]);
+    const beforeD1 = await lastGoodD1Snapshot();
+
+    const scoreOnly = { id: eventId, commence_time: "2026-09-10T20:00:00.000Z", home_team: "Away", away_team: "Home", completed: true, scores: [{ name: "Away", score: "17" }, { name: "Home", score: "24" }] };
+    const responses = [new Response("[]"), new Response(JSON.stringify([scoreOnly]))];
+    await expect(new OddsIngestion(db, new TheOddsApiProvider("key", async () => responses.shift()!), { now: () => new Date("2026-09-09T06:01:00.000Z") }).poll()).rejects.toThrow(`Immutable provider event sides changed: ${eventId}`);
+    expect((await lastGoodD1Snapshot())).toEqual(beforeD1);
+    expect(await db.prepare("SELECT last_error FROM odds_ingestion WHERE provider='odds'").first()).toEqual({ last_error: `Immutable provider event sides changed: ${eventId}` });
+    expect(await snapshot()).toEqual(beforeDurable);
+  }, 30_000);
 
   it.each(["forward", "reverse"])("rejects duplicate raw odds IDs before %s-order collapse and retains last-good D1 bytes", async (order) => {
     await new OddsIngestion(db, new Provider([event({ id: "last-good" })]), { now: () => new Date("2026-09-09T00:00:00.000Z") }).poll();
@@ -214,6 +357,17 @@ describe("odds ingestion", () => {
     expect(shouldPollEvent(event({ commenceTime: "2026-09-12T00:00:00.000Z" }), new Date("2026-09-09T23:00:00.000Z"), now)).toBe(false);
   });
 
+  it("preserves the provider failure when recording failure health also fails", async () => {
+    await new OddsIngestion(db, new Provider([event()]), { now: () => new Date("2026-09-09T00:00:00.000Z") }).poll();
+    await db.exec("CREATE TRIGGER ingestion_fail_health_write BEFORE UPDATE ON odds_ingestion WHEN NEW.last_error IS NOT NULL BEGIN SELECT RAISE(ABORT, 'induced health write failure'); END;");
+    try {
+      const unavailable: IngestionProvider = { events: async () => { throw new Error("original provider failure"); } };
+      await expect(new OddsIngestion(db, unavailable, { now: () => new Date("2026-09-10T00:00:00.000Z") }).poll()).rejects.toThrow("original provider failure");
+    } finally {
+      await db.exec("DROP TRIGGER ingestion_fail_health_write;");
+    }
+  });
+
   it("preserves feed state on no-op and merges availability from undued leagues", async () => {
     const nfl = event({ id: "nfl-event" }); const ncaaf = event({ id: "ncaaf-event", sport: "ncaaf", commenceTime: "2026-09-12T20:00:00.000Z" });
     const provider = new Provider([nfl, ncaaf]);
@@ -253,7 +407,7 @@ describe("odds ingestion", () => {
     const beforeEvents = (await db.prepare("SELECT * FROM sports_event ORDER BY provider_event_id").all()).results;
     const beforeOffers = (await db.prepare("SELECT * FROM market_offer ORDER BY event_id, market").all()).results;
     const beforeFeed = await db.prepare("SELECT canonical_book_availability_json, last_success_at FROM odds_ingestion WHERE provider='odds'").first();
-    const changedNfl = event({ id: "nfl-good", homeTeam: "Changed Home" });
+    const changedNfl = event({ id: "nfl-good", status: "in_progress" });
     const invalidNcaaf = event({ id: "ncaaf-good", sport: "ncaaf", bookmakers: [
       { key: "draftkings", title: "DraftKings", markets: [{ key: "spread", outcomes: [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }] }] },
       { key: "other", title: "DraftKings", markets: [{ key: "spread", outcomes: [{ name: "Home", price: -120, point: -4 }, { name: "Away", price: 100, point: 4 }] }] }
@@ -277,8 +431,8 @@ describe("odds ingestion", () => {
     const beforeLeagues = (await db.prepare("SELECT * FROM odds_league_poll ORDER BY league").all()).results;
     const beforeFeed = await db.prepare("SELECT quota_json, last_success_at, canonical_book_availability_json FROM odds_ingestion WHERE provider='odds'").first();
 
-    const changedNfl = event({ id: "atomic-nfl", status: "final", homeScore: 24, awayScore: 17, homeTeam: "Changed NFL Home", bookmakers: [] });
-    const changedNcaaf = event({ id: "atomic-ncaaf", sport: "ncaaf", homeTeam: "Changed College Home", awayTeam: "College Away" });
+    const changedNfl = event({ id: "atomic-nfl", status: "final", homeScore: 24, awayScore: 17, bookmakers: [] });
+    const changedNcaaf = event({ id: "atomic-ncaaf", sport: "ncaaf", homeTeam: "College Home", awayTeam: "College Away" });
     await expect(new OddsIngestion(db, new Provider([changedNfl, changedNcaaf], { remaining: 3, used: 97 }), { now: () => new Date("2026-09-09T06:01:00.000Z") }).poll()).rejects.toThrow("induced offer insert failure");
 
     expect((await db.prepare("SELECT * FROM sports_event ORDER BY provider_event_id").all()).results).toEqual(beforeEvents);
@@ -290,7 +444,7 @@ describe("odds ingestion", () => {
     await db.exec("DROP TRIGGER ingestion_fail_offer_insert;");
     const recovered = await new OddsIngestion(db, new Provider([changedNfl, changedNcaaf], { remaining: 3, used: 97 }), { now: () => new Date("2026-09-09T06:02:00.000Z") }).poll();
     expect(recovered).toEqual({ events: 2, offers: 3 });
-    expect(await db.prepare("SELECT home_team, home_score, correction_version FROM sports_event WHERE provider_event_id='atomic-nfl'").first()).toMatchObject({ home_team: "Changed NFL Home", home_score: "24", correction_version: "2" });
+    expect(await db.prepare("SELECT home_team, home_score, correction_version FROM sports_event WHERE provider_event_id='atomic-nfl'").first()).toMatchObject({ home_team: "Home", home_score: "24", correction_version: "2" });
     expect(await db.prepare("SELECT COUNT(*) AS count FROM market_offer").first()).toEqual({ count: 3 });
     expect(await db.prepare("SELECT last_success_at, last_error FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_success_at: "2026-09-09T06:02:00.000Z", last_error: null });
   });
@@ -316,7 +470,7 @@ describe("odds ingestion", () => {
     await db.exec("UPDATE sports_event SET last_polled_at=CASE WHEN league='nfl' THEN '2026-09-09T00:00:00.000Z' ELSE '2026-09-10T06:00:00.000Z' END; UPDATE odds_league_poll SET last_discovery_at=CASE WHEN league='nfl' THEN '2026-09-09T00:00:00.000Z' ELSE '2026-09-10T06:00:00.000Z' END;");
 
     const barrier = new ClaimBarrier();
-    const staleProvider = new Provider([event({ id: "nfl-current", homeTeam: "Stale" }), ncaaf]);
+    const staleProvider = new Provider([event({ id: "nfl-current" }), ncaaf]);
     const stalePoll = new OddsIngestion(db, staleProvider, { now: () => new Date("2026-09-10T06:01:00.000Z") }, barrier.wait).poll();
     await barrier.entered;
 
@@ -345,6 +499,34 @@ describe("odds ingestion", () => {
     expect(availability).toMatchObject({ "nfl-due": [], "ncaaf-due": ["spread", "total", "moneyline"] });
   });
 
+  it("recovers from an intervening pre-claim failure with a claimed timestamp floor and generation-fenced health", async () => {
+    const nfl = event({ id: "nfl-preclaim-failure" });
+    const ncaaf = event({ id: "ncaaf-preclaim-failure", sport: "ncaaf" });
+    await new OddsIngestion(db, new Provider([nfl, ncaaf]), { now: () => new Date("2026-09-10T00:00:00.000Z") }).poll();
+    await db.exec("UPDATE sports_event SET last_polled_at=CASE WHEN league='nfl' THEN '2026-09-09T00:00:00.000Z' ELSE '2026-09-10T06:00:00.000Z' END; UPDATE odds_league_poll SET last_discovery_at=CASE WHEN league='nfl' THEN '2026-09-09T00:00:00.000Z' ELSE '2026-09-10T06:00:00.000Z' END;");
+    const beforeAvailability = await db.prepare("SELECT canonical_book_availability_json,last_success_at FROM odds_ingestion WHERE provider='odds'").first();
+
+    const barrier = new ClaimBarrier();
+    const recovering = new Provider([event({ id: "nfl-preclaim-failure", bookmakers: [] }), ncaaf]);
+    const recoveryPoll = new OddsIngestion(db, recovering, { now: () => new Date("2026-09-10T06:00:00.000Z") }, barrier.wait).poll();
+    await barrier.entered;
+
+    const failed = new OddsIngestion(db, { events: async () => { throw new Error("intervening pre-claim failure"); } }, { now: () => new Date("2026-09-10T06:01:00.000Z") });
+    await expect(failed.poll()).rejects.toThrow("intervening pre-claim failure");
+    expect(await db.prepare("SELECT poll_generation,last_polled_at,last_success_at,last_error,canonical_book_availability_json FROM odds_ingestion WHERE provider='odds'").first()).toEqual({ poll_generation: 2, last_polled_at: "2026-09-10T06:01:00.000Z", last_success_at: "2026-09-10T00:00:00.000Z", last_error: "intervening pre-claim failure", canonical_book_availability_json: (beforeAvailability as { canonical_book_availability_json: string }).canonical_book_availability_json });
+
+    barrier.release();
+    expect(await recoveryPoll).toEqual({ events: 1, offers: 0 });
+    expect(recovering.calls).toEqual(["nfl"]);
+    expect(await db.prepare("SELECT poll_generation,last_polled_at,last_success_at,last_error FROM odds_ingestion WHERE provider='odds'").first()).toEqual({ poll_generation: 3, last_polled_at: "2026-09-10T06:01:00.000Z", last_success_at: "2026-09-10T06:01:00.000Z", last_error: null });
+    const availability = JSON.parse(String((await db.prepare("SELECT canonical_book_availability_json FROM odds_ingestion WHERE provider='odds'").first<{ canonical_book_availability_json: string }>())!.canonical_book_availability_json));
+    expect(availability).toMatchObject({ "nfl-preclaim-failure": [], "ncaaf-preclaim-failure": ["spread", "total", "moneyline"] });
+    expect(await db.prepare("SELECT last_polled_at FROM sports_event WHERE provider_event_id='nfl-preclaim-failure'").first()).toEqual({ last_polled_at: "2026-09-10T06:01:00.000Z" });
+    const staleFailure = await db.prepare("UPDATE odds_ingestion SET last_error='stale failure' WHERE provider='odds' AND poll_generation=?").bind(2).run();
+    expect(staleFailure.meta.changes).toBe(0);
+    expect(await db.prepare("SELECT last_error FROM odds_ingestion WHERE provider='odds'").first()).toEqual({ last_error: null });
+  });
+
   it.each(["newer-first", "older-first"])("makes the newer generation win overlapping successes (%s), including equal timestamps", async (order) => {
     await db.prepare("INSERT INTO odds_league_poll (league,last_discovery_at) VALUES ('ncaaf','2026-09-10T00:00:00.000Z')").run();
     const older = new DeferredProvider(); const newer = new DeferredProvider();
@@ -367,7 +549,7 @@ describe("odds ingestion", () => {
   it("does not regress persisted times when a later generation uses a backward custom clock", async () => {
     await new OddsIngestion(db, new Provider([event()]), { now: () => new Date("2026-09-10T00:05:00.000Z") }).poll();
     await db.exec("UPDATE sports_event SET last_polled_at='2026-09-09T00:00:00.000Z'; UPDATE odds_league_poll SET last_discovery_at='2026-09-09T00:00:00.000Z' WHERE league='nfl';");
-    await new OddsIngestion(db, new Provider([event({ homeTeam: "Backward clock winner" })]), { now: () => new Date("2026-09-10T00:04:00.000Z") }).poll();
+    await new OddsIngestion(db, new Provider([event({ status: "in_progress" })]), { now: () => new Date("2026-09-10T00:04:00.000Z") }).poll();
     expect(await db.prepare("SELECT last_polled_at,last_success_at FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_polled_at: "2026-09-10T00:05:00.000Z", last_success_at: "2026-09-10T00:05:00.000Z" });
     expect(await db.prepare("SELECT last_polled_at FROM sports_event WHERE provider_event_id='event-1'").first()).toEqual({ last_polled_at: "2026-09-10T00:05:00.000Z" });
     expect(await db.prepare("SELECT retrieved_at FROM market_offer WHERE event_id='event-1' LIMIT 1").first()).toEqual({ retrieved_at: "2026-09-10T00:05:00.000Z" });
@@ -378,7 +560,7 @@ describe("odds ingestion", () => {
     const older = new DeferredProvider(); const newer = new DeferredProvider();
     const olderPoll = new OddsIngestion(db, older, { now: () => new Date("2026-09-10T00:00:00.000Z") }).poll(); await older.called;
     const newerPoll = new OddsIngestion(db, newer, { now: () => new Date("2026-09-10T00:01:00.000Z") }).poll(); await newer.called;
-    newer.resolve({ events: [event({ homeTeam: "Newest" })] }); await newerPoll;
+    newer.resolve({ events: [event({ status: "in_progress" })] }); await newerPoll;
     older.resolve({ events: [event(), event({ homeTeam: "Stale contradictory duplicate" })] });
     await expect(olderPoll).rejects.toThrow("Duplicate normalized event ID: event-1");
     expect(await db.prepare("SELECT last_error, last_success_at FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_error: null, last_success_at: "2026-09-10T00:01:00.000Z" });
@@ -388,8 +570,8 @@ describe("odds ingestion", () => {
     const stalePoll = new OddsIngestion(db, staleSuccess, { now: () => new Date("2026-09-10T00:02:00.000Z") }).poll(); await staleSuccess.called;
     const failurePoll = new OddsIngestion(db, latestFailure, { now: () => new Date("2026-09-10T00:03:00.000Z") }).poll(); await latestFailure.called;
     latestFailure.reject(new Error("latest failure")); await expect(failurePoll).rejects.toThrow("latest failure");
-    staleSuccess.resolve({ events: [event({ homeTeam: "Stale" })] }); expect(await stalePoll).toEqual({ events: 0, offers: 0 });
-    expect(await db.prepare("SELECT home_team FROM sports_event WHERE provider_event_id='event-1'").first()).toEqual({ home_team: "Newest" });
+    staleSuccess.resolve({ events: [event()] }); expect(await stalePoll).toEqual({ events: 0, offers: 0 });
+    expect(await db.prepare("SELECT status FROM sports_event WHERE provider_event_id='event-1'").first()).toEqual({ status: "in_progress" });
     expect(await db.prepare("SELECT last_error, last_polled_at FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_error: "latest failure", last_polled_at: "2026-09-10T00:03:00.000Z" });
   });
 

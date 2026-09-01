@@ -1,11 +1,13 @@
 {
-  "name": "share-value-football-pool",
+  "name": "office-pool-reborn",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc",
     "dev": "vite",
     "build": "vite build",
+    "build:production": "node scripts/build-production.mjs",
     "build:local": "wrangler deploy --dry-run --outdir dist-local --config wrangler.local.jsonc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -15,7 +17,7 @@
     "verify:direction-contract": "node scripts/verify-direction-contract.mjs",
     "verify:wrangler-parity": "node scripts/verify-wrangler-parity.mjs",
     "verify:production-artifact": "node scripts/verify-production-artifact.mjs",
-    "start:production-probe": "npm run build && PRODUCTION_PROBE_BUILD=dist/share_value_football_pool PRODUCTION_PROBE_CONFIG=dist/share_value_football_pool/wrangler.json tsx scripts/production-route-probe.ts",
+    "start:production-probe": "VITE_TURNSTILE_SITE_KEY=production-probe-turnstile-site-key npm run build:production && PRODUCTION_PROBE_BUILD=dist/office_pool_reborn PRODUCTION_PROBE_CONFIG=dist/office_pool_reborn/wrangler.json tsx scripts/production-route-probe.ts",
     "verify:production-route-probe": "npm run start:production-probe",
     "verify:owned-resource-cleanup": "node scripts/verify-owned-resource-cleanup.mjs",
     "test:local-smoke": "tsx scripts/local-smoke.ts",

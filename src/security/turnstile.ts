@@ -1,8 +1,10 @@
 import { RateLimiter } from "./rate-limit";
 
-export type TurnstileResult = { success: boolean; "error-codes"?: string[] };
+export type TurnstileResult = { success: boolean; action?: string; hostname?: string; "error-codes"?: string[] };
 export type AuthAbuseGuardOptions = {
   secret?: string;
+  /** Canonical production hostname; local callers derive the request hostname. */
+  expectedHostname?: string;
   /** Deliberate local-development opt-in. Never set this in a production Worker. */
   allowInsecureLocalAuth?: boolean;
   limiter: RateLimiter;
@@ -15,15 +17,20 @@ export type AuthAbuseGuardOptions = {
  */
 const isLoopbackHostname = (hostname: string | undefined) => hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
 
-export async function verifyTurnstile(input: { secret?: string; token?: string; remoteIp?: string; hostname?: string; fetcher?: typeof fetch; allowInsecureLocalAuth?: boolean }): Promise<boolean> {
+export async function verifyTurnstile(input: { secret?: string; token?: string; action?: string; remoteIp?: string; hostname?: string; fetcher?: typeof fetch; allowInsecureLocalAuth?: boolean }): Promise<boolean> {
   // The missing-token bypass exists solely for the explicitly loopback-bound local harness.
   if (input.allowInsecureLocalAuth === true && isLoopbackHostname(input.hostname)) return true;
-  if (!input.secret || !input.token) return false;
+  if (!input.secret || !input.token || !input.action || !input.hostname) return false;
   const body = new URLSearchParams({ secret: input.secret, response: input.token });
   if (input.remoteIp) body.set("remoteip", input.remoteIp);
-  const response = await (input.fetcher ?? fetch)("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body });
-  if (!response.ok) return false;
-  return (await response.json() as TurnstileResult).success === true;
+  try {
+    const response = await (input.fetcher ?? fetch)("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body });
+    if (!response.ok) return false;
+    const result = await response.json() as TurnstileResult;
+    return result.success === true && result.action === input.action && result.hostname === input.hostname;
+  } catch {
+    return false;
+  }
 }
 
 /** The shared signup/signin abuse boundary used by the Worker auth route. */
@@ -35,7 +42,7 @@ export function createAuthAbuseGuard(options: AuthAbuseGuardOptions): (request: 
     const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
     if (!options.limiter.allow(`auth:${ip}`)) return Response.json({ code: "RATE_LIMITED" }, { status: 429 });
     const body = await request.clone().json().catch(() => ({})) as { turnstileToken?: string };
-    if (!(await verifyTurnstile({ secret: options.secret, token: body.turnstileToken, remoteIp: ip, hostname: new URL(request.url).hostname, fetcher: options.fetcher, allowInsecureLocalAuth: options.allowInsecureLocalAuth }))) return Response.json({ code: "TURNSTILE_REJECTED" }, { status: 403 });
+    if (!(await verifyTurnstile({ secret: options.secret, token: body.turnstileToken, action: "submit", remoteIp: ip, hostname: options.expectedHostname ?? new URL(request.url).hostname, fetcher: options.fetcher, allowInsecureLocalAuth: options.allowInsecureLocalAuth }))) return Response.json({ code: "TURNSTILE_REJECTED" }, { status: 403 });
     return null;
   };
 }

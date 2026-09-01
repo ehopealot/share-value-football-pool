@@ -1,15 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "share-value-football-pool",
+  "name": "office-pool-reborn",
   "main": "src/index.ts",
-  "compatibility_date": "2025-07-12",
+  "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [{ "pattern": "officepool.football", "custom_domain": true }],
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
   "assets": { "directory": "dist/client", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "share-value-football-pool",
-      "database_id": "local-development-database",
+      "database_name": "office-pool-reborn",
+      "database_id": "d2708141-31c5-4bc7-bffa-0ce647db85ed",
       "migrations_dir": "src/db/migrations"
     }
   ],
@@ -22,14 +25,14 @@
     { "tag": "v1", "new_sqlite_classes": ["PoolDO"] }
   ],
   "r2_buckets": [
-    { "binding": "BACKUPS", "bucket_name": "share-value-football-pool-backups" }
+    { "binding": "BACKUPS", "bucket_name": "office-pool-reborn-backups" }
   ],
   "queues": {
     "producers": [
-      { "binding": "POOL_EVENTS", "queue": "share-value-football-pool-events" }
+      { "binding": "POOL_EVENTS", "queue": "office-pool-reborn-events" }
     ],
     "consumers": [
-      { "queue": "share-value-football-pool-events", "max_batch_size": 10, "max_batch_timeout": 5 }
+      { "queue": "office-pool-reborn-events", "max_batch_size": 10, "max_batch_timeout": 5 }
     ]
   },
   "triggers": {

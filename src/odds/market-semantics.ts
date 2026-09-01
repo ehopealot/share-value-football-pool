@@ -20,15 +20,17 @@ export class MarketSemanticError extends Error {
 export type CanonicalOutcomeSide = "home" | "away" | "over" | "under";
 export type OutcomeSideContext = Pick<CanonicalMarketContext, "market" | "homeTeam" | "awayTeam">;
 
+/** Locale-fixed and punctuation-preserving team identity used for provider and market-side comparisons. */
+export const canonicalTeamIdentity = (value: string): string => value.trim().toLocaleLowerCase("en-US");
+
 /** Locale-fixed and punctuation-preserving identity resolver used at every server/browser outcome boundary. */
 export function resolveCanonicalOutcomeSide(context: OutcomeSideContext, outcomeName: unknown): CanonicalOutcomeSide | undefined {
   if (typeof outcomeName !== "string") return undefined;
-  const normalized = (value: string) => value.trim().toLocaleLowerCase("en-US");
-  const name = normalized(outcomeName);
+  const name = canonicalTeamIdentity(outcomeName);
   const candidates: Array<{ side: CanonicalOutcomeSide; aliases: string[] }> = context.market === "total"
     ? [{ side: "over", aliases: ["over"] }, { side: "under", aliases: ["under"] }]
-    : [{ side: "home", aliases: [normalized(context.homeTeam), "home"] }, { side: "away", aliases: [normalized(context.awayTeam), "away"] }];
-  if (context.market !== "total" && normalized(context.homeTeam) === normalized(context.awayTeam)) return undefined;
+    : [{ side: "home", aliases: [canonicalTeamIdentity(context.homeTeam), "home"] }, { side: "away", aliases: [canonicalTeamIdentity(context.awayTeam), "away"] }];
+  if (context.market !== "total" && canonicalTeamIdentity(context.homeTeam) === canonicalTeamIdentity(context.awayTeam)) return undefined;
   const matches = candidates.filter((candidate) => candidate.aliases.includes(name));
   return matches.length === 1 ? matches[0]!.side : undefined;
 }
@@ -53,7 +55,7 @@ export function validateCanonicalMarket(context: CanonicalMarketContext): { outc
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || !exactKeys(candidate, expectedKeys)) fail("invalid", "Outcome fields are not canonical");
     const item = candidate as Record<string, unknown>;
     if (typeof item.name !== "string" || item.name.trim().length === 0) fail("invalid", "Outcome name is invalid");
-    if (typeof item.price !== "number" || !Number.isFinite(item.price) || !Number.isInteger(item.price) || item.price === 0) fail("invalid", "Outcome price is invalid");
+    if (typeof item.price !== "number" || !Number.isSafeInteger(item.price) || item.price === 0) fail("invalid", "Outcome price is invalid");
     if (context.market !== "moneyline" && (typeof item.point !== "number" || !Number.isFinite(item.point))) fail("invalid", "Outcome point is invalid");
     return {
       name: item.name as string,

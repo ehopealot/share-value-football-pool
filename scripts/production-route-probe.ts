@@ -8,8 +8,8 @@ import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, s
 
 const require = createRequire(import.meta.url);
 const timeoutMs = 30_000;
-const productionConfig = process.env.PRODUCTION_PROBE_CONFIG ?? "dist/share_value_football_pool/wrangler.json";
-const productionBuild = process.env.PRODUCTION_PROBE_BUILD ?? "dist/share_value_football_pool";
+const productionConfig = process.env.PRODUCTION_PROBE_CONFIG ?? "dist/office_pool_reborn/wrangler.json";
+const productionBuild = process.env.PRODUCTION_PROBE_BUILD ?? "dist/office_pool_reborn";
 const port = Number(process.env.PRODUCTION_PROBE_PORT ?? 25173);
 type Fetch = typeof fetch;
 
@@ -39,7 +39,7 @@ export async function probeProductionRoutes(options: ProductionProbeOptions = {}
   })();
   const signalCleanup = installOwnedSignalCleanup({ cleanup });
   try {
-    child = (options.spawn ?? spawn)(process.execPath, [require.resolve("wrangler"), "dev", "--local", "--env-file", "/dev/null", `--port=${options.port ?? port}`, "--persist-to", persistence, "--config", config, "--var", "BETTER_AUTH_SECRET:production-probe-auth-secret-with-32-characters"], { detached: true, stdio: "ignore", env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
+    child = (options.spawn ?? spawn)(process.execPath, [require.resolve("wrangler"), "dev", "--local", "--env-file", "/dev/null", `--port=${options.port ?? port}`, "--persist-to", persistence, "--config", config, "--var", "BETTER_AUTH_SECRET:production-probe-auth-secret-with-32-characters", "--var", "RESEND_API_KEY:production-probe-resend-key"], { detached: true, stdio: "ignore", env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
     await control.resourceCreated({ pid: process.pid, pgid: child.pid!, persistence });
     control.throwIfFailBeforeReady();
     await (options.ready ?? waitForProductionReadiness)(baseURL, options.fetch ?? fetch);

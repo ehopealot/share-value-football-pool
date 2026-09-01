@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import { providerEventSnapshot } from "../contracts/provider";
 import { canonicalize } from "./canonicalize";
+import { canonicalTeamIdentity } from "./market-semantics";
 import type { Clock } from "../platform/clock";
 import { systemClock } from "../platform/clock";
 import type { EventStatus, League, ProviderEvent, ProviderPoll } from "./types";
@@ -34,7 +35,7 @@ export function offerIsStale(retrievedAt: string, event: Pick<ProviderEvent, "co
 
 type EventScheduleRow = { provider_event_id: string; league: League; starts_at: string; status: EventStatus; last_polled_at: string | null; finalized_at: string | null };
 type LeaguePollRow = { last_discovery_at: string | null };
-type ExistingEventRow = { provider_event_id: string; status: EventStatus; home_score: string | null; away_score: string | null; correction_version: string; finalized_at: string | null };
+type ExistingEventRow = { provider_event_id: string; league: League; home_team: string; away_team: string; status: EventStatus; home_score: string | null; away_score: string | null; correction_version: string; finalized_at: string | null };
 type ClaimedIngestion = { poll_generation: number; last_polled_at: string | null; last_success_at: string | null; canonical_book_availability_json: string; quota_json: string | null };
 const score = (value: number | undefined): string | null => value === undefined ? null : String(value);
 const quotaBackoff = (poll: ProviderPoll) => poll.quota?.remaining !== undefined && poll.quota.remaining <= 1 ? DISCOVERY_INTERVAL : 0;
@@ -71,21 +72,22 @@ export class OddsIngestion {
       // Validate every completed provider response, including container identity, before canonicalization or D1 mutation.
       const parsed = fetched.map(({ league, poll }) => ({ league, poll, events: poll.events.map((event) => providerEventSnapshot.parse(event)) }));
       assertUniqueNormalizedIds(parsed);
+      // Provider event IDs identify immutable ordered sides. Check every prior
+      // event before canonicalization or construction of any D1 mutation.
+      const existingRows = (await this.db.prepare("SELECT provider_event_id, league, home_team, away_team, status, home_score, away_score, correction_version, finalized_at FROM sports_event").all<ExistingEventRow>()).results;
+      const existingById = new Map(existingRows.map((row) => [row.provider_event_id, row]));
+      for (const { events } of parsed) for (const event of events) assertPersistedOrderedSides(existingById.get(event.id), event);
       const normalized = parsed.map(({ league, poll, events }) => ({
         league, poll, events: events.map((event) => ({ event, canonical: canonicalize(event, at) }))
       }));
       // Read all prior state and derive the complete replacement before constructing any mutation.
-      const existingByLeague = new Map(await Promise.all(normalized.map(async ({ league }) => {
-        const existing = await this.db.prepare("SELECT provider_event_id, status, home_score, away_score, correction_version, finalized_at FROM sports_event WHERE league = ?").bind(league).all<ExistingEventRow>();
-        return [league, existing.results] as const;
-      })));
+      const existingByLeague = new Map(normalized.map(({ league }) => [league, existingRows.filter((row) => row.league === league)] as const));
       const availability = Object.fromEntries(Object.entries(parseJson<Record<string, string[]>>(claimed.canonical_book_availability_json, {})).map(([id, markets]) => [id, [...markets]]));
       const statements: D1PreparedStatement[] = [];
       let events = 0; let offers = 0;
       for (const { league, events: validated } of normalized) {
         events += validated.length;
         const existing = existingByLeague.get(league) ?? [];
-        const oldById = new Map(existing.map((row) => [row.provider_event_id, row]));
         const ids = new Set(validated.map(({ event }) => event.id));
         for (const missing of existing.filter((row) => !ids.has(row.provider_event_id))) {
           // Keep result history, but remove absent events from active scheduling in the same commit as feed success.
@@ -95,7 +97,7 @@ export class OddsIngestion {
         }
         for (const { event, canonical } of validated) {
           const status = event.status ?? "scheduled";
-          const old = oldById.get(event.id);
+          const old = existingById.get(event.id);
           const changed = old?.status !== status || old?.home_score !== score(event.homeScore) || old?.away_score !== score(event.awayScore);
           const correctionVersion = terminal(status) ? (old ? (changed ? (BigInt(old.correction_version) + 1n).toString() : old.correction_version) : "1") : (old?.correction_version ?? "0");
           const finalizedAt = terminal(status) ? old?.finalized_at ?? at : null;
@@ -119,7 +121,9 @@ export class OddsIngestion {
       return { events, offers };
     } catch (error) {
       // Only the latest attempted failed response advances health; last-good event/offer bytes are retained.
-      await this.recordFailure(generation, at, providerFailureMessage(error));
+      // If D1 cannot record that health transition, preserve the provider error
+      // that triggered it rather than obscuring the actionable root cause.
+      try { await this.recordFailure(generation, at, providerFailureMessage(error)); } catch { /* health remains unavailable */ }
       throw error;
     }
   }
@@ -150,6 +154,11 @@ const assertUniqueNormalizedIds = (responses: Array<{ league: League; events: Ar
       if (ids.has(event.id)) throw new Error(`Duplicate normalized event ID: ${event.id}`);
       ids.add(event.id);
     }
+  }
+};
+const assertPersistedOrderedSides = (existing: ExistingEventRow | undefined, event: ProviderEvent): void => {
+  if (existing && (canonicalTeamIdentity(existing.home_team) !== canonicalTeamIdentity(event.homeTeam) || canonicalTeamIdentity(existing.away_team) !== canonicalTeamIdentity(event.awayTeam))) {
+    throw new Error(`Immutable provider event sides changed: ${event.id}`);
   }
 };
 const providerFailureMessage = (error: unknown): string => {

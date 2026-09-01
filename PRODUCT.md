@@ -18,7 +18,7 @@ A pool has exactly one commissioner. The commissioner remains a normal betting m
 
 ## Product Purpose
 
-Share Pool is a private football competition in which members wager virtual shares on real NFL and college-football lines. It recreates the appeal of OfficeFootballPool's former True Share format while adding straight moneylines and fixed-rule teasers.
+Office Pool Reborn is a private football competition in which members wager virtual shares on real NFL and college-football lines. It recreates the appeal of OfficeFootballPool's former True Share format while adding straight moneylines and fixed-rule teasers.
 
 The product succeeds when a private group can create and join a reusable pool, run a complete season without spreadsheet bookkeeping, understand the changing value of its shares, place and settle wagers fairly, and review an auditable history afterward.
 

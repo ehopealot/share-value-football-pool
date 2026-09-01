@@ -60,14 +60,27 @@ export class TurnstileClientError extends Error {
 }
 
 type TurnstileClient = {
-  ready: (callback: () => void) => void;
   render: (container: HTMLElement, options: { sitekey: string; action: string; execution: "execute"; callback: (token: string) => void; "error-callback": () => void; "expired-callback": () => void }) => string;
   execute: (widgetId: string) => void;
   remove?: (widgetId: string) => void;
 };
+type TurnstileWindow = Window & { __officePoolRebornTurnstileReady?: Promise<TurnstileClient> };
 const configuredSiteKey = () => {
   const siteKey = document.querySelector<HTMLMetaElement>('meta[name="turnstile-site-key"]')?.content;
   return siteKey && !siteKey.startsWith("%") ? siteKey : undefined;
+};
+
+/** Resolves only after the explicit Turnstile API script has fired its load event. */
+const loadedTurnstileClient = async (): Promise<TurnstileClient> => {
+  const loaded = (window as TurnstileWindow).__officePoolRebornTurnstileReady;
+  if (!loaded) throw new TurnstileClientError();
+  try {
+    const client = await loaded;
+    if (typeof client?.render !== "function" || typeof client.execute !== "function") throw new Error("TURNSTILE_CLIENT_INVALID");
+    return client;
+  } catch {
+    throw new TurnstileClientError();
+  }
 };
 
 /**
@@ -77,13 +90,11 @@ const configuredSiteKey = () => {
 export async function acquireTurnstileToken(target?: HTMLElement | null): Promise<string | undefined> {
   const siteKey = configuredSiteKey();
   if (!siteKey) return undefined;
-  const turnstile = (window as Window & { turnstile?: TurnstileClient }).turnstile;
-  if (!turnstile) throw new TurnstileClientError();
+  const turnstile = await loadedTurnstileClient();
   const container = target ?? document.createElement("div");
   const transientTarget = !target;
   if (!container.id) container.id = `turnstile-${crypto.randomUUID()}`;
   if (transientTarget) { container.setAttribute("aria-label", "Anti-abuse verification"); document.body.appendChild(container); }
-  await new Promise<void>((resolve) => turnstile.ready(resolve));
   return new Promise<string>((resolve, reject) => {
     let widgetId = ""; let settled = false;
     const cleanup = () => {

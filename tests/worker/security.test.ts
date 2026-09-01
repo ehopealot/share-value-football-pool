@@ -5,7 +5,7 @@ import { createWorkerApp } from "../../src/worker/app";
 import { RateLimiter } from "../../src/security/rate-limit";
 import { createAuthAbuseGuard, verifyTurnstile } from "../../src/security/turnstile";
 import { createPoolRequest, joinPoolRequest } from "../../src/contracts/http";
-import { handleInternalSettlement } from "../../src/index";
+import worker, { handleInternalSettlement, type Env } from "../../src/index";
 import { canonicalizeWagerQuote, revalidateWagerOffers } from "../../src/worker/offer-quotes";
 import type { PoolCommand } from "../../src/durable/pool-commands";
 import { CANONICAL_BOOK_POLICY_VERSION } from "../../src/odds/types";
@@ -19,12 +19,21 @@ beforeEach(async () => {
   await bindings.DB.exec("DELETE FROM pool_registry_command_response; DELETE FROM pool_registry; INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('owner', 'Owner', 'owner@example.test', 1, 0, 0), ('member', 'Member', 'member@example.test', 1, 0, 0);");
 });
 
-const appFor = (user: { id: string; name: string } | null, options: { turnstileSecret?: string; allowInsecureLocalAuth?: boolean; fetcher?: typeof fetch; limiter?: RateLimiter; recentlyAuthenticated?: boolean } = {}) => {
+const appFor = (user: { id: string; name: string } | null, options: { turnstileSecret?: string; turnstileExpectedHostname?: string; allowInsecureLocalAuth?: boolean; fetcher?: typeof fetch; limiter?: RateLimiter; recentlyAuthenticated?: boolean } = {}) => {
   const { recentlyAuthenticated, ...dependencies } = options;
   return createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, recentlyAuthenticated: async () => recentlyAuthenticated === true, ...dependencies });
 };
 
 describe("authenticated pool HTTP boundary", () => {
+  it("fails closed before serving production traffic when Resend is not configured", async () => {
+    const productionEnv = { ...env, BETTER_AUTH_SECRET: "test-only-auth-secret-that-is-long-enough", RESEND_API_KEY: undefined } as Env;
+    const request = new Request("https://attacker.example/health/app") as unknown as Parameters<NonNullable<typeof worker.fetch>>[0];
+    const response = await worker.fetch!(request, productionEnv, {} as ExecutionContext);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "AUTH_CONFIGURATION_UNAVAILABLE" });
+  });
+
   it("rejects unauthenticated and cross-origin mutations", async () => {
     const body = { slug: "secure-pool", poolName: "Secure Pool", password: "correct-password", idempotencyKey: "create" };
     expect((await appFor(null).fetch(request("/api/pools", body))).status).toBe(401);
@@ -34,7 +43,7 @@ describe("authenticated pool HTTP boundary", () => {
   });
 
   it("validates, Turnstile-protects, creates, joins, and routes authoritative mutations", async () => {
-    const turnstile = async () => new Response(JSON.stringify({ success: true }));
+    const turnstile = async () => new Response(JSON.stringify({ success: true, action: "submit", hostname: "pool.example.test" }));
     const owner = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: turnstile, recentlyAuthenticated: true });
     expect((await owner.fetch(request("/api/pools", { slug: "secure-pool", poolName: "Secure Pool", password: "correct-password", idempotencyKey: "create", turnstileToken: "token" }))).status).toBe(201);
     const staleOwner = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: turnstile });
@@ -56,8 +65,23 @@ describe("authenticated pool HTTP boundary", () => {
     expect(await verifyTurnstile({ allowInsecureLocalAuth: true, hostname: "pool.example.test" })).toBe(false);
   });
 
+  it("binds completed Turnstile tokens to the expected action and hostname", async () => {
+    const input = { secret: "turnstile-secret", token: "token", action: "submit", hostname: "officepool.football" };
+    const verify = (result: Record<string, unknown>) => verifyTurnstile({ ...input, fetcher: async () => new Response(JSON.stringify(result)) });
+
+    expect(await verify({ success: true, action: "submit", hostname: "officepool.football" })).toBe(true);
+    expect(await verify({ success: true, action: "other", hostname: "officepool.football" })).toBe(false);
+    expect(await verify({ success: true, action: "submit", hostname: "attacker.example" })).toBe(false);
+
+    const app = appFor({ id: "owner", name: "Owner" }, {
+      turnstileSecret: "turnstile-secret", turnstileExpectedHostname: "officepool.football",
+      fetcher: async () => new Response(JSON.stringify({ success: true, action: "submit", hostname: "pool.example.test" }))
+    });
+    expect((await app.fetch(request("/api/pools", { slug: "hostname-bound-pool", poolName: "Hostname Bound Pool", password: "correct-password", idempotencyKey: "hostname-bound", turnstileToken: "token" }))).status).toBe(403);
+  });
+
   it("fails closed for missing or fabricated Turnstile tokens and applies rate limits", async () => {
-    const app = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: async (_url, init) => new Response(JSON.stringify({ success: new URLSearchParams(String(init?.body)).get("response") === "valid-response" })), limiter: new RateLimiter(1) });
+    const app = appFor({ id: "owner", name: "Owner" }, { turnstileSecret: "turnstile-secret", fetcher: async (_url, init) => new Response(JSON.stringify({ success: new URLSearchParams(String(init?.body)).get("response") === "valid-response", action: "submit", hostname: "pool.example.test" })), limiter: new RateLimiter(1) });
     const body = { slug: "another-pool", poolName: "Another Pool", password: "correct-password", idempotencyKey: "create" };
     expect((await app.fetch(request("/api/pools", body))).status).toBe(403);
     expect((await app.fetch(request("/api/pools", { ...body, turnstileToken: "local" }))).status).toBe(403);
@@ -69,7 +93,7 @@ describe("authenticated pool HTTP boundary", () => {
     const authHandler = async () => Response.json({ handled: true });
     const secured = createWorkerApp({
       db: bindings.DB, pools: bindings.POOL_DO, currentUser: async () => null, authHandler,
-      authAbuseGuard: createAuthAbuseGuard({ secret: "turnstile-secret", limiter: new RateLimiter(), fetcher: async () => new Response(JSON.stringify({ success: true })) })
+      authAbuseGuard: createAuthAbuseGuard({ secret: "turnstile-secret", limiter: new RateLimiter(), fetcher: async () => new Response(JSON.stringify({ success: true, action: "submit", hostname: "pool.example.test" })) })
     });
     expect((await secured.fetch(request("/api/auth/sign-up/email", { email: "a@example.test" }))).status).toBe(403);
     expect((await secured.fetch(request("/api/auth/sign-in/email", { email: "a@example.test", turnstileToken: "token" }))).status).toBe(200);

@@ -15,6 +15,8 @@ import { offerIsStale } from "../odds/ingestion";
 export type AuthenticatedUser = { id: string; name: string };
 export type RouteDependencies = {
   db: D1Database; pools: DurableObjectNamespace; commandAuthenticatorKey?: string; turnstileSecret?: string;
+  /** Fixed in production; local callers derive the request hostname. */
+  turnstileExpectedHostname?: string;
   /** Deliberate local-development opt-in; production omits this and fails closed. */
   allowInsecureLocalAuth?: boolean;
   currentUser(request: Request): Promise<AuthenticatedUser | null>;
@@ -185,7 +187,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   app.post("/api/pools",  (c) => mutation(c, async (user) => {
     const parsed = createPoolSchema.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
-    if (!(await verifyTurnstile({ secret: dependencies.turnstileSecret, token: parsed.data.turnstileToken, remoteIp: clientIp(c), hostname: new URL(c.req.url).hostname, fetcher: dependencies.fetcher, allowInsecureLocalAuth: dependencies.allowInsecureLocalAuth }))) return jsonError(c, "TURNSTILE_REJECTED", 403);
+    if (!(await verifyTurnstile({ secret: dependencies.turnstileSecret, token: parsed.data.turnstileToken, action: "submit", remoteIp: clientIp(c), hostname: dependencies.turnstileExpectedHostname ?? new URL(c.req.url).hostname, fetcher: dependencies.fetcher, allowInsecureLocalAuth: dependencies.allowInsecureLocalAuth }))) return jsonError(c, "TURNSTILE_REJECTED", 403);
     if (!limiter.allow(`create:${user.id}:${clientIp(c)}`)) return jsonError(c, "RATE_LIMITED", 429);
     if (!(await (dependencies.entitlement ?? freeSeasonEntitlement).mayCreatePool(user.id)).allowed) return jsonError(c, "POOL_CREATION_NOT_ENTITLED", 403);
     const record = await registry.create({ slug: parsed.data.slug, creatorId: user.id, creatorName: parsed.data.creatorName ?? user.name, poolName: parsed.data.poolName, password: parsed.data.password, idempotencyKey: parsed.data.idempotencyKey });
@@ -197,7 +199,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const key = `join:${c.req.param("slug")}:${user.id}:${clientIp(c)}`;
     if (!limiter.allow(key)) return jsonError(c, "RATE_LIMITED", 429);
-    if (!(await verifyTurnstile({ secret: dependencies.turnstileSecret, token: parsed.data.turnstileToken, remoteIp: clientIp(c), hostname: new URL(c.req.url).hostname, fetcher: dependencies.fetcher, allowInsecureLocalAuth: dependencies.allowInsecureLocalAuth }))) return jsonError(c, "TURNSTILE_REJECTED", 403);
+    if (!(await verifyTurnstile({ secret: dependencies.turnstileSecret, token: parsed.data.turnstileToken, action: "submit", remoteIp: clientIp(c), hostname: dependencies.turnstileExpectedHostname ?? new URL(c.req.url).hostname, fetcher: dependencies.fetcher, allowInsecureLocalAuth: dependencies.allowInsecureLocalAuth }))) return jsonError(c, "TURNSTILE_REJECTED", 403);
     const result = await router.send(c.req.param("slug"), { type: "JoinPool", commandId: parsed.data.idempotencyKey, actorId: user.id, displayName: parsed.data.displayName ?? user.name, password: parsed.data.password });
     limiter.reset(key);
     return c.json(result);

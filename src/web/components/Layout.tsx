@@ -9,7 +9,7 @@ export function Layout({ children }: { children: React.ReactNode; signedIn?: boo
   useEffect(() => { void api.session().then(({ user }) => setSignedIn(Boolean(user))).catch(() => setSignedIn(false)); }, [refresh]);
   const logout = async () => { await api.signOut(); setSignedIn(false); invalidateSession(); navigate("/"); };
   return <div className="site-shell">
-    <header className="masthead"><p className="site-name">Share Pool</p><p className="site-note">Private football paper trading</p></header>
+    <header className="masthead"><p className="site-name">Office Pool Reborn</p><p className="site-note">Private football paper trading</p></header>
     <nav aria-label="Primary navigation" className="nav-bar"><Link to="/">Home</Link>{signedIn ? <button className="nav-button" onClick={logout}>Log out</button> : <><Link to="/login">Log in</Link><Link to="/sign-up">Create account</Link></>}</nav>
     <main className="main-content">{children}</main>
   </div>;
