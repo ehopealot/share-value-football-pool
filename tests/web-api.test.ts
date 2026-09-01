@@ -5,7 +5,7 @@ import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
 describe("wager recovery messages", () => {
   it("rejects malformed odds-board feed observations at the browser boundary", () => {
-    const response = { offers: [], feed: { status: "no-offer", message: "No current canonical offers are available.", lastPolledAt: null, lastSuccessAt: null } };
+    const response = { offers: [], feed: { status: "no-offer", message: "No current odds are available.", lastPolledAt: null, lastSuccessAt: null } };
     expect(parseOddsBoardSuccess(response)).toEqual(response);
     expect(() => parseOddsBoardSuccess({ offers: [], feed: { ...response.feed, lastPolledAt: undefined } })).toThrow();
     expect(() => parseOddsBoardSuccess({ offers: [], feed: { ...response.feed, status: "made-up" } })).toThrow();
@@ -19,8 +19,8 @@ describe("wager recovery messages", () => {
     expect(boardEnablesWagerReview({ offers: [offer], feed: { ...response.feed, status: "current" } })).toBe(true);
   });
 
-  it("tells a commissioner how to recover a recent-auth reversal denial", () => {
-    expect(errorMessage(new ApiError("RECENT_AUTH_REQUIRED", 403))).toContain("sign in again");
+  it("uses a concise recent-auth error", () => {
+    expect(errorMessage(new ApiError("RECENT_AUTH_REQUIRED", 403))).toBe("Sign in again.");
   });
   it("centralizes stale, retryable, and terminal confirmation outcomes", () => {
     for (const code of ["LINE_CHANGED", "ORDER_QUOTE_STALE"]) expect(commandOutcome(new ApiError(code, 400))).toBe("stale");
@@ -61,12 +61,12 @@ describe("wager recovery messages", () => {
     expect(JSON.stringify(exported)).not.toContain("future-event");
   });
 
-  it("maps regrade-before-start denial to actionable lifecycle guidance", () => {
-    expect(errorMessage(new ApiError("WAGER_NOT_STARTED", 409))).toBe("Regrade is available only after every leg starts. Before then, Void remains available.");
+  it("uses a concise regrade-before-start error", () => {
+    expect(errorMessage(new ApiError("WAGER_NOT_STARTED", 409))).toBe("Wager has not started.");
   });
 
-  it("maps active-season history to actionable archive guidance", () => {
-    expect(errorMessage(new ApiError("SEASON_NOT_CLOSED", 400))).toBe("This season is still active or in draft. Open its archive after the season closes.");
+  it("uses a concise active-season history error", () => {
+    expect(errorMessage(new ApiError("SEASON_NOT_CLOSED", 400))).toBe("Season is not closed.");
   });
 });
 

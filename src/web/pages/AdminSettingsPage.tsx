@@ -9,12 +9,13 @@ export function AdminSettingsPage() {
   const [view, setView] = useState<import("../../contracts/http").ReadPoolView>();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [maxSideBet, setMaxSideBet] = useState("");
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const settings = useFrozenAdminCommand<Record<string, unknown>>();
-  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); }).catch((e) => setLoadError(errorMessage(e)));
+  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / 1000000n).toString()); }).catch((e) => setLoadError(errorMessage(e)));
   useEffect(load, [slug]);
-  if (loadError) return <Layout signedIn><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool overview</Link>.</p></Layout>;
+  if (loadError) return <Layout signedIn><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!view) return <Layout><p role="status">Loading settings…</p></Layout>;
   if (view.currentMember.role !== "commissioner") return <Layout signedIn><h1>Pool settings</h1><p role="alert">Only the commissioner can change pool settings.</p></Layout>;
   const save = async (identity: string, createBody: () => Record<string, unknown>) => {
@@ -27,7 +28,7 @@ export function AdminSettingsPage() {
   return <Layout signedIn><h1>Pool settings</h1>{error && <p role="alert" className="error-summary">{error}</p>}
     <label>Pool name <input disabled={settings.pending} value={name} onChange={(e) => { edit(); setName(e.target.value); }} /></label><button disabled={settings.pending} onClick={() => void save("rename", () => ({ poolName: name }))}>Rename pool</button>
     <label>New join password <input disabled={settings.pending} type="password" value={password} onChange={(e) => { edit(); setPassword(e.target.value); }} /></label><button disabled={!password || settings.pending} onClick={() => void save("rotate-password", () => ({ password }))}>Rotate password</button>
-    <p>Password rotation requires recent authentication.</p><p>Signups are {view.pool.signupsOpen ? "open" : "closed"}.</p><button disabled={settings.pending} onClick={() => void save(`signups:${nextSignups}`, () => ({ signupsOpen: nextSignups }))}>{view.pool.signupsOpen ? "Close signups" : "Open signups"}</button>
-    <p><Link to={`/p/${slug}/overview`}>Pool overview</Link></p>
+    <p>Password rotation requires recent authentication.</p><label>Max bet per side <input disabled={settings.pending} type="number" min="1" step="1" value={maxSideBet} onChange={(e) => { edit(); setMaxSideBet(e.target.value); }} /></label><button disabled={!/^\d+$/.test(maxSideBet) || BigInt(maxSideBet || "0") < 1n || settings.pending} onClick={() => void save(`max-side-bet:${maxSideBet}`, () => ({ maxSideBet }))}>Save max bet</button><p>Teaser risk is split evenly across its sides for this limit.</p><p>Signups are {view.pool.signupsOpen ? "open" : "closed"}.</p><button disabled={settings.pending} onClick={() => void save(`signups:${nextSignups}`, () => ({ signupsOpen: nextSignups }))}>{view.pool.signupsOpen ? "Close signups" : "Open signups"}</button>
+    <p><Link to={`/p/${slug}/overview`}>Pool home</Link></p>
   </Layout>;
 }

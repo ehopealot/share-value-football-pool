@@ -7,9 +7,6 @@ async function signInOwner(page: import("@playwright/test").Page, baseURL: strin
   await page.getByLabel("Email address").fill("settlement-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect.poll(async () => (await mailbox()).find((message) => message.to === "settlement-owner@example.test")?.token).toBeTruthy();
-  const token = (await mailbox()).find((message) => message.to === "settlement-owner@example.test")!.token;
-  await page.evaluate(async (value) => { await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`); }, token);
   await page.getByRole("link", { name: "log in", exact: true }).click();
   await page.getByLabel("Email address").fill("settlement-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
@@ -22,11 +19,12 @@ async function createAndFundPool(page: import("@playwright/test").Page, baseURL:
   await page.getByLabel("Pool web address").fill(slug);
   await page.getByLabel("Join password").fill("settlement-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
@@ -38,11 +36,12 @@ test("My Wagers shows only the current settlement economics after real regrades 
   await signInOwner(page, worker.baseURL, worker.mailbox);
   await createAndFundPool(page, worker.baseURL, slug);
 
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
-  await page.getByRole("button", { name: "Select Local Away 3", exact: true }).click();
-  await page.getByLabel("Risk in whole shares").fill("1");
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await page.getByRole("button", { name: "Place wager" }).click();
+  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Local Away +3", exact: true }).check();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));
   await expect(page.getByRole("heading", { name: "Active tickets" })).toBeVisible();
   await expect(page.getByText("Open", { exact: true })).toBeVisible();
@@ -62,20 +61,20 @@ test("My Wagers shows only the current settlement economics after real regrades 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Completed tickets" })).toBeVisible();
   await expect(page.getByText("won", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Outcome: win; return 2\.00 shares; profit 1\.00 shares\./)).toBeVisible();
+  await expect(page.getByText(/Outcome: won; return 2\.00 shares; profit 1\.00 shares\./)).toBeVisible();
 
   const regraded = await page.evaluate(async ({ poolSlug, id }) => (await fetch(`/api/p/${poolSlug}/admin/corrections/${id}/regrade`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reason: "Official correction", correctedResults: [{ eventId: "local-nfl-upcoming", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "official-loss-v2" }] }) })).status, { poolSlug: slug, id: wagerId });
   expect(regraded).toBe(200);
   await page.reload();
   await expect(page.getByText("lost", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Outcome: loss; return 0\.00 shares; profit 0\.00 shares\./)).toBeVisible();
-  await expect(page.getByText(/Outcome: win; return 2\.00 shares/)).toHaveCount(0);
+  await expect(page.getByText(/Outcome: lost; return 0\.00 shares; profit 0\.00 shares\./)).toBeVisible();
+  await expect(page.getByText(/Outcome: won; return 2\.00 shares/)).toHaveCount(0);
 
   const voided = await page.evaluate(async ({ poolSlug, id }) => (await fetch(`/api/p/${poolSlug}/admin/corrections/${id}/void`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reason: "Settled ticket void" }) })).status, { poolSlug: slug, id: wagerId });
   expect(voided).toBe(200);
   await page.reload();
   await expect(page.getByText("refunded", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Outcome: refund; return 1\.00 shares; profit 0\.00 shares\./)).toBeVisible();
+  await expect(page.getByText(/Outcome: refunded; return 1\.00 shares; profit 0\.00 shares\./)).toBeVisible();
   await expect(page.getByText(/Outcome: loss; return 0\.00 shares/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /cancel/i })).toHaveCount(0);
 
@@ -87,9 +86,6 @@ test("My Wagers shows only the current settlement economics after real regrades 
     await member.getByLabel("Email address").fill("settlement-member@example.test");
     await member.getByLabel("Password").fill("first-password");
     await member.getByRole("button", { name: "Create account" }).click();
-    await expect.poll(async () => (await worker.mailbox()).find((message) => message.to === "settlement-member@example.test")?.token).toBeTruthy();
-    const token = (await worker.mailbox()).find((message) => message.to === "settlement-member@example.test")!.token;
-    await member.evaluate(async (value) => { await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`); }, token);
     await member.getByRole("link", { name: "log in", exact: true }).click();
     await member.getByLabel("Email address").fill("settlement-member@example.test");
     await member.getByLabel("Password").fill("first-password");

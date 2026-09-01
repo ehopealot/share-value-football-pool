@@ -82,6 +82,21 @@ describe("PoolDO wagers and settlement", () => {
     expect((await send(slug, { ...moneyline, commandId: "moneyline-forged", wagerId: "moneyline-forged", acceptedOdds: 200 })).code).toBe("INVALID_WAGER_LEG");
   }, 30_000);
 
+  it("caps exposure at 800 shares per side and divides teaser risk across its legs", async () => {
+    const straightSlug = await fundedPool(`side-limit-straight-${crypto.randomUUID()}`);
+    await storage(straightSlug, (state) => state.storage.sql.exec("UPDATE share_account SET available_micros = '5000000000' WHERE season_id = 's1' AND member_id = 'member'"));
+    const straight: any = { type: "PlaceStraightWager", commandId: "side-limit-first", actorId: "member", wagerId: "side-limit-first", seasonId: "s1", riskMicros: "800000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("limited-side") };
+    expect(await send(straightSlug, straight)).toMatchObject({ wagerId: "side-limit-first" });
+    expect((await send(straightSlug, { ...straight, commandId: "side-limit-over", wagerId: "side-limit-over", riskMicros: "1000000" })).code).toBe("SIDE_BET_LIMIT");
+
+    const teaserSlug = await fundedPool(`side-limit-teaser-${crypto.randomUUID()}`);
+    await storage(teaserSlug, (state) => state.storage.sql.exec("UPDATE share_account SET available_micros = '7000000000' WHERE season_id = 's1' AND member_id = 'member'"));
+    await send(teaserSlug, { type: "UpdatePoolSettings", commandId: "raise-side-limit", actorId: "owner", maxSideBetMicros: "1600000000" });
+    const teaser: any = { type: "PlaceTeaserWager", commandId: "side-limit-teaser", actorId: "member", wagerId: "side-limit-teaser", seasonId: "s1", riskMicros: "3200000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-side-one"), adjustedLine: 3 }, { ...leg("teaser-side-two"), adjustedLine: 3 }] };
+    expect(await send(teaserSlug, teaser)).toMatchObject({ wagerId: "side-limit-teaser" });
+    expect((await send(teaserSlug, { ...teaser, commandId: "side-limit-teaser-over", wagerId: "side-limit-teaser-over", riskMicros: "3201000000" })).code).toBe("SIDE_BET_LIMIT");
+  }, 30_000);
+
   it("rejects altered, version-stale, and malformed placements without any durable mutation", async () => {
     const slug = await fundedPool();
     const snapshot = () => storage(slug, (state) => Object.fromEntries([

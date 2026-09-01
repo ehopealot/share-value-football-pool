@@ -23,6 +23,26 @@ export type OutcomeSideContext = Pick<CanonicalMarketContext, "market" | "homeTe
 /** Locale-fixed and punctuation-preserving team identity used for provider and market-side comparisons. */
 export const canonicalTeamIdentity = (value: string): string => value.trim().toLocaleLowerCase("en-US");
 
+const americanToProbability = (price: number): number | undefined => price > 0 ? 100 / (price + 100) : price < 0 ? (-price) / (-price + 100) : undefined;
+
+/**
+ * The vig-free (fair) moneyline price for one side: implied probability normalized
+ * by the two-sided overround, rounded back to American odds. Returns nothing when
+ * either side is missing or unpriceable, because a one-sided market has no fair line.
+ */
+export function vigFreeMoneylinePrice(context: Pick<CanonicalMarketContext, "homeTeam" | "awayTeam">, outcomes: ReadonlyArray<{ name?: string; price: number }>, selection: "home" | "away"): number | undefined {
+  const priceFor = (side: "home" | "away") => {
+    const matches = outcomes.filter((item) => resolveCanonicalOutcomeSide({ market: "moneyline", homeTeam: context.homeTeam, awayTeam: context.awayTeam }, item.name) === side);
+    return matches.length === 1 ? matches[0]!.price : undefined;
+  };
+  const own = priceFor(selection); const other = priceFor(selection === "home" ? "away" : "home");
+  const ownProbability = own === undefined ? undefined : americanToProbability(own); const otherProbability = other === undefined ? undefined : americanToProbability(other);
+  if (ownProbability === undefined || otherProbability === undefined || ownProbability + otherProbability <= 0) return undefined;
+  const fairProbability = ownProbability / (ownProbability + otherProbability);
+  const decimal = 1 / fairProbability;
+  return Math.round(decimal >= 2 ? (decimal - 1) * 100 : -100 / (decimal - 1));
+}
+
 /** Locale-fixed and punctuation-preserving identity resolver used at every server/browser outcome boundary. */
 export function resolveCanonicalOutcomeSide(context: OutcomeSideContext, outcomeName: unknown): CanonicalOutcomeSide | undefined {
   if (typeof outcomeName !== "string") return undefined;

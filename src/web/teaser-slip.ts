@@ -1,6 +1,6 @@
 import { adjustTeaserLine } from "../domain/grading";
 import type { TeaserLeg as DomainTeaserLeg } from "../domain/types";
-export type TeaserLeg = { eventId:string; league:"nfl"|"ncaaf"; canonicalBook:string; retrievedAt:string; policyVersion:string; offerVersion:string; canonicalOfferProof:any; market:"spread"|"total"; selection:"home"|"away"|"over"|"under"; originalLine:number; originalOdds:number; eventStartsAt:string; adjustedLine?:number };
+export type TeaserLeg = { eventId:string; league:"nfl"|"ncaaf"; canonicalBook:string; retrievedAt:string; policyVersion:string; offerVersion:string; canonicalOfferProof:any; market:"spread"|"total"; selection:"home"|"away"|"over"|"under"; originalLine:number; originalOdds:number; eventStartsAt:string; homeTeam?:string; awayTeam?:string; adjustedLine?:number };
 type Offer = { eventId:string; league:"nfl"|"ncaaf"; canonicalBook:string; retrievedAt:string; policyVersion:string; offerVersion:string; startsAt:string; market:"spread"|"total"; homeTeam?:string; awayTeam?:string };
 type Outcome = { price:number; point:number };
 const key = (slug:string) => `share-pool:teaser:${slug}`;
@@ -9,7 +9,7 @@ const key = (slug:string) => `share-pool:teaser:${slug}`;
 export const teaserLegForOutcome = (offer: Offer, outcome: Outcome, selection: TeaserLeg["selection"]): TeaserLeg => ({
  eventId: offer.eventId, league: offer.league, canonicalBook: offer.canonicalBook, retrievedAt: offer.retrievedAt, policyVersion: offer.policyVersion, offerVersion: offer.offerVersion,
  canonicalOfferProof: { offerId: `${offer.eventId}:${offer.market}:${selection}`, eventId: offer.eventId, offerVersion: offer.offerVersion, canonicalBook: offer.canonicalBook, market: offer.market, selection, odds: outcome.price, line: outcome.point },
- market: offer.market, selection, originalLine: outcome.point, originalOdds: outcome.price, eventStartsAt: offer.startsAt
+ market: offer.market, selection, originalLine: outcome.point, originalOdds: outcome.price, eventStartsAt: offer.startsAt, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam
 });
 
 /** Adds one eligible semantic leg without allowing a duplicate, an opposite, or more than seven legs. */

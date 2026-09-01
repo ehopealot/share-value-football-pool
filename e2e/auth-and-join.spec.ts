@@ -7,13 +7,7 @@ async function signUpAndVerify(page: import("@playwright/test").Page, baseURL: s
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("heading", { name: "Check your mailbox" })).toBeVisible();
-  const token = (await mailbox()).find((message) => message.kind === "verification" && message.to === email)?.token;
-  expect(token).toBeTruthy();
-  // Keep the confirmation UI in place so its destination-carrying Login link is exercised.
-  await page.evaluate(async (verificationToken) => {
-    const response = await fetch(`/api/auth/verify-email?token=${encodeURIComponent(verificationToken)}`);
-    if (!response.ok) throw new Error(`email verification failed: ${response.status}`);
-  }, token!);
+  // Local signups are auto-verified; keep the confirmation UI in place so its destination-carrying Login link is exercised.
 }
 
 test("verified mailbox account, pool entry, join, and closed-signup states use the isolated local Worker", async ({ page, browser, worker }) => {
@@ -46,7 +40,7 @@ test("verified mailbox account, pool entry, join, and closed-signup states use t
   // Dispatch without waiting for navigation so the real form's protected pending state is observable.
   await page.getByRole("button", { name: "Create pool" }).evaluate((button) => button.click());
   await expect(page.getByRole("button", { name: "Creating pool…" })).toBeDisabled();
-  await expect(page).toHaveURL(/\/p\/browser-pool\/overview$/);
+  await expect(page).toHaveURL(/\/p\/browser-pool\/odds$/);
   const replay = await page.evaluate(async () => {
     const body = { poolName: "Replay Pool", slug: "replay-pool", password: "replay-password", idempotencyKey: "browser-create-replay" };
     const create = () => fetch("/api/pools", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(async (response) => ({ status: response.status, body: await response.json() as { slug: string } }));
@@ -65,7 +59,7 @@ test("verified mailbox account, pool entry, join, and closed-signup states use t
   await expect(page.getByRole("cell", { name: "Browser Pool" })).toBeVisible();
   // Existing members enter directly; this request is an actual browser session, not a route mock.
   await page.goto(`${worker.baseURL}/p/browser-pool`);
-  await expect(page).toHaveURL(/\/p\/browser-pool\/overview$/);
+  await expect(page).toHaveURL(/\/p\/browser-pool\/odds$/);
   await page.goto(`${worker.baseURL}/`);
   await expect(page.getByRole("cell", { name: "Browser Pool" })).toBeVisible();
   await page.getByRole("button", { name: "Log out" }).click();
@@ -88,7 +82,7 @@ test("verified mailbox account, pool entry, join, and closed-signup states use t
     await expect(member.getByRole("alert")).toContainText("password was not accepted or signup is no longer available");
     await member.getByLabel("Pool password").fill("pool-password");
     await member.getByRole("button", { name: "Join pool" }).click();
-    await expect(member).toHaveURL(/\/p\/browser-pool\/overview$/);
+    await expect(member).toHaveURL(/\/p\/browser-pool\/odds$/);
   } finally { await memberContext.close(); }
 
   await worker.resetAuthLimiter();
@@ -96,7 +90,7 @@ test("verified mailbox account, pool entry, join, and closed-signup states use t
   await page.getByLabel("Email address").fill("owner-ui@example.test");
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL(/\/p\/browser-pool(?:\/overview)?$/);
+  await expect(page).toHaveURL(/\/p\/browser-pool\/odds$/);
   await page.evaluate(async () => {
     const response = await fetch("/api/p/browser-pool/admin/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signupsOpen: false, idempotencyKey: crypto.randomUUID() }) });
     if (!response.ok) throw new Error(`closing signups failed: ${response.status}`);

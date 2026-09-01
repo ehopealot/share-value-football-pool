@@ -1,8 +1,11 @@
 export type EmailKind = "verification" | "password-reset";
 export interface EmailMessage { kind: EmailKind; to: string; token: string; url: string; }
 export interface EmailSender { send(message: EmailMessage): Promise<void>; }
-
 export interface ResendEmailSenderOptions { apiKey: string; from: string; fetcher?: typeof fetch; }
+export interface PoolJoinNotifier {
+  notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>;
+  notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>;
+}
 
 const resendEndpoint = "https://api.resend.com/emails";
 const escapedHtmlCharacters: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -24,24 +27,45 @@ function emailContent(message: EmailMessage): { subject: string; text: string; h
   };
 }
 
+async function sendResend(options: ResendEmailSenderOptions, to: string, content: { subject: string; text: string; html: string }): Promise<void> {
+  const fetcher = options.fetcher ?? fetch;
+  let response: Response;
+  try {
+    response = await fetcher(resendEndpoint, {
+      method: "POST",
+      headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ from: options.from, to: [to], ...content }),
+      signal: AbortSignal.timeout(10_000)
+    });
+  } catch {
+    throw new Error("EMAIL_DELIVERY_FAILED");
+  }
+  if (!response.ok) throw new Error("EMAIL_DELIVERY_FAILED");
+}
+
 /** Sends transactional auth mail directly through Resend without logging recipient or token data. */
 export function createResendEmailSender(options: ResendEmailSenderOptions): EmailSender {
-  const fetcher = options.fetcher ?? fetch;
+  return { async send(message) { await sendResend(options, message.to, emailContent(message)); } };
+}
+
+/** Notifies the current commissioner after a new member joins; delivery never exposes member email data. */
+export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions): PoolJoinNotifier {
   return {
-    async send(message) {
-      const content = emailContent(message);
-      let response: Response;
-      try {
-        response = await fetcher(resendEndpoint, {
-          method: "POST",
-          headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
-          body: JSON.stringify({ from: options.from, to: [message.to], ...content }),
-          signal: AbortSignal.timeout(10_000)
-        });
-      } catch {
-        throw new Error("EMAIL_DELIVERY_FAILED");
-      }
-      if (!response.ok) throw new Error("EMAIL_DELIVERY_FAILED");
+    async notifyPoolJoin(message) {
+      await sendResend(options, message.to, {
+        subject: `New member in ${message.poolName}`,
+        text: `${message.memberName} joined ${message.poolName}.`,
+        html: `<p><strong>${escapeHtmlAttribute(message.memberName)}</strong> joined <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`
+      });
+    },
+    async notifyCommissionerTransfer(message) {
+      const isNew = message.recipient === "new";
+      const subject = isNew ? `You are now commissioner of ${message.poolName}` : `Commissioner changed for ${message.poolName}`;
+      const text = isNew ? `${message.formerCommissionerName} made you commissioner of ${message.poolName}.` : `You made ${message.newCommissionerName} commissioner of ${message.poolName}.`;
+      const html = isNew
+        ? `<p><strong>${escapeHtmlAttribute(message.formerCommissionerName)}</strong> made you commissioner of <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`
+        : `<p>You made <strong>${escapeHtmlAttribute(message.newCommissionerName)}</strong> commissioner of <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`;
+      await sendResend(options, message.to, { subject, text, html });
     }
   };
 }

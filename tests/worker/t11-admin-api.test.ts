@@ -12,7 +12,7 @@ const origin = "https://pool.example.test";
 const request = (path: string, body?: unknown, method = "POST") => new Request(`${origin}${path}`, { method, headers: body === undefined ? {} : { "content-type": "application/json", origin }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const command = async (poolId: string, value: unknown) => (await bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)).fetch("https://pool.internal/command", { method: "POST", body: JSON.stringify(value) })).json() as Promise<Record<string, any>>;
 const storage = async (poolId: string, callback: (state: DurableObjectState) => unknown) => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => callback(state));
-const app = (user: { id: string; name: string } | null, recentlyAuthenticated?: () => Promise<boolean>) => createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, ...(recentlyAuthenticated ? { recentlyAuthenticated: async () => recentlyAuthenticated() } : {}) });
+const app = (user: { id: string; name: string } | null, recentlyAuthenticated?: () => Promise<boolean>, poolJoinNotifier?: { notifyPoolJoin(message: unknown): Promise<void>; notifyCommissionerTransfer(message: unknown): Promise<void> }) => createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, ...(recentlyAuthenticated ? { recentlyAuthenticated: async () => recentlyAuthenticated() } : {}), ...(poolJoinNotifier ? { poolJoinNotifier } : {}) });
 const orderKeys = ["createdAt", "memberDisplayName", "memberId", "orderId", "priceMicros", "reason", "sharesMicros", "valueMicros"];
 
 /** Real D1 discovery row plus a real PoolDO lifecycle: archived s0, active s1. */
@@ -244,7 +244,9 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     await setupPool(poolId, slug);
     const body = { memberId: "member", reason: "Documented handover", idempotencyKey: "transfer" };
     expect((await app({ id: "owner", name: "Owner" }, async () => false).fetch(request(`/api/p/${slug}/admin/transfer`, body)))).toMatchObject({ status: 403 });
-    const owner = app({ id: "owner", name: "Owner" }, async () => true);
+    const notifications: any[] = [];
+    const notifier = { async notifyPoolJoin(_message: unknown) {}, async notifyCommissionerTransfer(message: unknown) { notifications.push(message); } };
+    const owner = app({ id: "owner", name: "Owner" }, async () => true, notifier);
     const member = app({ id: "member", name: "Member" }, async () => true);
     expect((await member.fetch(request(`/api/p/${slug}/admin/transfer`, body)))).toMatchObject({ status: 403 });
     expect((await owner.fetch(request(`/api/p/${slug}/admin/transfer`, { ...body, reason: "" })))).toMatchObject({ status: 400 });
@@ -255,6 +257,10 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     expect(await suspended.json()).toEqual({ code: "SUSPENDED" });
     await owner.fetch(request(`/api/p/${slug}/admin/members/member/restore`, { idempotencyKey: "restore-target" }));
     expect((await owner.fetch(request(`/api/p/${slug}/admin/transfer`, body)))).toMatchObject({ status: 200 });
+    expect(notifications).toEqual([
+      expect.objectContaining({ to: "member-t11@example.test", recipient: "new", poolName: "API Pool" }),
+      expect.objectContaining({ to: "owner-t11@example.test", recipient: "former", poolName: "API Pool" })
+    ]);
     const view = await (await member.fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
     expect(view.pool.commissionerId).toBe("member");
     expect(view.members.filter((entry: any) => entry.role === "commissioner")).toHaveLength(1);
@@ -271,6 +277,9 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { poolName: "Renamed Pool", idempotencyKey: "rename" })))).toMatchObject({ status: 200 });
     const view = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
     expect(view.pool.name).toBe("Renamed Pool");
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { maxSideBet: "900", idempotencyKey: "max-side-bet" })))).toMatchObject({ status: 200 });
+    const updatedView = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
+    expect(updatedView.pool.maxSideBetMicros).toBe("900000000");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { signupsOpen: false, idempotencyKey: "close-signups" })))).toMatchObject({ status: 200 });
     expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.signupsOpen).toBe(false);
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate" })))).toMatchObject({ status: 403 });

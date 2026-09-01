@@ -4,7 +4,7 @@ import { ReadPoolView } from "../../src/contracts/http";
 describe("ReadPoolView", () => {
   it("requires explicit lifecycle slots and never accepts legacy season fields", () => {
     const view = {
-      commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "owner", signupsOpen: true },
+      commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "owner", signupsOpen: true, maxSideBetMicros: "800000000" },
       activeSeason: null, nextDraftSeason: null, latestClosedSeason: null,
       currentMember: { memberId: "owner", role: "commissioner", seasonBalances: [] },
       members: [{ memberId: "owner", displayName: "Owner", role: "commissioner", status: "active" }],

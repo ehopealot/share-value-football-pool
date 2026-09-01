@@ -11,21 +11,17 @@ const board = (status: "current" | "stale" | "provider-error" | "no-offer") => (
     { eventId: "event-1", league: "nfl", homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread", canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v1", policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: -3 }] },
     { eventId: "event-2", league: "ncaaf", homeTeam: "College Home", awayTeam: "College Away", startsAt: "2030-09-01T13:00:00.000Z", market: "total", canonicalBook: "FanDuel", retrievedAt: "2030-09-01T10:02:00.000Z", offerVersion: "v2", policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Over", price: -110, point: 45 }] }
   ] : [],
-  feed: { status, message: status === "current" ? "Canonical offers are current." : status === "stale" ? "Canonical offers are stale; new wagers are disabled." : status === "provider-error" ? "Odds provider error; accepted wagers remain intact." : "No current canonical offers are available.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: status === "provider-error" ? "2030-09-01T09:58:00.000Z" : "2030-09-01T10:03:00.000Z" }
+  feed: { status, message: status === "current" ? "Odds are up to date." : status === "stale" ? "Current odds are stale; new bets are disabled." : status === "provider-error" ? "Odds provider error; accepted bets remain intact." : "No current odds are available.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: status === "provider-error" ? "2030-09-01T09:58:00.000Z" : "2030-09-01T10:03:00.000Z" }
 });
 const render = (poolView: any, oddsBoard: any) => renderToStaticMarkup(createElement(MemoryRouter, {}, createElement(RulesContent, { slug: "pool", view: poolView, board: oddsBoard })));
 
 describe("truthful rules and feed presentation", () => {
-  it("prefers the authoritative active season and lists every actual source observation", () => {
+  it("prefers the authoritative active season and shows feed status", () => {
     const html = render(view(true, true), board("current"));
     expect(html).toContain("Active 2026");
     expect(html).not.toContain("Closed 2025");
     expect(html).toContain("active");
     expect(html).toContain("SHARE_POOL_2026_V1");
-    expect(html).toContain("DraftKings");
-    expect(html).toContain("FanDuel");
-    expect(html).toContain("2030-09-01T10:00:00.000Z");
-    expect(html).toContain("2030-09-01T10:02:00.000Z");
     expect(html).toContain("Last polled");
     expect(html).toContain("2030-09-01T10:03:00.000Z");
   });

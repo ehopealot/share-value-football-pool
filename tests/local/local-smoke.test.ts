@@ -64,4 +64,11 @@ describe("deterministic local smoke support", () => {
     const source = await readFile(new URL("../../scripts/local-smoke.ts", import.meta.url), "utf8");
     expect(source).toMatch(/--persist-to/);
   });
+
+  it("keeps the local Worker fixture-only instead of polling a configured remote odds provider", async () => {
+    const source = await readFile(new URL("../../src/index.local.ts", import.meta.url), "utf8");
+    expect(source).toContain("beforeOddsRead: () => refreshLocalFixtures(env.DB)");
+    expect(source).not.toContain("TheOddsApiProvider");
+    expect(source).not.toContain("runOddsCron");
+  });
 });

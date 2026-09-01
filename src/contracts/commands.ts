@@ -27,7 +27,9 @@ export const canonicalOfferProof = z.object({ offerId: z.string().min(1), eventI
 const commonLegShape = { eventId: z.string().min(1), league: z.enum(["nfl", "ncaaf"]), canonicalBook: z.string().min(1), retrievedAt: timestamp, policyVersion: z.string().min(1), offerVersion: z.string().min(1), canonicalOfferProof, market: z.enum(["spread", "total", "moneyline"]), selection: z.enum(["home", "away", "over", "under"]), originalLine: z.number().finite().nullable(), adjustedLine: z.number().finite().nullable(), originalOdds: americanOdds, eventStartsAt: timestamp, homeTeam: z.string().min(1), awayTeam: z.string().min(1) };
 const proofIssues = (leg: z.infer<typeof canonicalLeg>, ctx: z.RefinementCtx) => {
   const p = leg.canonicalOfferProof;
-  if (p.eventId !== leg.eventId || p.offerVersion !== leg.offerVersion || p.canonicalBook !== leg.canonicalBook || p.market !== leg.market || p.selection !== leg.selection || p.odds !== leg.originalOdds || p.line !== (leg.originalLine ?? null)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "proof must mirror leg" });
+  // Moneyline legs strike at the vig-free line while the proof attests the book price, so only the
+  // non-moneyline legs require the proof odds to mirror the strike.
+  if (p.eventId !== leg.eventId || p.offerVersion !== leg.offerVersion || p.canonicalBook !== leg.canonicalBook || p.market !== leg.market || p.selection !== leg.selection || (leg.market !== "moneyline" && p.odds !== leg.originalOdds) || p.line !== (leg.originalLine ?? null)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "proof must mirror leg" });
 };
 const canonicalLeg = z.object(commonLegShape).strict();
 export const straightLeg = canonicalLeg.superRefine((leg, ctx) => {

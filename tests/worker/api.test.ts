@@ -122,15 +122,15 @@ describe("later wager and member HTTP API", () => {
         expect.objectContaining({ eventId: "feed-one", canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z" }),
         expect.objectContaining({ eventId: "feed-two", canonicalBook: "FanDuel", retrievedAt: "2030-09-01T10:02:00.000Z" })
       ],
-      feed: { status: "current", message: "Canonical offers are current.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" }
+      feed: { status: "current", message: "Odds are up to date.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" }
     });
 
     await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = '2000-01-01T00:00:00.000Z'").run();
-    expect((await odds()).feed).toEqual({ status: "stale", message: "Canonical offers are stale; new wagers are disabled.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
+    expect((await odds()).feed).toEqual({ status: "stale", message: "Current odds are stale; new bets are disabled.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
     await bindings.DB.prepare("UPDATE odds_ingestion SET last_polled_at = '2030-09-01T10:04:00.000Z', last_error = 'upstream failed'").run();
-    expect((await odds()).feed).toEqual({ status: "provider-error", message: "Odds provider error; accepted wagers remain intact.", lastPolledAt: "2030-09-01T10:04:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
+    expect((await odds()).feed).toEqual({ status: "provider-error", message: "Odds provider error; accepted bets remain intact.", lastPolledAt: "2030-09-01T10:04:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
     await bindings.DB.exec("DELETE FROM market_offer; UPDATE odds_ingestion SET last_polled_at = '2030-09-01T10:05:00.000Z', last_error = NULL");
-    expect(await odds()).toEqual({ offers: [], feed: { status: "no-offer", message: "No current canonical offers are available.", lastPolledAt: "2030-09-01T10:05:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" } });
+    expect(await odds()).toEqual({ offers: [], feed: { status: "no-offer", message: "No current odds are available.", lastPolledAt: "2030-09-01T10:05:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" } });
   }, 90_000);
 
   it("fails the whole odds board closed when stored offers lack strict payload or successful-ingestion provenance", async () => {

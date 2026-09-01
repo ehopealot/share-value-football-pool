@@ -90,7 +90,9 @@ export class PoolDO {
     const isRead = isReadCommand(command);
     if (previous && !isRead) {
       if (previous.type !== command.type || previous.actor_id !== actorId(command) || previous.request_json !== requestFingerprint(command, commandAuthenticatorKey)) throw new Error("IDEMPOTENCY_CONFLICT");
-      return JSON.parse(String(previous.response_json)) as PoolCommandResult;
+      const response = JSON.parse(String(previous.response_json));
+      // Join notifications need to distinguish a newly-created membership from its idempotent replay; no other command exposes replay metadata.
+      return (command.type === "JoinPool" ? { ...response, replayed: true } : response) as PoolCommandResult;
     }
 
     let result: PoolCommandResult;
@@ -160,7 +162,7 @@ export class PoolDO {
   }
 
   private authorized(sql: SqlStorage, command: Exclude<PoolCommand, { type: "InitializePool" }>): PoolCommandResult {
-    const pool = first(sql, "SELECT commissioner_id, password_hash, signups_open, command_version, active_season_id FROM pool LIMIT 1");
+    const pool = first(sql, "SELECT commissioner_id, password_hash, signups_open, max_side_bet_micros, command_version, active_season_id FROM pool LIMIT 1");
     if (!pool) throw new Error("POOL_NOT_INITIALIZED");
     const member = first(sql, "SELECT role, status FROM member WHERE user_id = ?", command.actorId);
     if (member?.status === "suspended") throw new Error("SUSPENDED");
@@ -172,9 +174,9 @@ export class PoolDO {
         for (const season of sql.exec<Row>("SELECT id FROM season WHERE state IN ('draft', 'active')")) {
           sql.exec("INSERT INTO share_account (season_id, member_id, available_micros, locked_micros, row_version) VALUES (?, ?, '0', '0', '0')", season.id, command.actorId);
         }
-        return { commandVersion: this.bumpVersion(sql) };
+        return { commandVersion: this.bumpVersion(sql), joined: true };
       }
-      return { commandVersion: String(pool.command_version) };
+      return { commandVersion: String(pool.command_version), joined: false };
     }
 
     if (command.type === "ReadPoolGate") {
@@ -246,11 +248,11 @@ export class PoolDO {
       const target = first(sql, "SELECT status FROM member WHERE user_id = ?", command.memberId);
       if (!target) throw new Error("MEMBER_NOT_FOUND");
       if (target.status !== "active") throw new Error("SUSPENDED");
-      if (command.memberId === String(pool.commissioner_id)) return { commandVersion: String(pool.command_version) };
+      if (command.memberId === String(pool.commissioner_id)) return { commandVersion: String(pool.command_version), transferred: false };
       sql.exec("UPDATE member SET role = CASE WHEN user_id = ? THEN 'commissioner' ELSE 'member' END", command.memberId);
       sql.exec("UPDATE pool SET commissioner_id = ?", command.memberId);
       sql.exec("INSERT INTO administration_audit (id, actor_id, action, subject_id, reason, command_id, created_at) VALUES (?, ?, 'transfer_commissioner', ?, ?, ?, ?)", crypto.randomUUID(), command.actorId, command.memberId, command.reason, command.commandId, now());
-      return { commandVersion: this.bumpVersion(sql) };
+      return { commandVersion: this.bumpVersion(sql), transferred: true };
     }
     if (command.type === "CreateSeasonAnnotation") {
       const season = first(sql, "SELECT state FROM season WHERE id = ?", command.seasonId);
@@ -293,7 +295,7 @@ export class PoolDO {
     if (command.type === "UpdatePoolSettings") {
       if (command.poolName !== undefined && command.poolName.trim().length === 0) throw new Error("INVALID_POOL_NAME");
       const passwordHash = command.password === undefined ? pool.password_hash : hashPoolPassword(command.password);
-      sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0);
+      sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?, max_side_bet_micros = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0, command.maxSideBetMicros ?? String(pool.max_side_bet_micros));
       return { commandVersion: this.bumpVersion(sql) };
     }
     if (command.type === "CreateSeason") {
@@ -399,7 +401,8 @@ export class PoolDO {
       for (const entry of sql.exec<Row>("SELECT available_delta, locked_delta, created_at FROM ledger_entry WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", activeSeasonId, row.user_id)) { running += BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)); if (!attained && running === holdings) attained = String(entry.created_at); }
       return { row, holdings, attained, issuedMicros };
     });
-    rows.sort((a, b) => b.holdings === a.holdings ? (a.attained || "~").localeCompare(b.attained || "~") || String(a.row.display_name).localeCompare(String(b.row.display_name)) : a.holdings > b.holdings ? -1 : 1);
+    const gain = (row: typeof rows[number]) => divideRoundHalfEven(row.holdings * price, MICROS_PER_UNIT) - row.issuedMicros;
+    rows.sort((a, b) => gain(a) === gain(b) ? (a.holdings === b.holdings ? (a.attained || "~").localeCompare(b.attained || "~") || String(a.row.display_name).localeCompare(String(b.row.display_name)) : a.holdings > b.holdings ? -1 : 1) : gain(a) > gain(b) ? -1 : 1);
     return rows.map(({ row, holdings, issuedMicros }, index) => {
       const value = divideRoundHalfEven(holdings * price, MICROS_PER_UNIT);
       return { rank: index + 1, userId: String(row.user_id), displayName: String(row.display_name), availableMicros: String(row.available_micros), lockedMicros: String(row.locked_micros), totalMicros: holdings.toString(), priceMicros: price.toString(), notionalValueMicros: value.toString(), gainMicros: (value - issuedMicros).toString() };
@@ -434,7 +437,7 @@ export class PoolDO {
   }
 
   private readPool(sql: SqlStorage, actorId: string, commandVersion: string, activeSeasonId: SqlStorageValue | undefined): PoolCommandResult {
-    const pool = first(sql, "SELECT id, slug, name, commissioner_id, signups_open FROM pool LIMIT 1")!;
+    const pool = first(sql, "SELECT id, slug, name, commissioner_id, signups_open, max_side_bet_micros FROM pool LIMIT 1")!;
     const currentRole = String(first(sql, "SELECT role FROM member WHERE user_id = ?", actorId)!.role) as "commissioner" | "member";
     const summary = (season: Row | undefined) => !season ? null : ({ id: String(season.id), label: String(season.label), rulesetVersion: String(season.ruleset_version), state: String(season.state), createdAt: String(season.created_at), openedAt: season.opened_at === null ? null : String(season.opened_at), closedAt: season.closed_at === null ? null : String(season.closed_at), defaultOrderMode: season.default_mode === null ? null : String(season.default_mode), defaultOrderAmountMicros: season.default_amount_micros === null ? null : String(season.default_amount_micros), floatMicros: String(season.float_micros), notionalValueMicros: String(season.notional_micros), superBowlCandidate: (() => { const candidate = first(sql, "SELECT event_id, provider_event_name, confirmed_at FROM season_super_bowl WHERE season_id = ?", season.id); return candidate ? { eventId: String(candidate.event_id), providerEventName: String(candidate.provider_event_name), confirmedAt: candidate.confirmed_at === null ? null : String(candidate.confirmed_at) } : null; })(), ...(String(season.state) === "closed" ? { closeReason: season.close_reason === null ? null : String(season.close_reason) } : {}) });
     const active = activeSeasonId === null || activeSeasonId === undefined ? undefined : first(sql, "SELECT * FROM season WHERE id = ? AND state = 'active'", activeSeasonId);
@@ -447,6 +450,6 @@ export class PoolDO {
     });
     const members = [...sql.exec<Row>("SELECT user_id, display_name, role, status FROM member ORDER BY joined_at, user_id")].map((member) => ({ memberId: String(member.user_id), displayName: String(member.display_name), role: String(member.role), status: String(member.status) }));
     const seasonOrders = lifecycleIds.map((seasonId) => ({ seasonId, orders: [...sql.exec<Row>("SELECT id, member_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, created_at FROM share_order WHERE season_id = ? ORDER BY created_at DESC, rowid DESC", seasonId)].map((order) => ({ orderId: String(order.id), memberId: String(order.member_id), mode: String(order.mode), requestedMicros: String(order.requested_micros), sharesMicros: String(order.shares_micros), valueMicros: String(order.value_micros), priceMicros: String(order.price_micros), reversalOf: order.reversal_of === null ? null : String(order.reversal_of), reason: String(order.reason), createdAt: String(order.created_at) })) }));
-    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
+    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
   }
 }

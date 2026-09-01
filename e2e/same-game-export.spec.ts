@@ -6,9 +6,6 @@ async function signInOwner(page: import("@playwright/test").Page, baseURL: strin
   await page.getByLabel("Email address").fill("same-game-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect.poll(async () => (await mailbox()).find((message) => message.to === "same-game-owner@example.test")?.token).toBeTruthy();
-  const token = (await mailbox()).find((message) => message.to === "same-game-owner@example.test")!.token;
-  await page.evaluate(async (value) => { await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`); }, token);
   await page.getByRole("link", { name: "log in", exact: true }).click();
   await page.getByLabel("Email address").fill("same-game-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
@@ -25,23 +22,24 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   await page.getByLabel("Pool web address").fill(slug);
   await page.getByLabel("Join password").fill("same-game-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
 
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
-  await page.getByRole("button", { name: "Select Local Home -3", exact: true }).click();
-  await page.getByRole("button", { name: "Add selection to teaser" }).click();
-  await page.getByRole("button", { name: "Select Over 45.5", exact: true }).click();
-  await page.getByRole("button", { name: "Add selection to teaser" }).click();
-  await page.getByRole("link", { name: "Build a teaser" }).click();
-  await page.getByLabel("Risk in whole shares").fill("1");
+  await expect(page).toHaveURL(/\/overview$/);
+
+  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Local Home -3", exact: true }).check();
+  await page.getByRole("checkbox", { name: "O 45.5", exact: true }).check();
+  await page.getByRole("button", { name: "Build teaser" }).click();
+  await page.getByLabel("Risk", { exact: true }).fill("1");
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await page.getByRole("button", { name: "Place teaser" }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));

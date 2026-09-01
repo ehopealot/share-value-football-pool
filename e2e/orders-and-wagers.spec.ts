@@ -14,21 +14,6 @@ async function signInOwner(
   await page.getByLabel("Email address").fill("wager-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect
-    .poll(
-      async () =>
-        (await mailbox()).find(
-          (message) => message.to === "wager-owner@example.test",
-        )?.token,
-      { timeout: 5_000 },
-    )
-    .toBeTruthy();
-  const token = (await mailbox()).find(
-    (message) => message.to === "wager-owner@example.test",
-  )!.token;
-  await page.evaluate(async (value) => {
-    await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`);
-  }, token);
   await page.getByRole("link", { name: "log in", exact: true }).click();
   await page.getByLabel("Email address").fill("wager-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
@@ -62,7 +47,8 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   await page.getByLabel("Pool web address").fill("orders-pool");
   await page.getByLabel("Join password").fill("orders-password");
   await page.getByRole("button", { name: "Create pool" }).click();
-  await expect(page).toHaveURL(/\/p\/orders-pool\/overview$/);
+  await expect(page).toHaveURL(/\/p\/orders-pool\/odds$/);
+  await page.getByRole("link", { name: "Pool home" }).click();
   await expect(
     page.getByRole("heading", { name: "Orders Pool" }),
   ).toBeVisible();
@@ -70,7 +56,7 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
@@ -78,12 +64,10 @@ test("commissioner funds shares and confirms a canonical straight wager through 
     page.getByRole("heading", { name: "Confirm share order" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Confirm order" }).click();
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
+  await expect(page).toHaveURL(/\/p\/orders-pool\/overview$/);
+  await page.getByRole("link", { name: "Games", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  await page
-    .getByRole("button", { name: /Select .*Away/i })
-    .first()
-    .click();
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   const straightQuoteBodies: Record<string, unknown>[] = [];
   const straightPlacementBodies: Record<string, unknown>[] = [];
   page.on("request", (request) => {
@@ -96,38 +80,42 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   // The delay happens only after the real quote completes; pending controls must
   // remain unavailable until that completed response is released.
   expect(await page.evaluate(async () => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "delay", delayMs: 1_000, pathname: "/api/p/orders-pool/wagers/straight/quote" }) })).status)).toBe(200);
-  await page.getByLabel("Risk in whole shares").fill("1");
-  await page.getByRole("button", { name: "Review straight wager" }).evaluate((button) => button.click());
-  await expect(page.getByLabel("League")).toBeDisabled();
-  await expect(page.getByRole("button", { name: /Select .*Away/i }).first()).toBeDisabled();
-  await expect(page.getByRole("heading", { name: "Confirm straight wager" })).toBeVisible();
-  await page.getByRole("button", { name: "Edit terms" }).click();
-  // A withheld completed quote rejects in bounded time and retry sends the exact
-  // original browser request/identity rather than minting replacement authority.
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to board" }).click();
+  // A withheld completed quote rejects in bounded time and retry re-quotes the
+  // same semantic identity rather than minting replacement authority.
   expect(await page.evaluate(async () => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: "/api/p/orders-pool/wagers/straight/quote" }) })).status)).toBe(200);
   const droppedQuoteAt = Date.now();
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(page.getByRole("alert")).toContainText("Unable to complete this request (REQUEST_FAILED).");
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Odds unavailable");
   expect(Date.now() - droppedQuoteAt).toBeLessThan(10_000);
-  await expect(page.getByRole("heading", { name: "Confirm straight wager" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(page.getByRole("heading", { name: "Confirm straight wager" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to odds board" }).click();
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
   expect(straightQuoteBodies).toHaveLength(3);
-  expect(straightQuoteBodies[2]).toEqual(straightQuoteBodies[1]);
+  expect(straightQuoteBodies[2]!.wagerId).toBe(straightQuoteBodies[1]!.wagerId);
+  expect(straightQuoteBodies[2]!.leg).toEqual(straightQuoteBodies[1]!.leg);
+  expect(straightQuoteBodies[2]!.quoteKey).not.toBe(straightQuoteBodies[1]!.quoteKey);
   // The real first placement completes before its response is withheld. Retry
-  // must retain the same frozen snapshot and durable mutation identity.
+  // must resend the exact frozen placement with the same durable identity.
   expect(await page.evaluate(async () => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: "/api/p/orders-pool/wagers/straight/place" }) })).status)).toBe(200);
   const droppedPlacementAt = Date.now();
-  await page.getByRole("button", { name: "Place wager" }).click();
-  await expect(page.getByRole("alert")).toContainText("Unable to complete this request (REQUEST_FAILED).");
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("alert")).toContainText("Placement result unknown");
   expect(Date.now() - droppedPlacementAt).toBeLessThan(10_000);
-  await expect(page.getByRole("heading", { name: "Confirm straight wager" })).toBeVisible();
-  await page.getByRole("button", { name: "Place wager" }).click();
+  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
   await expect.poll(() => straightPlacementBodies).toHaveLength(2);
   expect(straightPlacementBodies[1]).toEqual(straightPlacementBodies[0]);
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(/\/p\/orders-pool\/my-wagers$/);
-  await page.getByRole("link", { name: "Return to odds", exact: true }).click();
-  await page.getByRole("button", { name: /Select .*Away/i }).first().click();
+  await page.getByRole("link", { name: "Return to games", exact: true }).click();
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   let straightQuoteRequests = 0;
   page.on("request", (request) => {
     if (
@@ -136,53 +124,26 @@ test("commissioner funds shares and confirms a canonical straight wager through 
     )
       straightQuoteRequests++;
   });
-  await page.getByLabel("Risk in whole shares").fill("1.5");
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(page.getByRole("alert")).toHaveText(
-    "Wager risk must be a whole number of shares",
-  );
-  await expect(page.getByRole("alert")).toBeFocused();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1.5");
+  await expect(page.getByText("Whole shares required.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Place bets" })).toBeDisabled();
   await expect.poll(() => straightQuoteRequests).toBe(0);
-  await page.getByLabel("Risk in whole shares").fill("1");
-  await page.getByRole("button", { name: "Review straight wager" }).click();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  await page.getByRole("button", { name: "Place bets" }).click();
   await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
+    page.getByRole("heading", { name: "Review straight wagers" }),
   ).toBeVisible();
   await expect(
-    page.getByText(/Local Away at Local Home; kickoff/),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /Source DraftKings, retrieved .*spread (?:home|away) line -?3(?:\.5)?; source price -110; accepted ticket price \+100\./,
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /Risk 1 whole shares; ruleset SHARE_POOL_2026_V1; possible profit 1\.00 shares; total return 2\.00 shares\./,
-    ),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Place wager" }).click();
+    page.getByRole("row", { name: /Local Away/ }),
+  ).toContainText("1");
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(/\/p\/orders-pool\/my-wagers$/);
-  await expect(page.getByText("Open").first()).toBeVisible();
-  await expect(
-    page.getByText(
-      /straight · Risk 1\.00 shares · accepted ticket price \+100/,
-    ).first(),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /NFL spread (?:home|away): Local Away at Local Home; kickoff .*source price -110; original line -?3(?:\.5)?; DraftKings, retrieved/,
-    ).first(),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/Ruleset SHARE_POOL_2026_V1; confirmed/).first(),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/Possible profit 1\.00 shares; total return 2\.00 shares/).first(),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Cancellation is not available after confirmation."),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
+  const openBets = page.getByRole("table", { name: "Open bets" });
+  await expect(openBets.getByRole("row", { name: /Local Away at Local Home.*Local Away \+3.*\+100.*1\.00.*2\.00/ }).first()).toBeVisible();
+  await expect(page.getByText("Bets cannot be canceled after placement.")).toBeVisible();
   // The browser renders the real durable balance without ever converting its
   // canonical integer micros through Number.
   const largeOrder = await page.evaluate(async () => {
@@ -206,11 +167,12 @@ test("commissioner confirms an in-page reversal and preserves immutable order hi
   await page.getByLabel("Pool web address").fill("reversal-pool");
   await page.getByLabel("Join password").fill("reversal-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
@@ -230,7 +192,7 @@ test("commissioner confirms an in-page reversal and preserves immutable order hi
   await expect(page.getByText("Correcting an accidental issue")).toBeVisible();
 });
 
-test("the real browser preserves six-decimal defaults, filters canonical odds, and focuses an insufficient-risk rejection without changing the balance", async ({
+test("the real browser uses whole-share defaults, filters canonical odds, and focuses an insufficient-risk rejection without changing the balance", async ({
   page,
   worker,
 }) => {
@@ -240,53 +202,41 @@ test("the real browser preserves six-decimal defaults, filters canonical odds, a
   await page.getByLabel("Pool web address").fill("recovery-pool");
   await page.getByLabel("Join password").fill("recovery-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
-  await page.getByLabel("Default amount").fill("1.234567");
+  await page.getByLabel("Default amount").fill("1");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
-  await expect(page.getByLabel("Amount")).toHaveValue("1.234567");
+  await expect(page.getByLabel("Amount")).toHaveValue("1");
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+  await page.getByRole("link", { name: "Games", exact: true }).click();
 
-  const upcomingDate = await page.evaluate(async () => {
-    const response = await fetch(
-      "/api/p/recovery-pool/odds?league=nfl&market=spread",
-    );
-    const body = (await response.json()) as {
-      offers: Array<{ startsAt: string }>;
-    };
-    return body.offers[0]!.startsAt.slice(0, 10);
-  });
   await page.getByLabel("League").selectOption("nfl");
-  await page.getByLabel("Market").selectOption("spread");
-  await page.getByLabel("Date").fill(upcomingDate);
   await expect(
-    page.getByRole("button", { name: /Select Local Away/i }),
+    page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /Select (Over|Under)/i }),
-  ).toHaveCount(0);
+    page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }),
+  ).toHaveCount(1);
 
-  const selection = page.getByRole("button", { name: /Select Local Away/i });
+  const selection = page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ });
   await selection.focus();
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Space");
+  await expect(selection).toBeChecked();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("4");
+  await page.getByRole("button", { name: "Place bets" }).click();
   await expect(
-    page.getByRole("heading", { name: "Build straight wager" }),
+    page.getByRole("heading", { name: "Review straight wagers" }),
   ).toBeVisible();
-  await page.getByLabel("Risk in whole shares").fill("4");
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Place wager" }).click();
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
   const error = page.getByRole("alert");
-  await expect(error).toContainText("not have enough available shares");
-  await expect(error).toBeFocused();
+  await expect(error).toContainText("Not enough shares.");
   await page.goto(`${worker.baseURL}/p/recovery-pool/overview`);
   await expect(
     page.getByRole("row", { name: /Available shares/i }),
@@ -303,25 +253,23 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await page.getByLabel("Pool web address").fill("teaser-pool");
   await page.getByLabel("Join password").fill("teaser-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
-  await page.getByRole("button", { name: /Select Local Away/i }).click();
-  await page.getByRole("button", { name: "Add selection to teaser" }).click();
-  const totals = page.getByRole("button", { name: /Select (Over|Under)/i });
-  await totals.first().click();
-  await page.getByRole("button", { name: "Add selection to teaser" }).click();
-  // The slug-scoped session slip is the production handoff, so prove it survives an odds-page remount.
-  await page.reload();
-  await page.getByRole("link", { name: "Build a teaser" }).click();
-  await expect(page.getByText("9", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/overview$/);
+  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+  await page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }).check();
+  await page.getByRole("button", { name: "Build teaser" }).click();
+  await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
+  await expect(page.getByText(/Local Away \+9/)).toBeVisible();
   let teaserQuoteRequests = 0;
   const teaserQuoteBodies: Record<string, unknown>[] = [];
   const teaserPlacementBodies: Record<string, unknown>[] = [];
@@ -336,14 +284,14 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
         request.postDataJSON() as Record<string, unknown>,
       );
   });
-  await page.getByLabel("Risk in whole shares").fill("1.5");
+  await page.getByLabel("Risk", { exact: true }).fill("1.5");
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await expect(page.getByRole("alert")).toHaveText(
-    "Wager risk must be a whole number of shares",
+    "Whole shares required.",
   );
   await expect(page.getByRole("alert")).toBeFocused();
   await expect.poll(() => teaserQuoteRequests).toBe(0);
-  await page.getByLabel("Risk in whole shares").fill("1");
+  await page.getByLabel("Risk", { exact: true }).fill("1");
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await expect(
     page.getByRole("heading", { name: "Confirm teaser wager" }),
@@ -351,15 +299,10 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(
     page.getByText(/Local Away at Local Home/).first(),
   ).toBeVisible();
-  const teaserTermLabels = page.getByText(
-    /source price [+-]?\d+; accepted teaser price [+-]?\d+/,
-  );
-  await expect(teaserTermLabels).toHaveCount(2);
-  await expect(teaserTermLabels.first()).toBeVisible();
-  await expect(page.getByText(/adjusted to 9/)).toBeVisible();
-  await expect(
-    page.getByText(/possible profit 0\.83 shares; total return 1\.83 shares\./),
-  ).toBeVisible();
+  await expect(page.getByText(/Odds:/)).toBeVisible();
+  await expect(page.getByText(/Win:/)).toBeVisible();
+  await expect(page.getByText(/Payout:/)).toBeVisible();
+  await expect(page.getByText(/line 9/)).toBeVisible();
   // A real LINE_CHANGED plus a dropped completed odds read retains the frozen confirmation and its keys.
   expect(
     await page.evaluate(
@@ -397,7 +340,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   ).toBe(200);
   await page.getByRole("button", { name: "Place teaser" }).click();
   await expect(page.getByRole("alert")).toContainText(
-    "could not retrieve current odds",
+    "Odds unavailable",
   );
   await expect(
     page.getByRole("heading", { name: "Confirm teaser wager" }),
@@ -419,14 +362,14 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(
     page.getByRole("heading", { name: "Teaser builder" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Risk in whole shares")).toHaveValue("1");
+  await expect(page.getByLabel("Risk", { exact: true })).toHaveValue("1");
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Teaser builder" }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(2);
   // The recovered current board is authoritative: a terminal rejection restores its current legs and persisted slip.
-  await page.getByLabel("Risk in whole shares").fill("1");
+  await page.getByLabel("Risk", { exact: true }).fill("1");
   await page.getByLabel("6.5 points").check();
   await expect(page.getByLabel("6.5 points")).toBeChecked();
   await page.getByRole("button", { name: "Review teaser wager" }).click();
@@ -451,7 +394,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   ).toBe(200);
   await page.getByRole("button", { name: "Place teaser" }).click();
   await expect(page.getByRole("alert")).toContainText(
-    "This event is locked because it has started.",
+    "Event has started.",
   );
   await expect(page.getByRole("alert")).toBeFocused();
   await expect(
@@ -460,7 +403,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(
     page.getByRole("heading", { name: "Teaser builder" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Risk in whole shares")).toHaveValue("1");
+  await expect(page.getByLabel("Risk", { exact: true })).toHaveValue("1");
   await expect(page.getByLabel("6.5 points")).toBeChecked();
   await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(2);
   expect(
@@ -492,7 +435,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
     ),
   ).toBe(200);
   // Re-review current v2 terms, then prove an authoritative board with the selected leg absent clears both editor and slip.
-  await page.getByLabel("Risk in whole shares").fill("1");
+  await page.getByLabel("Risk", { exact: true }).fill("1");
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await expect(
     page.getByRole("heading", { name: "Confirm teaser wager" }),
@@ -547,16 +490,11 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   ).toBe(200);
   await page.getByRole("link", { name: "odds board" }).click();
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  await page.getByRole("button", { name: /Select Local Away/i }).click();
-  await page.getByRole("button", { name: "Add selection to teaser" }).click();
-  await page
-    .getByRole("button", { name: /Select (Over|Under)/i })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Add selection to teaser" }).click();
-  await page.getByRole("link", { name: "Build a teaser" }).click();
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+  await page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }).check();
+  await page.getByRole("button", { name: "Build teaser" }).click();
   await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(2);
-  await page.getByLabel("Risk in whole shares").fill("1");
+  await page.getByLabel("Risk", { exact: true }).fill("1");
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await expect(
     page.getByRole("heading", { name: "Confirm teaser wager" }),
@@ -595,21 +533,10 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   expect(teaserPlacementBodies[4]!.mutationKey).not.toBe(
     teaserQuoteBodies[3]!.quoteKey,
   );
-  await expect(page.getByText("teaser", { exact: true })).toBeVisible();
-  await expect(
-    page.getByText(/teaser · Risk 1\.00 shares · accepted ticket price -120/),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /Local Away at Local Home; kickoff .*source price [+-]\d+; original line .* adjusted/,
-    ),
-  ).toHaveCount(2);
-  await expect(
-    page.getByText(/Ruleset SHARE_POOL_2026_V1; confirmed/),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/Possible profit 0\.83 shares; total return 1\.83 shares/),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
+  const openBets = page.getByRole("table", { name: "Open bets" });
+  await expect(openBets.getByText("Local Away at Local Home")).toHaveCount(2);
+  await expect(openBets.getByRole("row", { name: /-120.*1\.00.*1\.83/ })).toBeVisible();
 });
 
 test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh explicit straight re-quote", async ({
@@ -622,17 +549,19 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
   await page.getByLabel("Pool web address").fill("line-change-pool");
   await page.getByLabel("Join password").fill("line-change-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
-  await page.getByRole("button", { name: /Select Local Away/i }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+  await page.getByRole("link", { name: "Games", exact: true }).click();
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   const quoteBodies: Record<string, unknown>[] = [];
   const placementBodies: Record<string, unknown>[] = [];
   page.on("request", (request) => {
@@ -642,19 +571,16 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
     if (request.url().includes("/wagers/straight/place"))
       placementBodies.push(request.postDataJSON() as Record<string, unknown>);
   });
-  await page.getByLabel("Risk in whole shares").fill("1");
-  // Turn D1 over after editor selection but before quotation: the stale request
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  // Turn D1 over after slip selection but before quotation: the stale request
   // must not become a durable v2 snapshot under its v1 identity.
   expect(await page.evaluate(async () => (await fetch("/__local-test/offer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ eventId: "local-nfl-upcoming", market: "spread", selection: "away", price: -115, point: 4.5, offerVersion: "local-quote-turnover-v2" }) })).status)).toBe(200);
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(page.getByRole("alert")).toHaveText("The line changed. Review the replacement terms and explicitly confirm again.");
-  await expect(page.getByRole("heading", { name: "Confirm straight wager" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Place bets" }).click();
+  // The slip re-resolves against a freshly fetched board, so the turned-over v1
+  // identity is never quoted: the browser sends only the current v2 terms.
+  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
   expect(quoteBodies).toHaveLength(1);
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(page.getByRole("heading", { name: "Confirm straight wager" })).toBeVisible();
-  expect(quoteBodies).toHaveLength(2);
-  expect(quoteBodies[1]!.wagerId).toBe(quoteBodies[0]!.wagerId);
-  expect(quoteBodies[1]!.quoteKey).not.toBe(quoteBodies[0]!.quoteKey);
+  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("4.5");
   const quoteReplay = await page.evaluate(
     async (body) =>
       Promise.all(
@@ -670,7 +596,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
           return { status: response.status, body: await response.json() };
         }),
       ),
-    quoteBodies[1],
+    quoteBodies[0],
   );
   expect(quoteReplay[0]).toEqual(quoteReplay[1]);
   const changed = await page.evaluate(
@@ -691,45 +617,19 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
       ).status,
   );
   expect(changed).toBe(200);
-  expect(
-    await page.evaluate(
-      async () =>
-        (
-          await fetch("/__local-test/response-barrier", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              mode: "drop",
-              pathname: "/api/p/line-change-pool/odds",
-            }),
-          })
-        ).status,
-    ),
-  ).toBe(200);
-  await page.getByRole("button", { name: "Place wager" }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "could not retrieve current odds",
-  );
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Line changed.");
+  await page.getByRole("button", { name: "Back to odds board" }).click();
   await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
+    page.getByRole("checkbox", { name: "Local Away +4.5", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Place wager" }).click();
-  await expect(page.getByRole("alert")).toHaveText(
-    "The line changed. Review the replacement terms and explicitly confirm again.",
-  );
-  await expect(page.getByRole("alert")).toBeFocused();
-  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
+  await page.getByRole("button", { name: "Place bets" }).click();
   await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
+    page.getByRole("heading", { name: "Review straight wagers" }),
   ).toBeVisible();
-  await expect(
-    page.getByText(/line 4.5; source price -115; accepted ticket price \+100/),
-  ).toBeVisible();
-  // A fetched board that lacks the selected semantic outcome is terminal for this editor, unlike a dropped read.
+  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("4.5");
+  // A fetched board that lacks the selected semantic outcome is terminal for this selection, unlike a dropped read.
   expect(
     await page.evaluate(
       async () =>
@@ -750,22 +650,14 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
         ).status,
     ),
   ).toBe(200);
-  await page.getByRole("button", { name: "Place wager" }).click();
-  await expect(page.getByRole("alert")).toHaveText(
-    "The line changed and this offer is no longer available. Select a current offer and review it again.",
-  );
-  await expect(page.getByRole("alert")).toBeFocused();
-  await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
-  ).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Build straight wager" }),
-  ).toHaveCount(0);
-  await expect(page.getByLabel("Risk in whole shares")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Review straight wager" }),
-  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Line changed.");
+  await page.getByRole("button", { name: "Back to odds board" }).click();
+  await expect(page.getByText("(no longer available)")).toBeVisible();
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("no longer available on the board");
   expect(
     await page.evaluate(
       async () =>
@@ -774,34 +666,33 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
   ).toBe(200);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  await page.getByRole("button", { name: /Select Local Away/i }).click();
-  await page.getByLabel("Risk in whole shares").fill("1");
-  await page.getByRole("button", { name: "Review straight wager" }).click();
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  await page.getByRole("button", { name: "Place bets" }).click();
   await expect(
-    page.getByRole("heading", { name: "Confirm straight wager" }),
+    page.getByRole("heading", { name: "Review straight wagers" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Place wager" }).click();
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(/\/p\/line-change-pool\/my-wagers$/);
-  // The rejected quote-time v1 request is followed by the fresh v2 request,
-  // its exact durable replay, v3 stale recovery, then a semantic re-seed.
-  expect(quoteBodies).toHaveLength(6);
-  expect(quoteBodies[2]).toEqual(quoteBodies[1]);
-  expect(quoteBodies[3]).toEqual(quoteBodies[1]);
-  expect(quoteBodies[4]!.quoteKey).not.toBe(quoteBodies[1]!.quoteKey);
-  expect(quoteBodies[4]!.wagerId).toBe(quoteBodies[1]!.wagerId);
-  expect(quoteBodies[5]!.quoteKey).not.toBe(quoteBodies[4]!.quoteKey);
-  expect(quoteBodies[5]!.wagerId).not.toBe(quoteBodies[4]!.wagerId);
-  expect(placementBodies).toHaveLength(4);
-  expect(placementBodies[0]!.mutationKey).toBe(placementBodies[1]!.mutationKey);
-  expect(placementBodies[1]).toEqual(placementBodies[0]);
+  // The initial v2 quote, its two raw replay probes, the v3 re-review, then a
+  // semantic re-seed with a fresh slip identity.
+  expect(quoteBodies).toHaveLength(5);
+  expect(quoteBodies[1]).toEqual(quoteBodies[0]);
+  expect(quoteBodies[2]).toEqual(quoteBodies[0]);
+  expect(quoteBodies[3]!.wagerId).toBe(quoteBodies[0]!.wagerId);
+  expect(quoteBodies[3]!.quoteKey).not.toBe(quoteBodies[0]!.quoteKey);
+  expect(quoteBodies[4]!.quoteKey).not.toBe(quoteBodies[3]!.quoteKey);
+  expect(quoteBodies[4]!.wagerId).not.toBe(quoteBodies[3]!.wagerId);
+  expect(placementBodies).toHaveLength(3);
+  expect(placementBodies[0]!.mutationKey).not.toBe(quoteBodies[0]!.quoteKey);
+  expect(placementBodies[1]!.mutationKey).not.toBe(
+    placementBodies[0]!.mutationKey,
+  );
   expect(placementBodies[2]!.mutationKey).not.toBe(
     placementBodies[1]!.mutationKey,
   );
-  expect(placementBodies[3]!.mutationKey).not.toBe(
-    placementBodies[2]!.mutationKey,
-  );
-  expect(placementBodies[0]!.mutationKey).not.toBe(quoteBodies[1]!.quoteKey);
-  expect(placementBodies[3]!.mutationKey).not.toBe(quoteBodies[5]!.quoteKey);
   await expect(page.getByRole("row")).toHaveCount(2);
 });
 
@@ -828,20 +719,6 @@ async function joinSecondMember(
     await member.getByLabel("Email address").fill("quoted-member@example.test");
     await member.getByLabel("Password").fill("first-password");
     await member.getByRole("button", { name: "Create account" }).click();
-    await expect
-      .poll(
-        async () =>
-          (await worker.mailbox()).find(
-            (message) => message.to === "quoted-member@example.test",
-          )?.token,
-      )
-      .toBeTruthy();
-    const token = (await worker.mailbox()).find(
-      (message) => message.to === "quoted-member@example.test",
-    )!.token;
-    await member.evaluate(async (value) => {
-      await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`);
-    }, token);
     await member.getByRole("link", { name: "log in", exact: true }).click();
     await member.getByLabel("Email address").fill("quoted-member@example.test");
     await member.getByLabel("Password").fill("first-password");
@@ -851,7 +728,7 @@ async function joinSecondMember(
     await member.goto(`${worker.baseURL}/p/${slug}`);
     await member.getByLabel("Pool password").fill(password);
     await member.getByRole("button", { name: "Join pool" }).click();
-    await expect(member).toHaveURL(new RegExp(`/p/${slug}/overview$`));
+    await expect(member).toHaveURL(new RegExp(`/p/${slug}/odds$`));
   } finally {
     await context.close();
   }
@@ -874,14 +751,15 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     "stale-order-pool",
     "stale-order-password",
   );
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
-  await page.getByLabel("Default amount").fill("1.234567");
+  await page.getByLabel("Default amount").fill("1");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
-  await expect(page.getByLabel("Amount")).toHaveValue("1.234567");
+  await expect(page.getByLabel("Amount")).toHaveValue("1");
   await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
   const orderQuoteBodies: Record<string, unknown>[] = [];
   const orderExecutionBodies: Record<string, unknown>[] = [];
@@ -896,12 +774,12 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     const executionStart = orderExecutionBodies.length;
     await page.getByLabel("Order form").selectOption(mode);
     const input = page.getByLabel("Amount");
-    await input.fill("1.234567");
+    await input.fill("1");
     await page.getByRole("button", { name: "Quote order" }).click();
     await expect(
       page.getByRole("heading", { name: "Confirm share order" }),
     ).toBeVisible();
-    const reviewedQuotes = () => orderQuoteBodies.slice(quoteStart).filter((body) => body.amountMicros === "1234567" && body.mode === mode);
+    const reviewedQuotes = () => orderQuoteBodies.slice(quoteStart).filter((body) => body.amountMicros === "1000000" && body.mode === mode);
     await expect.poll(() => reviewedQuotes()).toHaveLength(1);
     const originalQuote = reviewedQuotes()[0]!;
     expect(originalQuote.idempotencyKey).toEqual(expect.any(String));
@@ -951,19 +829,19 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     });
     expect(bumped).toBe(200);
     await page.getByRole("button", { name: "Confirm order" }).click();
-    const reviewedExecutions = () => orderExecutionBodies.slice(executionStart).filter((body) => body.amountMicros === "1234567" && body.mode === mode);
+    const reviewedExecutions = () => orderExecutionBodies.slice(executionStart).filter((body) => body.amountMicros === "1000000" && body.mode === mode);
     await expect.poll(() => reviewedExecutions()).toHaveLength(1);
     const rejectedExecution = reviewedExecutions()[0]!;
     expect(rejectedExecution.idempotencyKey).toEqual(expect.any(String));
     expect(rejectedExecution.idempotencyKey).not.toBe(originalQuote.idempotencyKey);
     await expect(page.getByRole("alert")).toHaveText(
-      "The share price changed. Request and confirm the replacement order quote.",
+      "Share price changed.",
     );
     await expect(page.getByRole("alert")).toBeFocused();
     await expect(
       page.getByRole("heading", { name: "Confirm share order" }),
     ).toHaveCount(0);
-    await expect(input).toHaveValue("1.234567");
+    await expect(input).toHaveValue("1");
     await page.getByRole("button", { name: "Quote order" }).click();
     await expect(
       page.getByRole("heading", { name: "Confirm share order" }),
@@ -974,12 +852,12 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     expect(replacementQuote.idempotencyKey).not.toBe(originalQuote.idempotencyKey);
     await expect(
       page.getByText(
-        /Issue 1.23 shares worth 1.23 virtual value to Quoted Member/,
+        /Issue 1 shares to Quoted Member/,
       ),
     ).toBeVisible();
     await expect(
       page.getByText(
-        /Locked price: 1.0000 per share \(1.000000 exact six-decimal terms\); command version \d+/,
+        /Locked price: \$1.00 per share/,
       ),
     ).toBeVisible();
     await page.getByRole("button", { name: "Confirm order" }).click();
@@ -1004,6 +882,7 @@ test("Admin Orders gives distinct no-active and draft-season recovery guidance",
   await page.getByLabel("Pool web address").fill("season-recovery-pool");
   await page.getByLabel("Join password").fill("season-recovery-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByRole("status")).toContainText(
     "No active season. Create and open a season before issuing orders.",
@@ -1011,7 +890,7 @@ test("Admin Orders gives distinct no-active and draft-season recovery guidance",
   await page.goto(`${worker.baseURL}/p/season-recovery-pool/admin/season`);
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByRole("status")).toContainText(
     "A draft season exists. Open it from Season administration before issuing orders.",
@@ -1028,6 +907,7 @@ test("season recovery states block order quotes and direct the commissioner to t
   await page.getByLabel("Pool web address").fill("closed-recovery-pool");
   await page.getByLabel("Join password").fill("closed-recovery-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   let quotePosts = 0;
   page.on("request", (request) => {
@@ -1043,12 +923,12 @@ test("season recovery states block order quotes and direct the commissioner to t
   await expect(
     page.getByRole("button", { name: "Quote order" }),
   ).toBeDisabled();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
-  await page.getByLabel("Default amount").fill("1.234567");
+  await page.getByLabel("Default amount").fill("1");
   await page.getByRole("button", { name: "Create season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByRole("status")).toContainText(
     "A draft season exists. Open it from Season administration before issuing orders.",
@@ -1057,12 +937,12 @@ test("season recovery states block order quotes and direct the commissioner to t
     page.getByRole("button", { name: "Quote order" }),
   ).toBeDisabled();
   await expect.poll(() => quotePosts).toBe(0);
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
-  await expect(page.getByLabel("Amount")).toHaveValue("1.234567");
+  await expect(page.getByLabel("Amount")).toHaveValue("1");
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
@@ -1080,7 +960,7 @@ test("season recovery states block order quotes and direct the commissioner to t
       ).status,
   );
   expect(closed).toBe(200);
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByRole("status")).toContainText(
     "This season is closed. Review immutable order history; create and open a new season before issuing orders.",
@@ -1093,15 +973,15 @@ test("season recovery states block order quotes and direct the commissioner to t
   ).toHaveCount(0);
   await expect(page.getByText("Read-only closed-season record")).toBeVisible();
   await expect.poll(() => quotePosts).toBe(1);
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2027");
-  await page.getByLabel("Default amount").fill("1.234567");
+  await page.getByLabel("Default amount").fill("1");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
-  await expect(page.getByLabel("Amount")).toHaveValue("1.234567");
+  await expect(page.getByLabel("Amount")).toHaveValue("1");
   await page.getByRole("button", { name: "Quote order" }).click();
   await expect(
     page.getByRole("heading", { name: "Confirm share order" }),
@@ -1122,11 +1002,12 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
   await page.getByLabel("Pool web address").fill(slug);
   await page.getByLabel("Join password").fill("authorization-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
@@ -1266,20 +1147,6 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
       .fill("noncommissioner@example.test");
     await member.getByLabel("Password").fill("first-password");
     await member.getByRole("button", { name: "Create account" }).click();
-    await expect
-      .poll(
-        async () =>
-          (await worker.mailbox()).find(
-            (message) => message.to === "noncommissioner@example.test",
-          )?.token,
-      )
-      .toBeTruthy();
-    const token = (await worker.mailbox()).find(
-      (message) => message.to === "noncommissioner@example.test",
-    )!.token;
-    await member.evaluate(async (value) => {
-      await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`);
-    }, token);
     await member.getByRole("link", { name: "log in", exact: true }).click();
     await member
       .getByLabel("Email address")
@@ -1431,23 +1298,25 @@ test("stale and locked quoted offers reject only that new wager with a focused e
   await page.getByLabel("Pool web address").fill("offer-recovery-pool");
   await page.getByLabel("Join password").fill("offer-recovery-password");
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill("2026");
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await page.getByLabel("Amount").fill("3");
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
-  await page.getByRole("link", { name: "Odds", exact: true }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+  await page.getByRole("link", { name: "Games", exact: true }).click();
 
   for (const state of ["stale", "locked"] as const) {
-    await page.getByRole("button", { name: /Select Local Away/i }).click();
-    await page.getByLabel("Risk in whole shares").fill("1");
-    await page.getByRole("button", { name: "Review straight wager" }).click();
+    await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+    await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+    await page.getByRole("button", { name: "Place bets" }).click();
     await expect(
-      page.getByRole("heading", { name: "Confirm straight wager" }),
+      page.getByRole("heading", { name: "Review straight wagers" }),
     ).toBeVisible();
     const transition = await page.evaluate(
       async (nextState) =>
@@ -1465,21 +1334,18 @@ test("stale and locked quoted offers reject only that new wager with a focused e
       state,
     );
     expect(transition).toBe(200);
-    await page.getByRole("button", { name: "Place wager" }).click();
+    await page.getByRole("button", { name: "Place 1 wager" }).click();
     const error = page.getByRole("alert");
     await expect(error).toContainText(
       state === "stale"
-        ? "This offer is stale. Wait for a current feed."
-        : "This event is locked because it has started.",
+        ? "Odds are stale."
+        : "Event has started.",
     );
-    await expect(error).toBeFocused();
     await expect(
-      page.getByRole("heading", { name: "Confirm straight wager" }),
-    ).toHaveCount(0);
-    await expect(
-      page.getByRole("heading", { name: "Odds board" }),
+      page.getByRole("heading", { name: "Placement results" }),
     ).toBeVisible();
-    await expect(page.getByLabel("Risk in whole shares")).toHaveValue("1");
+    await page.getByRole("button", { name: "Back to odds board" }).click();
+    await expect(page.getByLabel(/^Risk in whole shares for/)).toHaveValue("1");
     await page.goto(`${worker.baseURL}/p/offer-recovery-pool/overview`);
     await expect(
       page.getByRole("row", { name: /Available shares/i }),
@@ -1500,7 +1366,7 @@ test("stale and locked quoted offers reject only that new wager with a focused e
           ).status,
       );
       expect(restored).toBe(200);
-      await page.getByRole("link", { name: "Odds", exact: true }).click();
+      await page.getByRole("link", { name: "Games", exact: true }).click();
     }
   }
 });

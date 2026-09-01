@@ -26,7 +26,7 @@ Copy `.dev.vars.example` to `.dev.vars` and provide local secrets when later tas
 
 ## Cloudflare resources
 
-`wrangler.jsonc` declares the production D1, a SQLite `PoolDO` migration, Queue, R2, scheduled cron bindings, and the `officepool.football` custom domain. Follow [the production deployment runbook](docs/production-deployment.md); it builds the public Turnstile site key into browser assets, keeps Worker secrets interactive, and validates the custom-domain deployment before publishing.
+`wrangler.jsonc` declares the production D1, a SQLite `PoolDO` migration, Queue, R2, scheduled cron bindings, and the `officepool.football` custom domain. Follow [the production deployment runbook](docs/production-deployment.md); it builds the public Turnstile site key into browser assets, keeps Worker secrets interactive, and validates the custom-domain deployment before publishing. See [architecture](docs/architecture.md), [operations and recovery](docs/operations.md), and the [accessibility review](docs/accessibility-review.md) for implementation and verification details.
 
 ### Service-only variables
 `BACKUP_ENCRYPTION_KEY`, `POOL_PROJECTION_SERVICE_TOKEN`, and `POOL_BACKUP_SERVICE_TOKEN` are Worker/service-only variable names. They are not browser variables; production values belong in Worker secrets. The example values are local non-secret placeholders only.

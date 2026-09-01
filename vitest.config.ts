@@ -11,15 +11,26 @@ export default defineConfig({
           name: "node",
           environment: "node",
           include: ["tests/**/*.test.ts"],
-          exclude: ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/durable/wagers-settlement.test.ts", "tests/durable/privacy-outbox.test.ts"],
+          exclude: ["tests/local/**/*.test.ts", "tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/durable/wagers-settlement.test.ts", "tests/durable/privacy-outbox.test.ts"],
           setupFiles: ["tests/setup.ts"]
+        }
+      },
+      {
+        test: {
+          name: "structure",
+          environment: "node",
+          include: ["tests/local/**/*.test.ts"],
+          setupFiles: ["tests/setup.ts"],
+          // Heavy build-spawning composition/ownership gates; run explicitly via `npm run test:structure`.
+          testTimeout: 300_000,
+          hookTimeout: 300_000
         }
       },
       {
         plugins: [cloudflareTest(workers)],
         test: {
           name: "workers",
-          include: ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/durable/wagers-settlement.test.ts", "tests/durable/privacy-outbox.test.ts"],
+          include: ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/durable/wagers-settlement.test.ts", "tests/durable/privacy-outbox.test.ts"],
           pool: cloudflarePool(workers),
           setupFiles: ["tests/setup.ts"]
         }

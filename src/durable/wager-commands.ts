@@ -7,14 +7,30 @@ import type { PoolCommand } from "./pool-commands";
 
 type Sql = { exec(query: string, ...params: SqlStorageValue[]): Iterable<Record<string, SqlStorageValue>> };
 type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" }>;
+type WagerLeg = Extract<Placement, { type: "PlaceStraightWager" }>["leg"] | Extract<Placement, { type: "PlaceTeaserWager" }>["legs"][number];
 const first = (sql: Sql, query: string, ...params: SqlStorageValue[]) => [...sql.exec(query, ...params)][0];
 const now = () => new Date().toISOString();
+const gcd = (a: bigint, b: bigint): bigint => b === 0n ? a : gcd(b, a % b);
+const lcm = (a: bigint, b: bigint): bigint => a / gcd(a, b) * b;
+
+/** Enforces the pool-wide limit with exact fractional teaser exposure, never rounded shares. */
+function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): void {
+  const legCount = BigInt(legs.length);
+  for (const leg of legs) {
+    const prior = [...sql.exec("SELECT w.risk_micros, COUNT(all_legs.id) AS leg_count FROM wager w JOIN wager_leg matched ON matched.wager_id = w.id JOIN wager_leg all_legs ON all_legs.wager_id = w.id WHERE w.season_id = ? AND w.status = 'open' AND matched.event_id = ? AND matched.market = ? AND matched.selection = ? GROUP BY w.id", command.seasonId, leg.eventId, leg.market, leg.selection)];
+    const denominators = [legCount, ...prior.map((row) => BigInt(String(row.leg_count)))];
+    const denominator = denominators.reduce(lcm, 1n);
+    const existing = prior.reduce((total, row) => total + parseIntegerText(String(row.risk_micros)) * (denominator / BigInt(String(row.leg_count))), 0n);
+    const proposed = parseIntegerText(command.riskMicros) * (denominator / legCount);
+    if (existing + proposed > maxSideBetMicros * denominator) throw new Error("SIDE_BET_LIMIT");
+  }
+}
 
 /** Locks whole shares and records every accepted provider/offer term before any result is available. */
 export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
   const risk = parseIntegerText(command.riskMicros);
   if (risk < WHOLE_SHARE_MICROS || risk % WHOLE_SHARE_MICROS !== 0n) throw new Error("WHOLE_SHARE_RISK_REQUIRED");
-  const season = first(sql, "SELECT state FROM season WHERE id = ?", command.seasonId);
+  const season = first(sql, "SELECT season.state, pool.max_side_bet_micros FROM season JOIN pool ON 1 = 1 WHERE season.id = ?", command.seasonId);
   if (!season) throw new Error("SEASON_NOT_ACTIVE");
   if (season.state === "closed") throw new Error("SEASON_CLOSED");
   if (season.state !== "active") throw new Error("SEASON_NOT_ACTIVE");
@@ -30,6 +46,7 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
     if (command.rulesetVersion !== TEASER_RULESET_ID || teaserOdds(legs.length, command.teaserPoints) !== command.acceptedOdds || legs.some((leg) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg, command.teaserPoints) !== (leg as Extract<Placement, { type: "PlaceTeaserWager" }>['legs'][number]).adjustedLine)) throw new Error("INVALID_TEASER_TERMS");
   }
   if (legs.some((leg) => new Date(leg.eventStartsAt).getTime() <= Date.now())) throw new Error("MARKET_LOCKED");
+  assertSideBetLimit(sql, command, legs, parseIntegerText(String(season.max_side_bet_micros)));
 
   const confirmedAt = now();
   sql.exec("UPDATE share_account SET available_micros = ?, locked_micros = ?, row_version = row_version + 1 WHERE season_id = ? AND member_id = ?", (parseIntegerText(String(account.available_micros)) - risk).toString(), (parseIntegerText(String(account.locked_micros ?? "0")) + risk).toString(), command.seasonId, command.actorId);

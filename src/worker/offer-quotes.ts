@@ -1,5 +1,5 @@
 import { offerIsStale } from "../odds/ingestion";
-import { resolveCanonicalOutcomeSide, validateCanonicalMarket } from "../odds/market-semantics";
+import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
 import { CANONICAL_BOOK_POLICY_VERSION, type MarketName, type ProviderEvent } from "../odds/types";
 import type { PoolCommand } from "../durable/pool-commands";
 import { TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
@@ -134,8 +134,11 @@ function canonicalLeg(row: OfferRow | undefined, ingestion: IngestionRow | undef
   const outcome = matching.length === 1 ? matching[0] : undefined;
   if (!outcome) throw new Error("MARKET_UNAVAILABLE");
   const originalLine = outcome.point;
+  // Moneyline tickets strike at the vig-free fair line; the proof keeps the true book price as source.
+  const strikeOdds = leg.market === "moneyline" && (leg.selection === "home" || leg.selection === "away") ? vigFreeMoneylinePrice({ homeTeam: row.home_team, awayTeam: row.away_team }, payload.outcomes, leg.selection) : outcome.price;
+  if (strikeOdds === undefined) throw new Error("MARKET_UNAVAILABLE");
   const canonicalOfferProof = { offerId: `${leg.eventId}:${leg.market}:${leg.selection}`, eventId: leg.eventId, offerVersion: row.offer_version, canonicalBook: row.canonical_book, market: leg.market, selection: leg.selection, odds: outcome.price, line: originalLine ?? null };
-  return { eventId: leg.eventId, league: row.league as "nfl" | "ncaaf", canonicalBook: row.canonical_book, retrievedAt: row.retrieved_at, policyVersion: payload.policyVersion, offerVersion: row.offer_version, canonicalOfferProof, market: leg.market, selection: leg.selection, originalLine: originalLine ?? null, adjustedLine: originalLine ?? null, originalOdds: outcome.price, eventStartsAt: row.starts_at, homeTeam: row.home_team, awayTeam: row.away_team } as PlacementLeg;
+  return { eventId: leg.eventId, league: row.league as "nfl" | "ncaaf", canonicalBook: row.canonical_book, retrievedAt: row.retrieved_at, policyVersion: payload.policyVersion, offerVersion: row.offer_version, canonicalOfferProof, market: leg.market, selection: leg.selection, originalLine: originalLine ?? null, adjustedLine: originalLine ?? null, originalOdds: strikeOdds, eventStartsAt: row.starts_at, homeTeam: row.home_team, awayTeam: row.away_team } as PlacementLeg;
 }
 
 function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | undefined, leg: PlacementLeg, now: Date, teaserPoints?: Extract<PoolCommand, { type: "PlaceTeaserWager" }>["teaserPoints"]): void {
@@ -154,6 +157,8 @@ function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | unde
   const matching = payload.outcomes.filter((item) => resolveCanonicalOutcomeSide({ market: leg.market, homeTeam: row.home_team, awayTeam: row.away_team }, item.name) === leg.selection);
   const outcome = matching.length === 1 ? matching[0] : undefined;
   const line = outcome?.point ?? null;
+  // The strike the ticket must carry: the vig-free fair line for moneyline, the book price otherwise.
+  const expectedStrikeOdds = leg.market === "moneyline" && (leg.selection === "home" || leg.selection === "away") ? (outcome ? vigFreeMoneylinePrice({ homeTeam: row.home_team, awayTeam: row.away_team }, payload.outcomes, leg.selection) : undefined) : outcome?.price;
   const offerId = `${leg.eventId}:${leg.market}:${leg.selection}`;
   const proof = leg.canonicalOfferProof;
   const expectedAdjustedLine = teaserPoints === undefined
@@ -167,7 +172,8 @@ function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | unde
     && leg.offerVersion === row.offer_version
     && leg.eventStartsAt === row.starts_at
     && outcome !== undefined
-    && leg.originalOdds === outcome.price
+    && expectedStrikeOdds !== undefined
+    && leg.originalOdds === expectedStrikeOdds
     && leg.originalLine === line
     && leg.adjustedLine === expectedAdjustedLine
     && proof.offerId === offerId
@@ -181,7 +187,7 @@ function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | unde
   if (!matches) throw new LineChangedError({
     eventId: leg.eventId, league: row.league, canonicalBook: row.canonical_book, retrievedAt: row.retrieved_at,
     policyVersion: payload.policyVersion, offerVersion: row.offer_version, market: leg.market, selection: leg.selection,
-    originalOdds: outcome?.price, originalLine: line, adjustedLine: line, eventStartsAt: row.starts_at, homeTeam: row.home_team, awayTeam: row.away_team,
+    originalOdds: expectedStrikeOdds, originalLine: line, adjustedLine: line, eventStartsAt: row.starts_at, homeTeam: row.home_team, awayTeam: row.away_team,
     canonicalOfferProof: outcome ? { offerId, eventId: leg.eventId, offerVersion: row.offer_version, canonicalBook: row.canonical_book, market: leg.market, selection: leg.selection, odds: outcome.price, line } : null
   });
 }

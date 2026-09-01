@@ -16,14 +16,14 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: #d4d8dc; color: var(--ink); font-family: Arial, Verdana, sans-serif; line-height: 1.45; }
 a { color: #003f7d; text-decoration: underline; }
-a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .nav-bar a:focus-visible { outline-color: var(--focus-on-dark); }
 .nav-button:focus-visible { outline-color: var(--focus-on-dark); }
 .site-shell { width: min(100%, 980px); min-height: 100vh; margin: 0 auto; background: var(--paper); border-inline: 1px solid var(--line); }
 .masthead { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--navy); color: #fff; }
 .site-name, .site-note { margin: 0; }
 .site-name { font-size: 1.25rem; font-weight: 700; }
-.nav-bar { display: flex; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
+.nav-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
 .nav-bar a { color: #fff; }
 .nav-button { margin: 0; padding: 0; border: 0; background: transparent; color: #fff; font: inherit; text-decoration: underline; cursor: pointer; }
 .main-content { padding: var(--space-3); max-width: 75ch; }
@@ -45,5 +45,80 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .error-summary p { margin: var(--space-1) 0 0; }
 .state-notice { margin: var(--space-3) 0; padding: var(--space-2); border: 1px solid var(--line); background: var(--table-gray); }
 .state-notice h2 { margin: 0 0 var(--space-1); font-size: 1.1rem; }
-@media (max-width: 600px) { .masthead { align-items: flex-start; flex-direction: column; } .nav-bar { flex-wrap: wrap; } .main-content { padding: var(--space-2); } table { display: block; overflow-x: auto; } }
+@media (max-width: 600px) { .masthead { align-items: flex-start; flex-direction: column; } .nav-bar { flex-wrap: wrap; } .main-content { padding: var(--space-2); } .nav-bar a, .nav-button, button, .primary-action, .secondary-action { display: inline-flex; align-items: center; min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto; transition: none; } }
+/* Compact odds board: two-row game blocks — matchup cell spans both rows, one market per column. */
+.odds-board { margin: var(--space-2) 0; }
+.odds-board th, .odds-board td { padding: var(--space-1) var(--space-2); }
+.odds-matchup { width: 16ch; }
+.odds-matchup span { display: block; }
+.odds-empty { background: var(--table-gray); }
+.odds-option { display: inline-flex; flex-direction: row; align-items: center; gap: 0.35rem; margin: 0; white-space: nowrap; }
+.selection-tray-list { list-style: none; margin: var(--space-1) 0; padding: 0; }
+.selection-tray-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-1) 0; border-bottom: 1px solid var(--line); }
+.selection-tray-list li:last-child { border-bottom: 0; }
+.selection-tray-list label { flex-direction: row; align-items: center; margin: 0; }
+.main-content:has(.odds-board) { max-width: none; }
+.odds-board .odds-cell, .odds-board .odds-matchup { height: 2.4rem; vertical-align: middle; }
+.odds-matchup span { white-space: nowrap; }
+.site-shell:has(.odds-board) { width: 100%; border-inline: 0; }
+.odds-board .odds-game-top > td, .odds-board .odds-game-top > th { border-top: 2px solid var(--ink); }
+.odds-start { white-space: nowrap; color: #3b4046; }
+/* Bet slip pinned to the viewport bottom with column-aligned risk inputs. */
+.selection-tray { position: sticky; bottom: 0; z-index: 2; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
+.selection-tray-list li { flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
+.tray-item-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.selection-tray-list li > label { flex: 0 0 auto; width: 12rem; justify-content: flex-end; flex-direction: row; align-items: center; gap: 0.5rem; }
+.selection-tray-list li > label input { width: 5rem; text-align: right; }
+.odds-option.locked { color: #6e7780; }
+/* Secondary buttons: solid blue to contrast the orange primary actions. */
+button { padding: 0.55rem 0.8rem; background: var(--blue); color: #fff; font: inherit; font-weight: 700; border: 1px solid #003f7d; cursor: pointer; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button:not(.primary-action):not(.nav-button):hover:not(:disabled) { background: #2f5f9e; }
+.tray-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; align-items: stretch; }
+.tray-actions button { min-height: 2.4rem; }
+.tray-actions button, .tray-actions .primary-action { display: inline-flex; align-items: center; margin: 0; padding: 0.55rem 0.8rem; font: inherit; font-weight: 700; line-height: 1.45; min-height: 2.4rem; border-width: 1px; border-style: solid; white-space: nowrap; }
+.pool-context { margin: 0 0 var(--space-1); color: #3b4046; font-weight: 700; }
+.join-pool-form > label { display: block; margin: 0 0 var(--space-1); }
+.join-pool-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.join-pool-form input { width: 16rem; }
+.join-pool-controls button { margin: 0; }
+.main-content:has(.my-wagers-page) { max-width: none; }
+.my-wagers-page table { min-width: 58rem; }
+.teaser-risk-actions { display: flex; align-items: flex-end; justify-content: flex-start; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+.teaser-risk-actions label, .teaser-review-action { margin: 0; }
+.bet-slip-error { min-height: 1.45rem; margin: var(--space-1) 0 0; color: #9b1c1c; font-weight: 700; }
+.main-content:has(.standings-page) { max-width: none; }
+.secondary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--blue); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #003f7d; }
+.share-order-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.share-order-form label { justify-content: flex-end; margin: 0; }
+.share-order-form input, .share-order-form select, .share-order-form button { box-sizing: border-box; height: 2.5rem; }
+.share-order-form button { margin: 0; }
+.confirmation-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.confirmation-actions button { margin: 0; }
+.reversal-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.reversal-form label { justify-content: flex-end; margin: 0; }
+.reversal-form input, .reversal-form button { box-sizing: border-box; height: 2.5rem; }
+.reversal-actions { display: flex; gap: var(--space-2); }
+.reversal-actions button { margin: 0; }
+.wager-legs span { display: block; }
+@media (max-width: 600px) { .tray-actions button, .tray-actions .primary-action { min-height: 44px; } }
+@media (max-width: 600px) { .selection-tray-list li { flex-wrap: wrap; } }
+/* Mobile Games board prioritizes compact tappable prices over repeated team names. */
+.odds-mobile-start { display: none; }
+@media (max-width: 600px) {
+  .odds-board { min-width: 0; table-layout: fixed; font-size: 0.8rem; }
+  .odds-board th, .odds-board td { padding: 0.25rem 0.15rem; }
+  .odds-board thead th:first-child, .odds-board .odds-start { display: none; }
+  .odds-board thead th { overflow-wrap: anywhere; }
+  .odds-board thead th:nth-child(2) { width: 5.5rem; }
+  .odds-board .odds-matchup { width: auto; height: auto; padding-inline: var(--space-1); }
+  .odds-board .odds-matchup span { overflow-wrap: anywhere; white-space: normal; }
+  .odds-mobile-start { display: block; margin-top: 0.2rem; color: #3b4046; font-size: 0.72rem; font-weight: 400; }
+  .odds-board .odds-cell { padding: 0.25rem 0.1rem; text-align: center; }
+  .odds-board .odds-cell, .odds-board .odds-matchup { height: 2.1rem; }
+  .odds-option { width: 100%; justify-content: center; gap: 0.2rem; font-size: 0.78rem; }
+  .odds-option input { flex: 0 0 auto; margin: 0; }
+  .odds-option:not(.odds-option-total) .odds-option-name { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .odds-option-total .odds-option-name { font-weight: 700; }
+}

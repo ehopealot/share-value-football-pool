@@ -4,6 +4,8 @@ import type { EmailSender } from "../../src/auth/email-sender";
 
 type ResendSenderFactory = (options: { apiKey: string; from: string; fetcher?: typeof fetch }) => EmailSender;
 const createResendEmailSender = (emailSenderModule as unknown as { createResendEmailSender?: ResendSenderFactory }).createResendEmailSender;
+type PoolJoinNotifierFactory = (options: { apiKey: string; from: string; fetcher?: typeof fetch }) => { notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>; notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void> };
+const createResendPoolJoinNotifier = (emailSenderModule as unknown as { createResendPoolJoinNotifier?: PoolJoinNotifierFactory }).createResendPoolJoinNotifier;
 
 describe("Resend email sender", () => {
   it("sends a verification link with Resend's authenticated email request shape", async () => {
@@ -24,6 +26,22 @@ describe("Resend email sender", () => {
       text: "Verify your email address for Office Pool Reborn:\n\nhttps://officepool.football/api/auth/verify-email?token=verification-token&callbackURL=%2F\n\nIf you did not create an Office Pool Reborn account, you can ignore this email.",
       html: "<p>Verify your email address for <strong>Office Pool Reborn</strong>.</p><p><a href=\"https://officepool.football/api/auth/verify-email?token=verification-token&amp;callbackURL=%2F\">Verify email address</a></p><p>If you did not create an Office Pool Reborn account, you can ignore this email.</p>"
     });
+  });
+
+  it("notifies a commissioner when a member joins their pool", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
+    expect(createResendPoolJoinNotifier).toEqual(expect.any(Function));
+    await createResendPoolJoinNotifier!({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher }).notifyPoolJoin({ to: "commissioner@example.test", poolName: "Sunday Pool", memberName: "Taylor" });
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ from: "Office Pool Reborn <noreply@officepool.football>", to: ["commissioner@example.test"], subject: "New member in Sunday Pool", text: "Taylor joined Sunday Pool.", html: "<p><strong>Taylor</strong> joined <strong>Sunday Pool</strong>.</p>" });
+  });
+
+  it("notifies both commissioners about a completed handoff", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
+    const notifier = createResendPoolJoinNotifier!({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
+    await notifier.notifyCommissionerTransfer({ to: "new@example.test", poolName: "Sunday Pool", formerCommissionerName: "Alex", newCommissionerName: "Taylor", recipient: "new" });
+    await notifier.notifyCommissionerTransfer({ to: "former@example.test", poolName: "Sunday Pool", formerCommissionerName: "Alex", newCommissionerName: "Taylor", recipient: "former" });
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toMatchObject({ to: ["new@example.test"], subject: "You are now commissioner of Sunday Pool" });
+    expect(JSON.parse(String(fetcher.mock.calls[1]![1]?.body))).toMatchObject({ to: ["former@example.test"], subject: "Commissioner changed for Sunday Pool" });
   });
 
   it("fails without exposing a Resend response body when delivery is rejected", async () => {

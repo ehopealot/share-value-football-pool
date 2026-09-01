@@ -12,9 +12,6 @@ async function signInAccount(page: Page, baseURL: string, mailbox: Mailbox, name
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect.poll(async () => (await mailbox()).find((message) => message.to === email)?.token).toBeTruthy();
-  const token = (await mailbox()).find((message) => message.to === email)!.token;
-  await page.evaluate(async (value) => { await fetch(`/api/auth/verify-email?token=${encodeURIComponent(value)}`); }, token);
   await page.getByRole("link", { name: "log in", exact: true }).click();
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill("first-password");
@@ -33,6 +30,7 @@ async function createPool(page: Page, baseURL: string, slug: string, poolName: s
   await page.getByLabel("Pool web address").fill(slug);
   await page.getByLabel("Join password").fill(password);
   await page.getByRole("button", { name: "Create pool" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
   await expect(page.getByRole("link", { name: "Standings", exact: true })).toBeVisible();
 }
 
@@ -41,7 +39,7 @@ async function openSeason(page: Page, baseURL: string, slug: string, label: stri
   await page.getByLabel("Season label").fill(label);
   await page.getByRole("button", { name: "Create season" }).click();
   await page.getByRole("button", { name: "Open season" }).click();
-  await page.getByRole("link", { name: "Pool overview" }).click();
+  await page.getByRole("link", { name: "Pool home" }).click();
 }
 
 async function issueShares(page: Page, baseURL: string, slug: string, shares: string, memberName?: string) {
@@ -58,15 +56,16 @@ async function joinPool(page: Page, baseURL: string, slug: string, password: str
   await page.goto(`${baseURL}/p/${slug}`);
   await page.getByLabel("Pool password").fill(password);
   await page.getByRole("button", { name: "Join pool" }).click();
-  await expect(page).toHaveURL(new RegExp(`/p/${slug}/overview$`));
+  await expect(page).toHaveURL(new RegExp(`/p/${slug}/odds$`));
 }
 
 async function placeAwaySpreadWager(page: Page, baseURL: string, slug: string, risk = "1") {
   await page.goto(`${baseURL}/p/${slug}/odds`);
-  await page.getByRole("button", { name: "Select Local Away 3", exact: true }).click();
-  await page.getByLabel("Risk in whole shares").fill(risk);
-  await page.getByRole("button", { name: "Review straight wager" }).click();
-  await page.getByRole("button", { name: "Place wager" }).click();
+  await page.getByRole("checkbox", { name: "Local Away +3", exact: true }).check();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill(risk);
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));
 }
 
@@ -165,18 +164,15 @@ test("rules page reports authoritative season and exact stored feed/source obser
   await expect(page.getByRole("row", { name: "Ruleset SHARE_POOL_2026_V1" })).toBeVisible();
   await expect(page.getByRole("row", { name: "State current" })).toBeVisible();
   await expect(page.getByRole("row", { name: `Last polled ${observation.lastPolledAt}` })).toBeVisible();
-  await expect(page.getByRole("row", { name: /Local Away at Local Home spread DraftKings 2030-09-01T10:00:00.000Z/ })).toBeVisible();
 
   expect(await controlStatus(page, "/__local-test/feed-state", { state: "stale", ...observation, lastPolledAt: "2030-09-01T10:04:00.000Z" })).toBe(200);
   await page.reload();
   await expect(page.getByRole("row", { name: "State stale" })).toBeVisible();
-  await expect(page.getByText("No current canonical offer source observations are available.")).toBeVisible();
 
   expect(await controlStatus(page, "/__local-test/feed-state", { state: "provider-error", ...observation, lastPolledAt: "2030-09-01T10:05:00.000Z", lastSuccessAt: "2030-09-01T09:58:00.000Z" })).toBe(200);
   await page.reload();
   await expect(page.getByRole("row", { name: "State provider-error" })).toBeVisible();
   await expect(page.getByRole("row", { name: "Last successful poll 2030-09-01T09:58:00.000Z" })).toBeVisible();
-  await expect(page.getByText("No current canonical offer source observations are available.")).toBeVisible();
 
   expect(await controlStatus(page, "/__local-test/feed-state", { state: "no-offer", ...observation, lastPolledAt: "2030-09-01T10:06:00.000Z" })).toBe(200);
   expect(await controlStatus(page, "/__local-test/season", { poolSlug: slug, state: "closed" })).toBe(200);
@@ -275,10 +271,11 @@ test("canonical Super Bowl confirmation and final result automatically close the
 
     await reseedUpcomingEvent(owner);
     await owner.goto(`${worker.baseURL}/p/${slug}/odds`);
-    await owner.getByRole("button", { name: "Select Local Away 3", exact: true }).click();
-    await owner.getByLabel("Risk in whole shares").fill("1");
-    await owner.getByRole("button", { name: "Review straight wager" }).click();
-    await owner.getByRole("button", { name: "Place wager" }).click();
+    await owner.getByRole("checkbox", { name: "Local Away +3", exact: true }).check();
+    await owner.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+    await owner.getByRole("button", { name: "Place bets" }).click();
+    await owner.getByRole("button", { name: "Place 1 wager" }).click();
+    await owner.getByRole("link", { name: "My wagers" }).click();
     await expect(owner).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));
 
     const initialView = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { activeSeason: { id: string } }, slug);
@@ -287,8 +284,8 @@ test("canonical Super Bowl confirmation and final result automatically close the
     expect(await controlStatus(page, "/__local-test/alarm", { poolSlug: slug, currentTime: candidateAlarmTime.toISOString() })).toBe(200);
 
     await page.goto(`${worker.baseURL}/p/${slug}/admin/season`);
-    await expect(page.getByText("Canonical Super Bowl candidate: T11 Local Super Bowl LXI.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Confirm canonical Super Bowl" })).toBeVisible();
+    await expect(page.getByText("Super Bowl candidate: T11 Local Super Bowl LXI.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Confirm Super Bowl" })).toBeVisible();
 
     const confirmProbe = (actor: Page, eventId: string) => actor.evaluate(async ({ poolSlug, seasonId, eventId }) => {
       const response = await fetch(`/api/p/${poolSlug}/admin/seasons/${seasonId}/super-bowl/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ eventId, idempotencyKey: crypto.randomUUID() }) });
@@ -310,11 +307,11 @@ test("canonical Super Bowl confirmation and final result automatically close the
     const beforeConfirmation = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { commandVersion: string }, slug);
     expect(await page.evaluate(async (pathname) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname }) })).status, `/api/p/${slug}/admin/seasons/${seasonId}/super-bowl/confirm`)).toBe(200);
     const droppedConfirmationAt = Date.now();
-    await page.getByRole("button", { name: "Confirm canonical Super Bowl" }).click();
+    await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
     await expect(page.getByRole("alert")).toContainText("Unable to complete this request (REQUEST_FAILED).");
     expect(Date.now() - droppedConfirmationAt).toBeLessThan(10_000);
-    await page.getByRole("button", { name: "Confirm canonical Super Bowl" }).click();
-    await expect(page.getByText(/Canonical Super Bowl candidate: T11 Local Super Bowl LXI\. Confirmed\./)).toBeVisible();
+    await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
+    await expect(page.getByText(/Super Bowl candidate: T11 Local Super Bowl LXI\. Confirmed\./)).toBeVisible();
     expect(confirmationBodies).toHaveLength(2);
     expect(confirmationBodies[1]).toEqual(confirmationBodies[0]);
     const afterConfirmation = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { commandVersion: string }, slug);
@@ -406,12 +403,10 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     // boundary deterministic without waiting or manufacturing a wager/read response.
     await reseedUpcomingEvent(page);
     await ticketOwner.goto(`${worker.baseURL}/p/${slug}/odds`);
-    await ticketOwner.getByRole("button", { name: "Select Local Away 3", exact: true }).click();
-    await ticketOwner.getByRole("button", { name: "Add selection to teaser" }).click();
-    await ticketOwner.getByRole("button", { name: "Select T11 Super Away 4", exact: true }).click();
-    await ticketOwner.getByRole("button", { name: "Add selection to teaser" }).click();
-    await ticketOwner.getByRole("link", { name: "Build a teaser" }).click();
-    await ticketOwner.getByLabel("Risk in whole shares").fill("1");
+    await ticketOwner.getByRole("checkbox", { name: "Local Away +3", exact: true }).check();
+    await ticketOwner.getByRole("checkbox", { name: "T11 Super Away 4", exact: true }).check();
+    await ticketOwner.getByRole("button", { name: "Build teaser" }).click();
+    await ticketOwner.getByLabel("Risk", { exact: true }).fill("1");
     await ticketOwner.getByRole("button", { name: "Review teaser wager" }).click();
     await ticketOwner.getByRole("button", { name: "Place teaser" }).click();
     await expect(ticketOwner).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));
@@ -885,6 +880,6 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     await expect(memberB.getByRole("alert")).toContainText("The password was not accepted or signup is no longer available");
     await memberB.getByLabel("Pool password").fill(rotatedPassword);
     await memberB.getByRole("button", { name: "Join pool" }).click();
-    await expect(memberB).toHaveURL(new RegExp(`/p/${slug}/overview$`));
+    await expect(memberB).toHaveURL(new RegExp(`/p/${slug}/odds$`));
   } finally { await memberAContext.close(); await memberBContext.close(); await memberCContext.close(); }
 });

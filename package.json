@@ -9,8 +9,9 @@
     "build": "vite build",
     "build:production": "node scripts/build-production.mjs",
     "build:local": "wrangler deploy --dry-run --outdir dist-local --config wrangler.local.jsonc",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit --incremental",
+    "test": "vitest run --project=node --project=workers",
+    "test:structure": "vitest run --project=structure",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "t10:serial-gate": "node scripts/run-t10-serial-gate.mjs",
@@ -24,7 +25,10 @@
     "test:local-response-barrier": "tsx scripts/local-response-barrier.ts",
     "screenshots": "tsx scripts/capture-screenshots.ts",
     "screenshots:initial": "tsx scripts/capture-screenshots.ts --phase=initial",
-    "screenshots:final": "tsx scripts/capture-screenshots.ts --phase=final"
+    "screenshots:final": "tsx scripts/capture-screenshots.ts --phase=final",
+    "verify:design-md": "node scripts/verify-design-md.mjs",
+    "verify:finish-artifacts": "node scripts/verify-finish-artifacts.mjs",
+    "finish:review": "node scripts/run-finish-review.mjs"
   },
   "dependencies": {
     "@noble/hashes": "1.8.0",

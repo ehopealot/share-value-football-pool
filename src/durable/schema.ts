@@ -2,7 +2,7 @@ import { TEASER_RULESET_ID } from "../domain/teaser-table";
 
 /** PoolDO-local authority schema. Accounting amounts are canonical integer TEXT, never REAL. */
 export const poolSchema = [
-  `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, active_season_id TEXT, command_version TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', active_season_id TEXT, command_version TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS member (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('commissioner','member')), status TEXT NOT NULL CHECK(status IN ('active','suspended')), joined_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS season (id TEXT PRIMARY KEY, label TEXT NOT NULL, ruleset_version TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('draft','active','closed')), created_at TEXT NOT NULL, opened_at TEXT, closed_at TEXT, close_reason TEXT, float_micros TEXT NOT NULL, notional_micros TEXT NOT NULL, default_mode TEXT, default_amount_micros TEXT, command_version TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS share_account (season_id TEXT NOT NULL, member_id TEXT NOT NULL, available_micros TEXT NOT NULL, locked_micros TEXT NOT NULL, row_version TEXT NOT NULL, PRIMARY KEY(season_id, member_id))`,
@@ -40,6 +40,9 @@ export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
   if (!columns.some((column) => column.name === "ruleset_version")) sql.exec("ALTER TABLE season ADD COLUMN ruleset_version TEXT");
   // Seasons created before ruleset snapshots all used the sole fixed table available at that time.
   sql.exec("UPDATE season SET ruleset_version = ? WHERE ruleset_version IS NULL OR ruleset_version = ''", TEASER_RULESET_ID);
+  const poolColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")];
+  if (!poolColumns.some((column) => column.name === "max_side_bet_micros")) sql.exec("ALTER TABLE pool ADD COLUMN max_side_bet_micros TEXT NOT NULL DEFAULT '800000000'");
+  sql.exec("UPDATE pool SET max_side_bet_micros = '800000000' WHERE max_side_bet_micros IS NULL OR max_side_bet_micros = ''");
   const superBowlColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(season_super_bowl)")];
   if (!superBowlColumns.some((column) => column.name === "event_starts_at")) sql.exec("ALTER TABLE season_super_bowl ADD COLUMN event_starts_at TEXT");
 };

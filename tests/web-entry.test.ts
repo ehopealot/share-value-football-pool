@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../src/web/api";
+import { ApiError, api } from "../src/web/api";
 import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
-import { editStraightSemantic, recoverStraightSemantic, recoverStraightState, retryStraightSemantic, straightRecoveryTransition, straightTerminalTransition } from "../src/web/pages/OddsPage";
+import { boardEnablesWagerReview, failureReason, groupBoardByEvent, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome } from "../src/web/teaser-slip";
 import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserRecoveryTransition, teaserTerminalTransition } from "../src/web/pages/TeaserPage";
@@ -40,7 +40,7 @@ describe("entry redirects", () => {
     session.mockRestore(); memberships.mockRestore();
   });
   it("projects Admin Orders lifecycle and reversal pairing from ReadPoolView", () => {
-    const base = { commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "commissioner", signupsOpen: true }, currentMember: { memberId: "commissioner", role: "commissioner" as const, seasonBalances: [] }, members: [{ memberId: "commissioner", displayName: "Commissioner", role: "commissioner" as const, status: "active" as const }], commissioner: { seasonOrders: [] } };
+    const base = { commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "commissioner", signupsOpen: true, maxSideBetMicros: "800000000" }, currentMember: { memberId: "commissioner", role: "commissioner" as const, seasonBalances: [] }, members: [{ memberId: "commissioner", displayName: "Commissioner", role: "commissioner" as const, status: "active" as const }], commissioner: { seasonOrders: [] } };
     expect(projectAdminOrders({ ...base, activeSeason: null, nextDraftSeason: null, latestClosedSeason: null })).toMatchObject({ notice: "No active season. Create and open a season before issuing orders.", canOrder: false });
     const active = { id: "season", label: "2026", rulesetVersion: "SHARE_POOL_2026_V1", state: "active" as const, defaultOrderMode: "shares" as const, defaultOrderAmountMicros: "1000000", createdAt: "2030-01-01T00:00:00.000Z", openedAt: "2030-01-01T00:00:00.000Z", closedAt: null, floatMicros: "0", notionalValueMicros: "0" };
     const original = { orderId: "original", memberId: "commissioner", mode: "shares" as const, requestedMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", reversalOf: null, reason: "Issue", createdAt: "2030-01-01T00:00:00.000Z" };
@@ -68,17 +68,9 @@ describe("entry redirects", () => {
     expect(addTeaserLeg([home], home).error).toBe("Duplicate selections are not allowed.");
     expect(addTeaserLeg([home], teaserLegForOutcome(offer, { point: 3.5, price: -110 }, "away")).error).toBe("Opposing selections are not allowed.");
   });
-  it("re-resolves stale straight and teaser semantics from current offers without accepting a replacement payload", async () => {
+  it("re-resolves stale teaser semantics from current offers without accepting a replacement payload", async () => {
     const offer = { eventId: "event-1", league: "nfl" as const, homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread" as const, canonicalBook: "CurrentBook", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v2", policyVersion: "CANONICAL_BOOKS_2026_V1" as const, outcomes: [{ name: "Home", price: -105, point: -2.5 }] };
-    const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [offer], feed: { status: "current", message: "Canonical offers are current.", lastPolledAt: "2030-09-01T10:00:00.000Z", lastSuccessAt: "2030-09-01T10:00:00.000Z" } });
-    const straight = await recoverStraightSemantic("pool", { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", pick: { offer: { ...offer, canonicalBook: "OldBook", offerVersion: "v1" }, outcome: { name: "Home", price: -110, point: -3.5 } } });
-    expect(straight).toMatchObject({ wagerId: "wager-1", risk: "1", pick: { offer: { canonicalBook: "CurrentBook", offerVersion: "v2" } } });
-    expect(straight.quoteKey).not.toBe("quote-v1");
-    const recoveredState = await recoverStraightState("pool", { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", pick: { offer: { ...offer, canonicalBook: "OldBook", offerVersion: "v1" }, outcome: { name: "Home", price: -110, point: -3.5 } } });
-    expect(recoveredState.board.offers[0]).toBe(offer);
-    const straightPage = straightRecoveryTransition(recoveredState);
-    expect(straightPage.state).toMatchObject({ tag: "editing", editor: { wagerId: "wager-1", pick: { offer: { offerVersion: "v2" } } } });
-    expect(straightPage.error).toContain("explicitly confirm again");
+    const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [offer], feed: { status: "current", message: "Odds are up to date.", lastPolledAt: "2030-09-01T10:00:00.000Z", lastSuccessAt: "2030-09-01T10:00:00.000Z" } });
     const teaser = await recoverTeaserSemantic("pool", { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", points: 6, legs: [{ eventId: "event-1", league: "nfl", canonicalBook: "OldBook", retrievedAt: "old", policyVersion: "old", offerVersion: "v1", canonicalOfferProof: {}, market: "spread", selection: "home", originalLine: -3.5, originalOdds: -110, eventStartsAt: "2030-09-01T12:00:00.000Z" }] });
     expect(teaser).toMatchObject({ tag: "recovered", editor: { wagerId: "wager-1", legs: [{ canonicalBook: "CurrentBook", offerVersion: "v2", originalLine: -2.5, canonicalOfferProof: { offerId: "event-1:spread:home", offerVersion: "v2" } }] } });
     if (teaser.tag === "recovered") {
@@ -86,7 +78,7 @@ describe("entry redirects", () => {
       const teaserPage = teaserRecoveryTransition(teaser, { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", points: 6, legs: [] });
       expect(teaserPage).toMatchObject({ state: { tag: "editing", editor: { wagerId: "wager-1" } }, slip: teaser.editor.legs });
     }
-    expect(odds).toHaveBeenCalledTimes(3);
+    expect(odds).toHaveBeenCalledTimes(1);
   });
   it("recovers a punctuation-distinct teaser side without remapping it", async () => {
     const offer = { eventId: "punctuation", league: "nfl" as const, homeTeam: "A-B", awayTeam: "AB", startsAt: "2030-09-01T12:00:00.000Z", market: "spread" as const, canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v2", policyVersion: "CANONICAL_BOOKS_2026_V1" as const, outcomes: [{ name: "A-B", price: -105, point: -2 }, { name: "AB", price: -115, point: 2 }] };
@@ -97,16 +89,6 @@ describe("entry redirects", () => {
   });
 
   it("asserts every production identity retention and retirement transition", () => {
-    const straight = { wagerId: "straight-wager", quoteKey: "straight-quote", risk: "1", pick: { offer: { eventId: "e", market: "spread" }, outcome: { name: "Home" } } } as any;
-    expect(retryStraightSemantic(straight)).toBe(straight);
-    const staleStraight = straightRecoveryTransition({ tag: "recovered", board: { offers: [] }, editor: { ...straight, quoteKey: "straight-fresh" } });
-    expect(staleStraight.state).toMatchObject({ editor: { wagerId: "straight-wager", quoteKey: "straight-fresh" } });
-    expect((staleStraight.state as any).editor.quoteKey).not.toBe(straight.quoteKey);
-    const terminalStraight = straightTerminalTransition(straight) as Extract<ReturnType<typeof straightTerminalTransition>, { tag: "editing" }>;
-    expect(terminalStraight.editor.wagerId).not.toBe(straight.wagerId); expect(terminalStraight.editor.quoteKey).not.toBe(straight.quoteKey);
-    const editedStraight = editStraightSemantic(straight);
-    expect(editedStraight.wagerId).not.toBe(straight.wagerId); expect(editedStraight.quoteKey).not.toBe(straight.quoteKey);
-
     const teaser = { wagerId: "teaser-wager", quoteKey: "teaser-quote", risk: "1", points: 6, legs: [] } as any;
     expect(retryTeaserSemantic(teaser)).toBe(teaser);
     const staleTeaser = teaserRecoveryTransition({ tag: "recovered", editor: { ...teaser, quoteKey: "teaser-fresh" } }, teaser);
@@ -123,18 +105,40 @@ describe("entry redirects", () => {
     expect(retryReversalState(reversal)).toBe(reversal);
     expect(retryReversalState(reversal).idempotencyKey).toBe("reversal-key");
   });
+  it("builds straight batch requests, groups the compact board, and names per-item failure reasons", () => {
+    const offer = { eventId: "event-1", market: "spread" as const, homeTeam: "Home", awayTeam: "Away", canonicalBook: "DraftKings", offerVersion: "v2", startsAt: "2030-09-01T12:00:00.000Z", outcomes: [{ name: "Home", price: -105, point: -2.5 }] };
+    const request = straightQuoteRequest({ pick: { offer, outcome: offer.outcomes[0]! }, risk: "3", wagerId: "wager-1", quoteKey: "quote-v1" }, "season-1");
+    expect(request).toMatchObject({ wagerId: "wager-1", seasonId: "season-1", riskMicros: "3000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event-1:spread:home", offerVersion: "v2" }, quoteKey: "quote-v1", commandId: "quote-v1" });
+
+    const later = { ...offer, eventId: "event-2", startsAt: "2030-09-01T13:00:00.000Z", market: "total" as const, outcomes: [{ name: "Over", price: -110, point: 44.5 }] };
+    const moneyline = { ...offer, eventId: "event-3", startsAt: "2030-09-01T11:00:00.000Z", market: "moneyline" as const, outcomes: [{ name: "Home", price: 150 }] };
+    const games = groupBoardByEvent([later, offer, { ...moneyline, outcomes: [{ name: "Home", price: 150 }, { name: "Away", price: -170 }] }]);
+    expect(games.map((game) => game.eventId)).toEqual(["event-3", "event-1", "event-2"]);
+    expect(games[1]).toMatchObject({ awayTeam: "Away", homeTeam: "Home", markets: { spread: { home: { label: "Home -2.5", selection: "home" } }, total: {}, moneyline: {} } });
+    expect(games[2]).toMatchObject({ markets: { total: { over: { label: "O 44.5", selection: "over" } } } });
+    expect(noVigAmerican(-150, 130)).toEqual({ a: -138, b: 138 });
+    expect(noVigAmerican(-110, -110)).toEqual({ a: 100, b: 100 });
+    expect(noVigAmerican(0, 100)).toBeUndefined();
+
+    const asApi = (code: string, status: number) => new ApiError(code, status);
+    expect(failureReason(asApi("LINE_CHANGED", 400), "quote")).toBe("Line changed.");
+    expect(failureReason(asApi("LINE_CHANGED", 400), "place")).toBe("Line changed.");
+    expect(failureReason(asApi("POOL_UNAVAILABLE", 503), "place")).toBe("Placement result unknown.");
+    expect(failureReason(new Error("offline"), "quote")).toBe("Odds unavailable.");
+    expect(failureReason(asApi("MARKET_LOCKED", 400), "place")).toBe("Event has started.");
+    expect(failureReason(asApi("SIDE_BET_LIMIT", 400), "place", "800000000")).toBe("Max bet: 800 shares.");
+  });
+
+  it("anchors Tuesday weeks to Eastern Time boundaries", () => {
+    // Monday 2026-08-31 23:59:59 ET is still Week 1; Tuesday 00:00 ET starts Week 2.
+    expect(weekStartOf(new Date("2026-09-01T03:59:59.000Z")).toISOString()).toBe("2026-08-25T04:00:00.000Z");
+    expect(weekStartOf(new Date("2026-09-01T04:00:00.000Z")).toISOString()).toBe("2026-09-01T04:00:00.000Z");
+    expect(SEASON_WEEK1_ANCHOR).toBe(Date.parse("2026-08-25T04:00:00.000Z"));
+  });
+
   it("separates fetched semantic unavailability from retryable odds retrieval failure", async () => {
-    const request = { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", pick: { offer: { eventId: "event-1", market: "spread", homeTeam: "Home", awayTeam: "Away" }, outcome: { name: "Home" } } };
-    const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [], feed: { status: "no-offer", message: "No current canonical offers are available.", lastPolledAt: null, lastSuccessAt: null } });
-    const unavailableStraight = await recoverStraightState("pool", request);
-    expect(unavailableStraight).toMatchObject({ tag: "unavailable", board: { offers: [] } });
-    // The production-used reducer unmounts frozen confirmation before a fresh editor can appear.
-    expect(straightRecoveryTransition(unavailableStraight)).toMatchObject({ state: undefined, error: expect.stringContaining("no longer available") });
+    const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [], feed: { status: "no-offer", message: "No current odds are available.", lastPolledAt: null, lastSuccessAt: null } });
     await expect(recoverTeaserSemantic("pool", { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", points: 6, legs: [{ eventId: "event-1", market: "spread", selection: "home" }] as any })).resolves.toEqual({ tag: "unavailable" });
-    odds.mockRejectedValueOnce(new Error("offline"));
-    await expect(recoverStraightState("pool", request)).rejects.toThrow("offline");
-    const frozenStraight = { ...request, quote: { quoteKey: "snapshot" }, mutationKey: "m" } as any;
-    expect(straightTerminalTransition(frozenStraight)).toMatchObject({ tag: "editing", editor: { risk: "1" } });
     odds.mockRejectedValueOnce(new Error("offline"));
     await expect(recoverTeaserSemantic("pool", { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", points: 6, legs: [] })).rejects.toThrow("offline");
     const teaserRequest = { wagerId: "wager-1", quoteKey: "quote-v1", risk: "1", points: 6, legs: [{ eventId: "event-1" }] } as any;

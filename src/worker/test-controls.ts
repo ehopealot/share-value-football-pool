@@ -50,6 +50,66 @@ export type LocalTestControls = {
   responseBarrier?: LocalResponseBarrier;
 };
 
+const LOCAL_FIXTURE_MODE_PROVIDER = "local-fixture-mode";
+const LOCAL_FIXTURE_IDS = LOCAL_FIXTURE_EVENTS.map((event) => event.id);
+const LOCAL_FIXTURE_ID_LIST = LOCAL_FIXTURE_IDS.map(() => "?").join(", ");
+const LOCAL_FIXTURE_START_OFFSET_MS: Record<string, number> = {
+  "local-nfl-upcoming": 24 * 60 * 60 * 1000 + 5 * 60 * 1000,
+  "local-nfl-super-bowl": 24 * 60 * 60 * 1000 + 6 * 60 * 1000
+};
+
+const fixtureStartsAt = (event: typeof LOCAL_FIXTURE_EVENTS[number], now: Date) => event.completed ? event.commenceTime : new Date(now.getTime() + LOCAL_FIXTURE_START_OFFSET_MS[event.id]!).toISOString();
+const modeStatement = (db: D1Database, mode: "auto" | "manual", observedAt: string) => db.prepare("INSERT INTO odds_ingestion (provider, cursor, last_polled_at, last_success_at, last_error) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET cursor=excluded.cursor, last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(LOCAL_FIXTURE_MODE_PROVIDER, mode, observedAt, observedAt);
+const currentOddsStatement = (db: D1Database, observedAt: string) => db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(observedAt, observedAt);
+
+const removeNonFixtureRows = async (db: D1Database) => {
+  await db.batch([
+    db.prepare(`DELETE FROM market_offer WHERE event_id NOT IN (${LOCAL_FIXTURE_ID_LIST})`).bind(...LOCAL_FIXTURE_IDS),
+    db.prepare(`DELETE FROM sports_event WHERE id NOT IN (${LOCAL_FIXTURE_ID_LIST})`).bind(...LOCAL_FIXTURE_IDS)
+  ]);
+};
+
+/** Resets the local board to its deterministic fixture set and opts it into automatic renewal. */
+export async function seedLocalFixtures(db: D1Database, now = new Date()): Promise<void> {
+  await removeNonFixtureRows(db);
+  const observedAt = now.toISOString();
+  for (const event of LOCAL_FIXTURE_EVENTS) {
+    const startsAt = fixtureStartsAt(event, now);
+    await db.prepare("INSERT OR REPLACE INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, home_score, away_score, correction_version, finalized_at, event_name, postseason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'local-v1', ?, ?, ?)")
+      .bind(event.id, event.id, event.sport, event.homeTeam, event.awayTeam, startsAt, event.status, event.homeScore === undefined ? null : String(event.homeScore), event.awayScore === undefined ? null : String(event.awayScore), event.completed ? startsAt : null, event.eventName ?? null, event.postseason ? 1 : 0).run();
+    for (const market of event.bookmakers[0].markets) {
+      await db.prepare("INSERT OR REPLACE INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, ?, 'DraftKings', ?, 'local-v1', ?)")
+        .bind(event.id, market.key, observedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: market.outcomes })).run();
+    }
+  }
+  await db.batch([currentOddsStatement(db, observedAt), modeStatement(db, "auto", observedAt)]);
+}
+
+/**
+ * Keeps automatic local fixtures playable in a long-lived dev Worker. Explicit
+ * local controls switch the mode to manual, so stale/locked/no-offer journeys
+ * remain observable exactly as requested by their test.
+ */
+export async function refreshLocalFixtures(db: D1Database, now = new Date()): Promise<void> {
+  const mode = await db.prepare("SELECT cursor FROM odds_ingestion WHERE provider = ?").bind(LOCAL_FIXTURE_MODE_PROVIDER).first<{ cursor: string | null }>();
+  if (mode?.cursor === "manual") return;
+  if (mode?.cursor !== "auto") return seedLocalFixtures(db, now);
+  await removeNonFixtureRows(db);
+  const observedAt = now.toISOString();
+  const scheduled = LOCAL_FIXTURE_EVENTS.filter((event) => !event.completed);
+  await db.batch([
+    ...scheduled.map((event) => db.prepare("UPDATE sports_event SET starts_at = ? WHERE provider_event_id = ? AND status = 'scheduled'").bind(fixtureStartsAt(event, now), event.id)),
+    db.prepare(`UPDATE market_offer SET retrieved_at = ? WHERE event_id IN (${LOCAL_FIXTURE_ID_LIST})`).bind(observedAt, ...LOCAL_FIXTURE_IDS),
+    currentOddsStatement(db, observedAt),
+    modeStatement(db, "auto", observedAt)
+  ]);
+}
+
+const markLocalFixtureModeManual = async (db: D1Database) => {
+  const observedAt = new Date().toISOString();
+  await modeStatement(db, "manual", observedAt).run();
+};
+
 /**
  * Deliberately separate from production routing. Callers must explicitly opt in;
  * when omitted no local-control path is registered and Hono returns 404.
@@ -107,19 +167,7 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
       db.prepare("INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('local-owner', 'local-owner', 'local-owner@example.test', 1, 0, 0)"),
       db.prepare("INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('local-member', 'local-member', 'local-member@example.test', 1, 0, 0)")
     ]);
-    for (const event of LOCAL_FIXTURE_EVENTS) {
-      // Fixture modules can be bundled before Wrangler starts, so establish placeable offers at seed time.
-      // Keep the established upcoming fixture first, with the canonical Super Bowl one minute later.
-      const startsAt = !event.completed ? new Date(Date.now() + (event.id === "local-nfl-upcoming" ? 5 : 6) * 60 * 1000).toISOString() : event.commenceTime;
-      await db.prepare("INSERT OR REPLACE INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, home_score, away_score, correction_version, finalized_at, event_name, postseason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'local-v1', ?, ?, ?)")
-        .bind(event.id, event.id, event.sport, event.homeTeam, event.awayTeam, startsAt, event.status, event.homeScore === undefined ? null : String(event.homeScore), event.awayScore === undefined ? null : String(event.awayScore), event.completed ? startsAt : null, event.eventName ?? null, event.postseason ? 1 : 0).run();
-      for (const market of event.bookmakers[0].markets) {
-        await db.prepare("INSERT OR REPLACE INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, ?, 'DraftKings', ?, 'local-v1', ?)")
-          .bind(event.id, market.key, new Date().toISOString(), JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: market.outcomes })).run();
-      }
-    }
-    const observedAt = new Date().toISOString();
-    await db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(observedAt, observedAt).run();
+    await seedLocalFixtures(db);
     return { seeded: true };
   };
   return {
@@ -153,6 +201,7 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
         db.prepare("UPDATE market_offer SET retrieved_at = ?, offer_version = ?, payload_json = ? WHERE event_id = ? AND market = ?").bind(observedAt, offerVersion, JSON.stringify(payload), eventId, market),
         db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(observedAt, observedAt)
       ]);
+      await markLocalFixtureModeManual(db);
       return { updated: true };
     },
     async setOfferState({ eventId, market, state }) {
@@ -164,6 +213,7 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
         db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(retrievedAt, retrievedAt)
       ]);
       if (updated.some((result) => !result.meta.changes)) throw new Error("LOCAL_OFFER_NOT_FOUND");
+      await markLocalFixtureModeManual(db);
       return { updated: true };
     },
     async setFeedState({ state, lastPolledAt, lastSuccessAt, retrievedAt }) {
@@ -174,6 +224,7 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
       }
       await db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, ?) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=excluded.last_error")
         .bind(lastPolledAt, lastSuccessAt, state === "provider-error" ? "Local provider failure observation" : null).run();
+      await markLocalFixtureModeManual(db);
       return { updated: true };
     },
     async closeSeason({ poolSlug }) {

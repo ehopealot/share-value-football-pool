@@ -6,7 +6,7 @@ describe("T11 member read contracts", () => {
   it("strictly describes truthful odds-board feed observations and offer sources", () => {
     const response = {
       offers: [{ eventId: "event-1", league: "nfl", homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread", canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v1", policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }] }],
-      feed: { status: "current", message: "Canonical offers are current.", lastPolledAt: "2030-09-01T10:01:00.000Z", lastSuccessAt: "2030-09-01T10:01:00.000Z" }
+      feed: { status: "current", message: "Odds are up to date.", lastPolledAt: "2030-09-01T10:01:00.000Z", lastSuccessAt: "2030-09-01T10:01:00.000Z" }
     };
     expect(OddsBoardResponse.parse(response).offers[0]).toMatchObject({ canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z" });
     expect(() => OddsBoardResponse.parse({ ...response, feed: { ...response.feed, lastPolledAt: undefined } })).toThrow();
@@ -19,7 +19,7 @@ describe("T11 member read contracts", () => {
 
   it("requires the immutable ruleset version in every pool lifecycle summary", () => {
     const summary = { id: "s", label: "Season", rulesetVersion: "SHARE_POOL_2026_V1", state: "active", createdAt: "2026-01-01T00:00:00.000Z", openedAt: "2026-01-02T00:00:00.000Z", closedAt: null, defaultOrderMode: null, defaultOrderAmountMicros: null, floatMicros: "0", notionalValueMicros: "0" };
-    const view = { commandVersion: "1", pool: { poolId: "p", slug: "pool", name: "Pool", commissionerId: "owner", signupsOpen: true }, activeSeason: summary, nextDraftSeason: null, latestClosedSeason: null, currentMember: { memberId: "owner", role: "commissioner", seasonBalances: [{ seasonId: "s", availableMicros: "0", lockedMicros: "0" }] }, members: [{ memberId: "owner", displayName: "Owner", role: "commissioner", status: "active" }], commissioner: { seasonOrders: [] } };
+    const view = { commandVersion: "1", pool: { poolId: "p", slug: "pool", name: "Pool", commissionerId: "owner", signupsOpen: true, maxSideBetMicros: "800000000" }, activeSeason: summary, nextDraftSeason: null, latestClosedSeason: null, currentMember: { memberId: "owner", role: "commissioner", seasonBalances: [{ seasonId: "s", availableMicros: "0", lockedMicros: "0" }] }, members: [{ memberId: "owner", displayName: "Owner", role: "commissioner", status: "active" }], commissioner: { seasonOrders: [] } };
     expect(ReadPoolView.parse(view).activeSeason?.rulesetVersion).toBe("SHARE_POOL_2026_V1");
     expect(() => ReadPoolView.parse({ ...view, activeSeason: { ...summary, rulesetVersion: undefined } })).toThrow();
     expect(ReadPoolView.parse({ ...view, activeSeason: { ...summary, rulesetVersion: "FUTURE_RULES_V9" } }).activeSeason?.rulesetVersion).toBe("FUTURE_RULES_V9");

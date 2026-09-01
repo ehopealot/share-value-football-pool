@@ -17,6 +17,9 @@ function contrast(first: string, second: string) {
 }
 
 describe("focus indicator", () => {
+  it("covers selects as well as links, buttons, and inputs", () => {
+    expect(css).toMatch(/a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible/);
+  });
   it("has at least 3:1 contrast on paper and dark navigation surfaces", () => {
     const focus = css.match(/--focus:\s*(#[0-9a-fA-F]{6})/)?.[1];
     const focusOnDark = css.match(/--focus-on-dark:\s*(#[0-9a-fA-F]{6})/)?.[1];
