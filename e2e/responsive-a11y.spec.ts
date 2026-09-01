@@ -26,6 +26,15 @@ async function expectEvenGameRows(page: import("@playwright/test").Page) {
   await expect.poll(async () => (await heights()).length > 0 && (await heights()).every((row) => Math.abs(row.top - row.bottom) <= 1)).toBe(true);
 }
 
+async function expectCenteredNicknameControls(page: import("@playwright/test").Page) {
+  const centers = () => page.locator(".pool-nickname form").evaluate((form) => {
+    const input = form.querySelector("input")!.getBoundingClientRect();
+    const button = form.querySelector("button")!.getBoundingClientRect();
+    return { input: input.top + input.height / 2, button: button.top + button.height / 2 };
+  });
+  await expect.poll(async () => Math.abs((await centers()).input - (await centers()).button) <= 1).toBe(true);
+}
+
 test("primary signed-out routes pass axe and expose keyboard-visible controls", async ({ page, worker }) => {
   for (const path of ["/", "/sign-up", "/login", "/forgot-password", "/reset-password"]) {
     await page.goto(`${worker.baseURL}${path}`);
@@ -102,6 +111,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   expect(await page.evaluate(() => getComputedStyle(document.body).scrollBehavior)).not.toBe("smooth");
 
   await page.goto(`${worker.baseURL}/p/${pool.slug}/overview`);
+  await expectCenteredNicknameControls(page);
   await page.getByRole("textbox", { name: "Nickname" }).fill("A11y Alias");
   await page.getByRole("button", { name: "Save nickname" }).click();
   await expect(page.getByText("Pool nickname saved.")).toBeVisible();
