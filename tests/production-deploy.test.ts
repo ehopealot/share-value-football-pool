@@ -34,7 +34,7 @@ describe("guarded production deployment", () => {
     expectSubprocessesHaveNoCloudflareCredentials(spawnSync);
   });
 
-  it("preserves only the API token and account ID for Wrangler subprocesses in CI", () => {
+  it("preserves CI credentials only for the production Wrangler subprocess", () => {
     expect(deployProduction).toEqual(expect.any(Function));
     const spawnSync: SpawnSync = vi.fn(() => ({ status: 0 }));
     const buildProduction = vi.fn();
@@ -44,11 +44,11 @@ describe("guarded production deployment", () => {
 
     expectNoCloudflareCredentials(buildEnvironment(buildProduction));
     const calls = (spawnSync as ReturnType<typeof vi.fn>).mock.calls;
-    for (const call of [calls[0], calls[2]]) {
-      expect(call[2].env).toHaveProperty("CLOUDFLARE_API_TOKEN", "token");
-      expect(call[2].env).toHaveProperty("CLOUDFLARE_ACCOUNT_ID", "account-id");
-      for (const key of credentialNames.filter((name) => name !== "CLOUDFLARE_API_TOKEN" && name !== "CLOUDFLARE_ACCOUNT_ID")) expect(call[2].env).not.toHaveProperty(key);
-    }
-    for (const key of credentialNames) expect(calls[1][2].env).not.toHaveProperty(key);
+    expectNoCloudflareCredentials(calls[0][2].env);
+    expectNoCloudflareCredentials(calls[1][2].env);
+    const productionWrangler = calls[2][2].env;
+    expect(productionWrangler).toHaveProperty("CLOUDFLARE_API_TOKEN", "token");
+    expect(productionWrangler).toHaveProperty("CLOUDFLARE_ACCOUNT_ID", "account-id");
+    for (const key of credentialNames.filter((name) => name !== "CLOUDFLARE_API_TOKEN" && name !== "CLOUDFLARE_ACCOUNT_ID")) expect(productionWrangler).not.toHaveProperty(key);
   });
 });

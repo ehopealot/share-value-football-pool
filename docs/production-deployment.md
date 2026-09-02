@@ -26,7 +26,7 @@ The custom-domain binding requires an active Cloudflare zone and no conflicting 
 
 Configure these repository-level GitHub Actions values:
 
-- Secret `CLOUDFLARE_API_TOKEN`: a token scoped to the production Cloudflare account and `officepool.football` zone with only **Account > Workers Scripts: Edit**, **Account > D1: Edit**, and **Zone > Workers Routes: Edit** permissions. These are the least privileges required to deploy this configured Worker and apply its remote D1 migrations; do not use a Global API Key.
+- Secret `CLOUDFLARE_API_TOKEN`: a token scoped to only the production Cloudflare account and `officepool.football` zone with **Account > Workers Scripts: Edit**, **Account > D1: Edit**, **Account > Queues: Edit**, and **Zone > Workers Routes: Edit** permissions. These are the least privileges required to deploy this configured Worker, update its Queue consumers, and apply its remote D1 migrations; do not use a Global API Key.
 - Secret `CLOUDFLARE_ACCOUNT_ID`: the production Cloudflare account ID. Wrangler CI authentication requires it alongside `CLOUDFLARE_API_TOKEN`; do not add it to source configuration.
 - Variable `VITE_TURNSTILE_SITE_KEY`: the public production Turnstile site key used by the production build.
 

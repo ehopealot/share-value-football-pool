@@ -29,7 +29,7 @@ export function deployProduction(options = {}) {
   const deployEnvironment = cloudflareCredentialEnvironment(environment, environment.CI === "true");
 
   buildProduction({ cwd, environment: buildEnvironment });
-  run(spawnSync, wrangler, ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], { cwd, env: deployEnvironment });
+  run(spawnSync, wrangler, ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], { cwd, env: buildEnvironment });
   run(spawnSync, process.execPath, [resolve(cwd, "scripts", "verify-production-artifact.mjs")], { cwd, env: buildEnvironment });
   run(spawnSync, wrangler, ["deploy", "--keep-vars", "--config", "dist/office_pool_reborn/wrangler.json"], { cwd, env: deployEnvironment });
 }

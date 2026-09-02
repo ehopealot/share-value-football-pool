@@ -19,13 +19,14 @@ describe("GitHub Actions CI and production deployment", () => {
     const ci = jobSource(workflow, "ci", "deploy");
 
     expect(workflow).toMatch(/\non:\n  pull_request:\n  push:\n    branches: \[main\]/);
-    expect(ci).toContain("actions/checkout@v4");
+    expect(ci).toMatch(/actions\/checkout@v4\n\s+with:\n\s+fetch-depth:\s*2/);
     expect(ci).toContain("actions/setup-node@v4");
     expect(ci).toMatch(/node-version:\s*["']?24["']?/);
     expect(ci).toContain("npm ci");
     expect(ci).toContain("npm test -- --maxWorkers=5");
     expect(ci).toContain("npm run typecheck");
-    expect(ci).toContain("git diff --check");
+    expect(ci).toContain("git rev-parse --verify HEAD^");
+    expect(ci).toContain("git diff --check HEAD^ HEAD");
     expect(ci).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|VITE_TURNSTILE_SITE_KEY)/);
   });
 
@@ -38,6 +39,14 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(deploy).toMatch(/concurrency:\n\s+group:\s*production-deploy\n\s+cancel-in-progress:\s*false/);
     expect(deploy).toMatch(/permissions:\n\s+contents:\s*read/);
     expect(deploy).toContain("actions/checkout@v4");
+    expect(deploy.indexOf("id: freshness")).toBeGreaterThan(deploy.indexOf("actions/checkout@v4"));
+    expect(deploy).toContain("git ls-remote origin refs/heads/main");
+    expect(deploy).toContain("$GITHUB_SHA");
+    expect(deploy).toContain('echo "deploy=true" >> "$GITHUB_OUTPUT"');
+    expect(deploy).toContain('echo "deploy=false" >> "$GITHUB_OUTPUT"');
+    for (const action of ["Apply D1 migrations", "Deploy production Worker", "Verify production health"]) {
+      expect(deploy).toMatch(new RegExp(`- name: ${action}\\n\\s+if: steps\\.freshness\\.outputs\\.deploy == ['"]true['"]`));
+    }
     expect(deploy).toContain("actions/setup-node@v4");
     expect(deploy).toMatch(/node-version:\s*["']?24["']?/);
     expect(deploy).toContain("npm ci");
@@ -48,6 +57,8 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(deploy).toContain("./node_modules/.bin/wrangler d1 migrations apply DB --remote --config wrangler.jsonc");
     expect(deploy).toContain("npm run deploy:production");
     expect(deploy).toContain("https://officepool.football/health/app");
+    expect(deploy).toMatch(/--connect-timeout\s+\d+/);
+    expect(deploy).toMatch(/--max-time\s+\d+/);
     expect(deploy).toMatch(/for attempt in/);
     expect(deploy).toMatch(/http_code/);
   });
