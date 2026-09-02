@@ -2,11 +2,12 @@ import { spawnSync as nativeSpawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { buildProduction as nativeBuildProduction } from "./build-production.mjs";
 
-const cloudflareCredentialNames = ["CLOUDFLARE_API_TOKEN", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"];
+const cloudflareCredentialNames = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"];
+const ciWranglerCredentialNames = new Set(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
 
-const cloudflareCredentialEnvironment = (environment, preserveApiToken = false) => {
+const cloudflareCredentialEnvironment = (environment, preserveCiWranglerCredentials = false) => {
   const clean = { ...environment };
-  for (const name of cloudflareCredentialNames) if (name !== "CLOUDFLARE_API_TOKEN" || !preserveApiToken) delete clean[name];
+  for (const name of cloudflareCredentialNames) if (!preserveCiWranglerCredentials || !ciWranglerCredentialNames.has(name)) delete clean[name];
   return clean;
 };
 

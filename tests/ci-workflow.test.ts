@@ -26,7 +26,7 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(ci).toContain("npm test -- --maxWorkers=5");
     expect(ci).toContain("npm run typecheck");
     expect(ci).toContain("git diff --check");
-    expect(ci).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|VITE_TURNSTILE_SITE_KEY)/);
+    expect(ci).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|VITE_TURNSTILE_SITE_KEY)/);
   });
 
   it("deploys only successful main pushes with scoped credentials, migrations, and a health retry", () => {
@@ -41,7 +41,8 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(deploy).toContain("actions/setup-node@v4");
     expect(deploy).toMatch(/node-version:\s*["']?24["']?/);
     expect(deploy).toContain("npm ci");
-    expect(deploy).toContain("${{ secrets.CLOUDFLARE_API_TOKEN }}");
+    expect(deploy.match(/\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/g)).toHaveLength(2);
+    expect(deploy.match(/\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/g)).toHaveLength(2);
     expect(deploy).toContain("${{ vars.VITE_TURNSTILE_SITE_KEY }}");
     expect(deploy).toMatch(/CI:\s*["']?true["']?/);
     expect(deploy).toContain("./node_modules/.bin/wrangler d1 migrations apply DB --remote --config wrangler.jsonc");

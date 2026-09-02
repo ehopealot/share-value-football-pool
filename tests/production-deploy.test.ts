@@ -6,7 +6,7 @@ const root = resolve(import.meta.dirname, "..");
 type SpawnSync = (...args: unknown[]) => { status: number; error?: Error };
 const deployModule = await import(pathToFileURL(resolve(root, "scripts/deploy-production.mjs")).href).catch(() => ({}));
 const deployProduction = (deployModule as { deployProduction?: (options: { cwd: string; environment: NodeJS.ProcessEnv; spawnSync: SpawnSync; buildProduction: () => void }) => void }).deployProduction;
-const credentialNames = ["CLOUDFLARE_API_TOKEN", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"];
+const credentialNames = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"];
 
 const expectNoCloudflareCredentials = (environment: NodeJS.ProcessEnv) => {
   for (const key of credentialNames) expect(environment).not.toHaveProperty(key);
@@ -24,7 +24,7 @@ describe("guarded production deployment", () => {
     const spawnSync: SpawnSync = vi.fn(() => ({ status: 0 }));
     const buildProduction = vi.fn();
 
-    deployProduction!({ cwd: root, environment: { VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", CLOUDFLARE_API_TOKEN: "token", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" }, spawnSync, buildProduction });
+    deployProduction!({ cwd: root, environment: { VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", CLOUDFLARE_API_TOKEN: "token", CLOUDFLARE_ACCOUNT_ID: "account-id", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" }, spawnSync, buildProduction });
 
     expect(buildProduction).toHaveBeenCalledOnce();
     expectNoCloudflareCredentials(buildEnvironment(buildProduction));
@@ -34,11 +34,11 @@ describe("guarded production deployment", () => {
     expectSubprocessesHaveNoCloudflareCredentials(spawnSync);
   });
 
-  it("preserves only the API token for Wrangler subprocesses in CI", () => {
+  it("preserves only the API token and account ID for Wrangler subprocesses in CI", () => {
     expect(deployProduction).toEqual(expect.any(Function));
     const spawnSync: SpawnSync = vi.fn(() => ({ status: 0 }));
     const buildProduction = vi.fn();
-    const environment = { CI: "true", VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", CLOUDFLARE_API_TOKEN: "token", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" };
+    const environment = { CI: "true", VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", CLOUDFLARE_API_TOKEN: "token", CLOUDFLARE_ACCOUNT_ID: "account-id", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" };
 
     deployProduction!({ cwd: root, environment, spawnSync, buildProduction });
 
@@ -46,7 +46,8 @@ describe("guarded production deployment", () => {
     const calls = (spawnSync as ReturnType<typeof vi.fn>).mock.calls;
     for (const call of [calls[0], calls[2]]) {
       expect(call[2].env).toHaveProperty("CLOUDFLARE_API_TOKEN", "token");
-      for (const key of credentialNames.filter((name) => name !== "CLOUDFLARE_API_TOKEN")) expect(call[2].env).not.toHaveProperty(key);
+      expect(call[2].env).toHaveProperty("CLOUDFLARE_ACCOUNT_ID", "account-id");
+      for (const key of credentialNames.filter((name) => name !== "CLOUDFLARE_API_TOKEN" && name !== "CLOUDFLARE_ACCOUNT_ID")) expect(call[2].env).not.toHaveProperty(key);
     }
     for (const key of credentialNames) expect(calls[1][2].env).not.toHaveProperty(key);
   });
