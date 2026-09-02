@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // Worker tests use an isolated config directory and never load operator-local dotenv files.
 process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false";
 process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = "false";
-const workers = { wrangler: { configPath: "./tests/fixtures/wrangler.test.jsonc" }, miniflare: { bindings: { POOL_COMMAND_AUTHENTICATOR_KEY: "test-only-command-authenticator-key", SETTLEMENT_SERVICE_TOKEN: "test-only-settlement-token", POOL_PROJECTION_SERVICE_TOKEN: "test-only-projection-token", POOL_BACKUP_SERVICE_TOKEN: "test-only-backup-token" } } };
+const workers = { wrangler: { configPath: "./tests/fixtures/wrangler.vitest.jsonc" }, miniflare: { bindings: { POOL_COMMAND_AUTHENTICATOR_KEY: "test-only-command-authenticator-key", SETTLEMENT_SERVICE_TOKEN: "test-only-settlement-token", POOL_PROJECTION_SERVICE_TOKEN: "test-only-projection-token", POOL_BACKUP_SERVICE_TOKEN: "test-only-backup-token" } } };
 
 export default defineConfig({
   test: {

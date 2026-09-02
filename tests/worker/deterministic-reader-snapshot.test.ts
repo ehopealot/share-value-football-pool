@@ -213,8 +213,10 @@ describe("deterministic D1 reader snapshots", () => {
       expect(rows("administration_audit")).toEqual([]);
       const alarm = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => state.storage.getAlarm());
       expect(alarm).not.toBeNull();
+      // The drain grace is compile-time configurable (far-future in the vitest Worker) so the scheduled alarm is asserted relative to it.
+      const drainGraceMs = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), () => (globalThis as { POOL_OUTBOX_DRAIN_GRACE_MS?: number }).POOL_OUTBOX_DRAIN_GRACE_MS ?? 1_000);
       expect(alarm!).toBeGreaterThanOrEqual(placementStartedAt);
-      expect(alarm!).toBeLessThanOrEqual(Date.now() + 5_000);
+      expect(alarm!).toBeLessThanOrEqual(placementStartedAt + drainGraceMs + 5_000);
       return;
     }
     expect(response.status).toBe(400);
