@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false";
 process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = "false";
 const workers = { wrangler: { configPath: "./tests/fixtures/wrangler.vitest.jsonc" }, miniflare: { bindings: { POOL_COMMAND_AUTHENTICATOR_KEY: "test-only-command-authenticator-key", SETTLEMENT_SERVICE_TOKEN: "test-only-settlement-token", POOL_PROJECTION_SERVICE_TOKEN: "test-only-projection-token", POOL_BACKUP_SERVICE_TOKEN: "test-only-backup-token" } } };
-const workerTests = ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/worker/entry-composition.test.ts"];
+const workerTests = ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/worker/entry-surface.test.ts"];
 
 export default defineConfig({
   test: {
