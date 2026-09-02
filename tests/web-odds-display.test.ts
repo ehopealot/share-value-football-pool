@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds } from "../src/web/odds-format";
-import { straightReviewDetails } from "../src/web/pages/OddsPage";
+import { oddsBoardTablePropsAreEqual, straightReviewDetails } from "../src/web/pages/OddsPage";
 
 describe("member-facing odds display", () => {
   it("always prefixes a positive American price with +", () => {
@@ -22,5 +22,13 @@ describe("member-facing odds display", () => {
 
   it("keeps total points unsigned in straight-bet confirmation details", () => {
     expect(straightReviewDetails({ item: { risk: "10" }, quote: { riskMicros: "10000000", acceptedOdds: -110, leg: { awayTeam: "Away", homeTeam: "Home", market: "total", selection: "over", originalLine: 45.5, originalOdds: -110 } } } as any).pick).toBe("Total — Over 45.5");
+  });
+
+  it("keeps the odds table memoized while only a bet amount changes", () => {
+    const games: any[] = [];
+    const onToggle = () => undefined;
+    const previous = { games, currentWeek: "2026-09-01T04:00:00.000Z", selectedPickIds: ["event:spread:away"], onToggle };
+    expect(oddsBoardTablePropsAreEqual(previous, { ...previous, selectedPickIds: ["event:spread:away"] })).toBe(true);
+    expect(oddsBoardTablePropsAreEqual(previous, { ...previous, selectedPickIds: ["event:spread:home"] })).toBe(false);
   });
 });

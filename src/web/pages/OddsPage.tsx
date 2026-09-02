@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
@@ -18,6 +18,26 @@ export const boardEnablesWagerReview = (board: { offers?: unknown[]; feed?: { st
 export type MarketCell = { offer: any; outcome: any; label: string; selection: string; name: string; odds: string };
 export type GameMarkets = { spread: { away?: MarketCell; home?: MarketCell }; total: { over?: MarketCell; under?: MarketCell }; moneyline: { away?: MarketCell; home?: MarketCell } };
 export type GameRow = { eventId: string; startsAt: string; awayTeam: string; homeTeam: string; markets: GameMarkets };
+const pickId = (item: Pick<TrayItem, "eventId" | "market" | "selection">) => `${item.eventId}:${item.market}:${item.selection}`;
+export type OddsBoardTableProps = { games: GameRow[]; currentWeek: string; selectedPickIds: string[]; onToggle: (cell: MarketCell) => void };
+const samePickIds = (left: string[], right: string[]) => left.length === right.length && left.every((id, index) => id === right[index]);
+/** Risk edits must not reconcile a whole odds table; only changed selections affect its cells. */
+export const oddsBoardTablePropsAreEqual = (previous: OddsBoardTableProps, next: OddsBoardTableProps) => previous.games === next.games && previous.currentWeek === next.currentWeek && previous.onToggle === next.onToggle && samePickIds(previous.selectedPickIds, next.selectedPickIds);
+export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek, selectedPickIds, onToggle }: OddsBoardTableProps) {
+  const selected = new Set(selectedPickIds);
+  return <div className="table-scroll" tabIndex={0}><table className="odds-board"><caption>Current odds</caption><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
+    const top: Array<MarketCell | undefined> = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away];
+    const bottom: Array<MarketCell | undefined> = [game.markets.spread.home, game.markets.total.under, game.markets.moneyline.home];
+    const cell = (option: MarketCell | undefined, index: number) => {
+      // Only the current Tuesday–Monday week is bettable; future weeks are visible but locked.
+      const locked = !inWeek(game.startsAt, currentWeek);
+      const classes = ["odds-option", locked ? "locked" : "", option?.offer.market === "total" ? "odds-option-total" : ""].filter(Boolean).join(" ");
+      return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked} checked={selected.has(pickId({ eventId: option.offer.eventId, market: option.offer.market, selection: option.selection as TrayItem["selection"] }))} onChange={() => onToggle(option)} /><span className="odds-option-name">{option.name}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
+    };
+    const kickoff = new Date(game.startsAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
+  })}</tbody></table></div>;
+}, oddsBoardTablePropsAreEqual);
 const americanToProbability = (price: number): number | undefined => price > 0 ? 100 / (price + 100) : price < 0 ? (-price) / (-price + 100) : undefined;
 const probabilityToAmerican = (probability: number): number => { const decimal = 1 / probability; return decimal >= 2 ? Math.round((decimal - 1) * 100) : -Math.round(100 / (decimal - 1)); };
 /** Removes the bookmaker's vig from a two-way moneyline: fair price = implied probability normalized by the overround. */
@@ -109,6 +129,28 @@ export function OddsPage() {
   useEffect(() => { const backToBoard = () => setBatch((current) => current?.tag === "reviewing" ? undefined : current); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
   const pending = batch?.tag === "quoting" || batch?.tag === "placing";
+  const currentWeek = weekStartOf(new Date()).toISOString();
+  // Eastern-week calculation is expensive for a full board; it changes only when its data or week changes, never while a risk field is edited.
+  const weekOptions = useMemo(() => {
+    const seasonWeeks: string[] = [];
+    for (let cursor = new Date(SEASON_WEEK1_ANCHOR), latest = weekStartOf(new Date()); cursor <= latest; cursor = nextWeekStart(cursor)) seasonWeeks.push(cursor.toISOString());
+    return [...new Set<string>([...seasonWeeks, ...(board?.offers ?? []).map((offer: any) => weekStartOf(new Date(offer.startsAt)).toISOString())])].sort();
+  }, [board, currentWeek]);
+  // Default to the earliest week with games (future weeks count); the current week is the fallback.
+  const week = useMemo(() => selectedWeek || weekOptions.find((option) => (board?.offers ?? []).some((offer: any) => inWeek(offer.startsAt, option))) || currentWeek, [board, currentWeek, selectedWeek, weekOptions]);
+  const games = useMemo(() => groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week))), [board, week]);
+  const selectedPickIds = tray.map(pickId);
+  const toggle = useCallback((cell: MarketCell) => {
+    setTray((current) => toggleMarketExclusive(current, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem));
+  }, []);
+  // Teasers need at least two legs, so the builder stays disabled for single-game slips.
+  const teaserEligibleCount = tray.filter((item) => teaserEligible(item) && resolveTrayItem(board ?? {}, item) && typeof resolveTrayItem(board ?? {}, item)!.outcome.point === "number").length;
+  const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
+  const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros });
+  const available = balance ? parseIntegerText(balance.availableMicros) : 0n;
+  const total = balance ? available + parseIntegerText(balance.lockedMicros) : 0n;
+  const shareValue = view?.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.00";
+  const noIssuedShares = !view?.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
 
   const quoteAll = async () => {
     const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (riskError) return setError(riskError);
@@ -186,45 +228,15 @@ export function OddsPage() {
   }
   if (batch?.tag === "quoting") return <Layout signedIn><h1>Reviewing straight wagers</h1><p role="status">Confirming odds for {tray.length} selection{tray.length === 1 ? "" : "s"}…</p></Layout>;
 
-  const currentWeek = weekStartOf(new Date()).toISOString();
-  // Every season week from the anchor through today is selectable (history included), plus any week carrying live offers.
-  const seasonWeeks: string[] = [];
-  for (let cursor = new Date(SEASON_WEEK1_ANCHOR), latest = weekStartOf(new Date()); cursor <= latest; cursor = nextWeekStart(cursor)) seasonWeeks.push(cursor.toISOString());
-  const weekOptions: string[] = [...new Set<string>([...seasonWeeks, ...(board?.offers ?? []).map((offer: any) => weekStartOf(new Date(offer.startsAt)).toISOString())])].sort();
-  // Default to the earliest week with games (future weeks count); the current week is the fallback.
-  const week = selectedWeek || weekOptions.find((option) => (board?.offers ?? []).some((offer: any) => inWeek(offer.startsAt, option))) || currentWeek;
-  const games = groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week)));
-  const identity = (item: Pick<TrayItem, "eventId" | "market" | "selection">) => `${item.eventId}:${item.market}:${item.selection}`;
-  const inTray = (eventId: string, market: string, selection: string) => tray.some((item) => identity(item) === `${eventId}:${market}:${selection}`);
-  const toggle = (cell: MarketCell) => persist(toggleMarketExclusive(tray, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem));
-  // Teasers need at least two legs, so the builder stays disabled for single-game slips.
-  const teaserEligibleCount = tray.filter((item) => teaserEligible(item) && resolveTrayItem(board ?? {}, item) && typeof resolveTrayItem(board ?? {}, item)!.outcome.point === "number").length;
-  const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
-  const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros });
-  const available = balance ? parseIntegerText(balance.availableMicros) : 0n;
-  const total = balance ? available + parseIntegerText(balance.lockedMicros) : 0n;
-  const shareValue = view?.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.00";
-  const noIssuedShares = !view?.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
   return <Layout signedIn><h1>Odds board</h1>{view && <p className="pool-context"><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""}</p>}<p role="status">Feed status: {board?.feed.status ?? "loading"} — {board?.feed.message}</p>
     {error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     <label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
-    <div className="table-scroll" tabIndex={0}><table className="odds-board"><caption>Current odds</caption><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
-      const top: Array<MarketCell | undefined> = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away];
-      const bottom: Array<MarketCell | undefined> = [game.markets.spread.home, game.markets.total.under, game.markets.moneyline.home];
-      const cell = (option: MarketCell | undefined, index: number) => {
-        // Only the current Tuesday–Monday week is bettable; future weeks are visible but locked.
-        const locked = !inWeek(game.startsAt, currentWeek);
-        const classes = ["odds-option", locked ? "locked" : "", option?.offer.market === "total" ? "odds-option-total" : ""].filter(Boolean).join(" ");
-        return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked} checked={inTray(option.offer.eventId, option.offer.market, option.selection)} onChange={() => toggle(option)} /><span className="odds-option-name">{option.name}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
-      };
-      const kickoff = new Date(game.startsAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-      return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
-    })}</tbody></table></div>
+    <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} onToggle={toggle}/>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board, item, resolved); return <li key={identity(item)}>{resolved ? <span className="tray-item-label">{label}</span> : <em className="tray-item-label">{label}</em>}<label> Risk <input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => identity(candidate) === identity(item) ? { ...candidate, risk: e.target.value } : candidate))} /></label><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
+      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board, item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{label}</span> : <em className="tray-item-label">{label}</em>}<label> Risk <input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></label><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button className="primary-action" disabled={!view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
         <p className="bet-slip-error" aria-live="polite">{riskError}</p></>}
