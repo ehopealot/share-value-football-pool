@@ -22,6 +22,15 @@ The custom-domain binding requires an active Cloudflare zone and no conflicting 
 3. Use the repository-pinned Wrangler executable (`./node_modules/.bin/wrangler`) for normal deployment commands.
 4. Do not put any production value in `.dev.vars`, `wrangler.jsonc`, or source control.
 
+## GitHub Actions repository setup
+
+Configure these repository-level GitHub Actions values:
+
+- Secret `CLOUDFLARE_API_TOKEN`: a token scoped to the production Cloudflare account and `officepool.football` zone with only **Account > Workers Scripts: Edit**, **Account > D1: Edit**, and **Zone > Workers Routes: Edit** permissions. These are the least privileges required to deploy this configured Worker and apply its remote D1 migrations; do not use a Global API Key.
+- Variable `VITE_TURNSTILE_SITE_KEY`: the public production Turnstile site key used by the production build.
+
+Do not copy any Worker runtime secret into GitHub. Existing Worker runtime secrets remain in Cloudflare and are managed with `wrangler secret put` as documented below.
+
 ## Set Worker secrets interactively
 
 Each command prompts for a value without putting it in shell history. Run every required command separately; never paste a secret into chat or a command argument.
@@ -64,7 +73,7 @@ Then use the routine deployment command:
 npm run deploy:production
 ```
 
-`npm run deploy:production` reads only `VITE_TURNSTILE_SITE_KEY` from `.env.production.local`; an explicitly exported shell value takes precedence. It requires a valid Turnstile site-key format, performs the isolated production build, creates a local dry-run artifact, verifies that no public placeholder remains, and only then publishes the verified generated Worker configuration with `wrangler deploy --keep-vars`. It excludes Worker-secret environment variables from the build and removes API-token, global-key, and email credential environment variables before Wrangler runs so deployment uses OAuth credentials. `--keep-vars` protects any non-secret dashboard variable intentionally not declared in the repository; Worker secrets are never deleted by deploy.
+`npm run deploy:production` reads only `VITE_TURNSTILE_SITE_KEY` from `.env.production.local`; an explicitly exported shell value takes precedence. It requires a valid Turnstile site-key format, performs the isolated production build, creates a local dry-run artifact, verifies that no public placeholder remains, and only then publishes the verified generated Worker configuration with `wrangler deploy --keep-vars`. It excludes Worker-secret environment variables from the build and removes API-token, global-key, and email credential environment variables before Wrangler runs for local OAuth deployments. In GitHub Actions, `CI=true` deliberately passes the scoped `CLOUDFLARE_API_TOKEN` only to Wrangler subprocesses. `--keep-vars` protects any non-secret dashboard variable intentionally not declared in the repository; Worker secrets are never deleted by deploy.
 
 ## Post-deploy checks
 

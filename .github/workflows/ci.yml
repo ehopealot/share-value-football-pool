@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --maxWorkers=5
+      - run: npm run typecheck
+      - run: git diff --check
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: ci
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: ./node_modules/.bin/wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+      - name: Deploy production Worker
+        env:
+          CI: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+        run: npm run deploy:production
+      - name: Verify production health
+        run: |
+          for attempt in $(seq 1 12); do
+            status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" https://officepool.football/health/app || true)"
+            if [ "$status" = "200" ]; then
+              exit 0
+            fi
+            echo "Health check attempt $attempt returned ${status:-no response}; retrying"
+            sleep 5
+          done
+          echo "Production health check did not return HTTP 200"
+          exit 1
