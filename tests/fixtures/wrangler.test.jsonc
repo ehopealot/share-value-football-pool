@@ -1,0 +1,14 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "office-pool-reborn-test",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "../../dist/client", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "office-pool-reborn-test", "database_id": "local-test-database", "migrations_dir": "../../src/db/migrations" }],
+  "durable_objects": { "bindings": [{ "name": "POOL_DO", "class_name": "PoolDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PoolDO"] }],
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "office-pool-reborn-test-backups" }],
+  "queues": { "producers": [{ "binding": "POOL_EVENTS", "queue": "office-pool-reborn-test-events" }], "consumers": [{ "queue": "office-pool-reborn-test-events", "max_batch_size": 10, "max_batch_timeout": 5 }] },
+  "triggers": { "crons": ["*/2 * * * *"] }
+}

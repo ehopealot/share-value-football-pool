@@ -69,6 +69,121 @@ describe("later wager and member HTTP API", () => {
     expect((await view.json() as any).members).toContainEqual(expect.objectContaining({ memberId: "member", displayName: "Sunday Shark" }));
   }, 90_000);
 
+  it("protects state-changing board reads and exposes strict member-only board POST routes", async () => {
+    const poolId = `api-board-${crypto.randomUUID()}`;
+    const slug = `api-board-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    await send(poolId, { type: "CreateMessageBoardPost", commandId: "owner-board-post", actorId: "owner", text: "Unread for Member" });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    const readPath = `/api/p/${slug}/board/read`;
+    const view = async () => await (await send(poolId, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: "member" })).json() as any;
+
+    const ownerBoard = await (await send(poolId, { type: "ReadMessageBoard", commandId: "owner-board-read", actorId: "owner" })).json() as any;
+    const ownerPostId = ownerBoard.threads[0].postId;
+    const routes = [
+      { path: readPath, body: {} },
+      { path: `/api/p/${slug}/board/posts`, body: { text: "Blocked post", idempotencyKey: "blocked-post" } },
+      { path: `/api/p/${slug}/board/posts/${ownerPostId}/replies`, body: { text: "Blocked reply", idempotencyKey: "blocked-reply" } }
+    ];
+    const entryCount = async () => {
+      const snapshot = await (await send(poolId, { type: "ReadMessageBoard", commandId: crypto.randomUUID(), actorId: "owner" })).json() as any;
+      return snapshot.threads.reduce((count: number, thread: any) => count + 1 + thread.replies.length, 0);
+    };
+
+    expect((await view()).currentMember.hasUnreadBoard).toBe(true);
+    for (const blockedOrigin of [undefined, "https://attacker.example", "null", "not a valid origin", `${origin}/not-an-origin`, `${origin}?not-an-origin`, "https://user@pool.example.test"]) {
+      for (const route of routes) {
+        const headers = { "content-type": "application/json", ...(blockedOrigin === undefined ? {} : { origin: blockedOrigin }) };
+        const response = await app.fetch(new Request(`${origin}${route.path}`, { method: "POST", headers, body: JSON.stringify(route.body) }));
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: "CSRF_REJECTED" });
+      }
+      expect(await entryCount()).toBe(1);
+      expect((await view()).currentMember.hasUnreadBoard).toBe(true);
+    }
+    expect((await app.fetch(request(readPath, {}))).status).toBe(200);
+    expect((await view()).currentMember.hasUnreadBoard).toBe(false);
+    expect((await app.fetch(request(`/api/p/${slug}/board`, undefined, "GET"))).status).toBe(404);
+    expect((await app.fetch(request(readPath, { unexpected: true }))).status).toBe(400);
+
+    const create = await app.fetch(request(`/api/p/${slug}/board/posts`, { text: "Member thread", idempotencyKey: "member-thread" }));
+    expect(create.status).toBe(200);
+    expect(await create.json()).toEqual({ commandVersion: expect.any(String) });
+    const board = await app.fetch(request(readPath, {}));
+    expect(board.status).toBe(200);
+    const memberThread = (await board.json() as any).threads.find((thread: any) => thread.text === "Member thread");
+    expect(memberThread).toMatchObject({ authorDisplayName: "Member", replies: [] });
+    const reply = await app.fetch(request(`/api/p/${slug}/board/posts/${memberThread.postId}/replies`, { text: "One reply", idempotencyKey: "member-reply" }));
+    expect(reply.status).toBe(200);
+    expect(await reply.json()).toEqual({ commandVersion: expect.any(String) });
+    const afterReply = await (await app.fetch(request(readPath, {}))).json() as any;
+    const replyId = afterReply.threads.find((thread: any) => thread.postId === memberThread.postId).replies[0].replyId;
+    expect((await app.fetch(request(`/api/p/${slug}/board/posts/${replyId}/replies`, { text: "No nesting", idempotencyKey: "nested-reply" }))).status).toBe(400);
+
+    for (const body of [{ text: " ", idempotencyKey: "blank" }, { text: "x".repeat(1001), idempotencyKey: "long" }, { text: "Missing key" }, { text: "Extra", idempotencyKey: "extra", unexpected: true }]) {
+      expect((await app.fetch(request(`/api/p/${slug}/board/posts`, body))).status).toBe(400);
+    }
+    const anonymous = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => null });
+    for (const route of routes) expect((await anonymous.fetch(request(route.path, route.body))).status).toBe(401);
+    const outsider = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "outsider", name: "Outsider" }) });
+    for (const route of routes) expect((await outsider.fetch(request(route.path, route.body))).status).toBe(403);
+    await send(poolId, { type: "SuspendMember", commandId: "suspend-board-member", actorId: "owner", memberId: "member" });
+    for (const route of routes) expect((await app.fetch(request(route.path, route.body))).status).toBe(403);
+  }, 90_000);
+
+  it("rejects malformed board Durable Object responses at the Worker boundary", async () => {
+    const poolId = `api-board-contract-${crypto.randomUUID()}`;
+    const slug = `api-board-contract-${crypto.randomUUID()}`;
+    await bindings.DB.prepare("INSERT INTO pool_registry (pool_id, normalized_slug, do_name, creator_id, status, command_id, created_at) VALUES (?, ?, ?, 'owner', 'ready', ?, ?)").bind(poolId, slug, poolId, `create-${poolId}`, new Date().toISOString()).run();
+    const commands: Array<{ type: string }> = [];
+    const malformedPools = {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const command = JSON.parse(String(init?.body)) as { type: string };
+        commands.push(command);
+        if (command.type === "ReadMessageBoard") return Response.json({ commandVersion: "7" });
+        if (command.type === "CreateMessageBoardPost") return new Response("not-json", { headers: { "content-type": "application/json" } });
+        return Response.json({});
+      } })
+    } as unknown as DurableObjectNamespace;
+    const app = createWorkerApp({ db: bindings.DB, pools: malformedPools, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }) });
+
+    for (const route of [
+      { path: `/api/p/${slug}/board/read`, body: {} },
+      { path: `/api/p/${slug}/board/posts`, body: { text: "Post", idempotencyKey: "post" } },
+      { path: `/api/p/${slug}/board/posts/post/replies`, body: { text: "Reply", idempotencyKey: "reply" } }
+    ]) {
+      const response = await app.fetch(request(route.path, route.body));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "POOL_UNAVAILABLE" });
+    }
+    expect(commands.map((command) => command.type)).toEqual(["ReadMessageBoard", "CreateMessageBoardPost", "ReplyToMessageBoardPost"]);
+  }, 90_000);
+
+  it("normalizes structured board authority failures as retryable availability errors", async () => {
+    const poolId = `api-board-upstream-${crypto.randomUUID()}`;
+    const slug = `api-board-upstream-${crypto.randomUUID()}`;
+    await bindings.DB.prepare("INSERT INTO pool_registry (pool_id, normalized_slug, do_name, creator_id, status, command_id, created_at) VALUES (?, ?, ?, 'owner', 'ready', ?, ?)").bind(poolId, slug, poolId, `create-${poolId}`, new Date().toISOString()).run();
+    const upstreamFailures = {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const command = JSON.parse(String(init?.body)) as { type: string };
+        return command.type === "CreateMessageBoardPost"
+          ? Response.json({ code: "COMMAND_FAILED" }, { status: 503 })
+          : Response.json({ code: 123 }, { status: 400 });
+      } })
+    } as unknown as DurableObjectNamespace;
+    const app = createWorkerApp({ db: bindings.DB, pools: upstreamFailures, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }) });
+    for (const route of [
+      { path: `/api/p/${slug}/board/posts`, body: { text: "Post", idempotencyKey: "post" } },
+      { path: `/api/p/${slug}/board/posts/post/replies`, body: { text: "Reply", idempotencyKey: "reply" } }
+    ]) {
+      const response = await app.fetch(request(route.path, route.body));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "POOL_UNAVAILABLE" });
+    }
+  });
+
   it("notifies the funded member once after a new share order is fulfilled", async () => {
     const poolId = `api-order-email-${crypto.randomUUID()}`;
     const slug = `api-order-email-${crypto.randomUUID()}`;

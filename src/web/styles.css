@@ -16,7 +16,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: #d4d8dc; color: var(--ink); font-family: Arial, Verdana, sans-serif; line-height: 1.45; }
 a { color: #003f7d; text-decoration: underline; }
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .nav-bar a:focus-visible { outline-color: var(--focus-on-dark); }
 .nav-button:focus-visible { outline-color: var(--focus-on-dark); }
 .site-shell { width: min(100%, 980px); min-height: 100vh; margin: 0 auto; background: var(--paper); border-inline: 1px solid var(--line); }
@@ -140,3 +140,19 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
   .odds-option:not(.odds-option-total) .odds-option-name { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .odds-option-total .odds-option-name { font-weight: 700; }
 }
+/* Message board threads stay compact while preserving clear parent/reply hierarchy. */
+.nav-new { display: inline-block; margin-left: 0.25rem; padding: 0.05rem 0.28rem; background: #ffdf7e; color: #4a2100; font-size: 0.78rem; font-weight: 700; text-decoration: none; }
+.message-board-page { max-width: 65ch; }
+.message-board-post-form, .message-board-reply-form { display: grid; gap: var(--space-1); margin: var(--space-2) 0; }
+.message-board-page textarea { width: 100%; min-height: 7rem; resize: vertical; padding: var(--space-2); border: 1px solid var(--line); border-radius: 0; font: inherit; }
+.message-board-post-form button, .message-board-reply-form button { justify-self: start; }
+.message-board-threads { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
+.message-board-thread { padding: var(--space-2); border: 1px solid var(--line); background: var(--paper); }
+.message-board-thread-alt { background: #edf1f4; }
+.message-board-thread > header p, .message-board-reply > header p { margin: 0; }
+.message-board-thread time, .message-board-reply time { color: #3b4046; font-size: 0.9rem; }
+.message-board-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+.message-board-reply-toggle { margin-top: var(--space-1); }
+.message-board-replies { display: grid; gap: var(--space-1); margin: var(--space-2) 0 0 var(--space-2); padding-left: var(--space-2); border-left: 3px solid var(--line); }
+.message-board-reply { padding-top: var(--space-1); }
+@media (max-width: 600px) { .message-board-page textarea { min-height: 8rem; } .message-board-page button { min-height: 44px; } .message-board-replies { margin-left: var(--space-1); padding-left: var(--space-1); } }

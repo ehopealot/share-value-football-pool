@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { api, ApiError, commandOutcome, errorMessage, parseAuditExportSuccess, parseOddsBoardSuccess } from "../src/web/api";
+import { api, ApiError, commandOutcome, errorMessage, invalidatePoolView, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseOddsBoardSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
 import { FrozenAdminCommand } from "../src/web/admin-command";
 import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
@@ -19,7 +19,56 @@ describe("wager recovery messages", () => {
     expect(boardEnablesWagerReview({ offers: [offer], feed: { ...response.feed, status: "current" } })).toBe(true);
   });
 
-  it("uses a concise recent-auth error", () => {
+  it("uses strict board transport contracts and encoded member routes", async () => {
+    const board = { commandVersion: "7", threads: [{ postId: "post-1", authorDisplayName: "Sunday Shark", text: "Ready?", createdAt: "2030-09-01T12:00:00.000Z", activityAt: "2030-09-01T12:01:00.000Z", replies: [{ replyId: "reply-1", authorDisplayName: "Fourth Quarter", text: "Yes.", createdAt: "2030-09-01T12:01:00.000Z" }] }] };
+    expect(parseReadMessageBoardSuccess(board)).toEqual(board);
+    expect(parseMessageBoardMutationSuccess({ commandVersion: "8" })).toEqual({ commandVersion: "8" });
+    expect(() => parseReadMessageBoardSuccess({ ...board, unexpected: true })).toThrow();
+    expect(() => parseReadMessageBoardSuccess({ commandVersion: "7", threads: [{ ...board.threads[0], replies: [{ ...board.threads[0].replies[0], extra: true }] }] })).toThrow();
+    expect(() => parseMessageBoardMutationSuccess({ commandVersion: "8", unexpected: true })).toThrow();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      return new Response(JSON.stringify(url.endsWith("/board/read") ? board : { commandVersion: "8" }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      await expect(api.readMessageBoard("pool/one")).resolves.toEqual(board);
+      await expect(api.createMessageBoardPost("pool/one", { text: "Post", idempotencyKey: "post-key" })).resolves.toEqual({ commandVersion: "8" });
+      await expect(api.replyToMessageBoardPost("pool/one", "post/one", { text: "Reply", idempotencyKey: "reply-key" })).resolves.toEqual({ commandVersion: "8" });
+      expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/p/pool%2Fone/board/read", expect.objectContaining({ method: "POST", body: "{}", signal: expect.any(AbortSignal) }));
+      expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/p/pool%2Fone/board/posts", expect.objectContaining({ method: "POST", body: JSON.stringify({ text: "Post", idempotencyKey: "post-key" }) }));
+      expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/p/pool%2Fone/board/posts/post%2Fone/replies", expect.objectContaining({ method: "POST", body: JSON.stringify({ text: "Reply", idempotencyKey: "reply-key" }) }));
+    } finally { fetchMock.mockRestore(); }
+  });
+
+  it("rejects malformed board responses in the browser client", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ commandVersion: "7", threads: [], extra: true }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await expect(api.readMessageBoard("pool")).rejects.toThrow();
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ commandVersion: "8", unexpected: true }), { status: 200, headers: { "content-type": "application/json" } }));
+      await expect(api.createMessageBoardPost("pool", { text: "Post", idempotencyKey: "post-key" })).rejects.toThrow();
+    } finally { fetchMock.mockRestore(); }
+  });
+
+  it("notifies mounted layouts after local board activity", () => {
+    vi.stubGlobal("window", new EventTarget());
+    try {
+      const listener = vi.fn();
+      const unsubscribe = onPoolViewInvalidated(listener);
+      invalidatePoolView();
+      expect(listener).toHaveBeenCalledOnce();
+      unsubscribe();
+      invalidatePoolView();
+      expect(listener).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("uses concise board mutation errors without exposing authority internals", () => {
+    expect(errorMessage(new ApiError("MESSAGE_BOARD_POST_NOT_FOUND", 400))).toBe("That post is no longer available.");
+    expect(errorMessage(new ApiError("MESSAGE_BOARD_REPLY_NOT_ALLOWED", 400))).toBe("Replies can only be added to a top-level post.");
+  });
+  it("uses concise unavailable errors", () => {
+    expect(errorMessage(new ApiError("REQUEST_FAILED", 504))).toBe("Service unavailable.");
     expect(errorMessage(new ApiError("RECENT_AUTH_REQUIRED", 403))).toBe("Sign in again.");
   });
   it("centralizes stale, retryable, and terminal confirmation outcomes", () => {

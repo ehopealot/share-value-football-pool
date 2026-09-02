@@ -5,8 +5,8 @@ import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
-import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest } from "../contracts/http";
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, straightWagerQuoteRequest, teaserWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot } from "../contracts/http";
+import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateWagerOffers } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -30,7 +30,11 @@ const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
 const csrf = (c: Context) => {
   const origin = c.req.header("origin");
-  return origin !== undefined && new URL(origin).origin === new URL(c.req.url).origin;
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return origin === parsed.origin && parsed.origin === new URL(c.req.url).origin;
+  } catch { return false; }
 };
 const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.stringify(ticket);
 
@@ -48,11 +52,13 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (user === undefined) return jsonError(c, "CSRF_REJECTED", 403);
     if (!user) return jsonError(c, "UNAUTHENTICATED", 401);
     try { return await action(user); } catch (error) {
+      // A malformed post-commit authority response leaves the browser with an unknown outcome.
+      if (error instanceof z.ZodError) return jsonError(c, "POOL_UNAVAILABLE", 503);
       const code = error instanceof Error ? error.message : "COMMAND_FAILED";
       const unavailable = code === "POOL_UNAVAILABLE" || code === "POOL_NOT_AVAILABLE";
       if (error instanceof QuoteLineChangedError) return c.json({ code: "LINE_CHANGED", reconfirmationRequired: true }, 400);
       if (error instanceof LineChangedError) return c.json({ code: "LINE_CHANGED", replacement: error.replacement, reconfirmationRequired: true }, 400);
-      if (error instanceof PoolCommandError) return c.json({ code, ...error.details, ...(code === "ORDER_QUOTE_STALE" ? { reconfirmationRequired: true } : {}) }, unavailable ? 503 : code === "FORBIDDEN" || code === "SUSPENDED" ? 403 : 400);
+      if (error instanceof PoolCommandError) return c.json({ ...error.details, code, ...(code === "ORDER_QUOTE_STALE" ? { reconfirmationRequired: true } : {}) }, unavailable ? 503 : code === "FORBIDDEN" || code === "SUSPENDED" ? 403 : 400);
       if (code === "FORBIDDEN" || code === "SUSPENDED") return jsonError(c, code, 403);
       return jsonError(c, code, unavailable ? 503 : 400);
     }
@@ -104,6 +110,28 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   app.get("/api/p/:slug/wagers", read("ReadMyWagers"));
   app.get("/api/p/:slug/history/:seasonId", read("ReadSeasonHistory"));
   app.get("/api/p/:slug/export", (c) => memberRead(c, async (user) => c.json(auditExportResponse.parse(await router.send(c.req.param("slug"), { type: "ReadAuditExport", commandId: crypto.randomUUID(), actorId: user.id })))));
+  // Reading the board advances a durable per-member watermark, so it shares the CSRF-protected mutation boundary.
+  app.post("/api/p/:slug/board/read", (c) => mutation(c, async (user) => {
+    const parsed = messageBoardReadRequest.safeParse(await c.req.json());
+    if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
+    const slug = c.req.param("slug");
+    if (!slug) return jsonError(c, "INVALID_REQUEST");
+    return c.json(ReadMessageBoardResponse.parse(await router.send(slug, { type: "ReadMessageBoard", commandId: crypto.randomUUID(), actorId: user.id })));
+  }));
+  app.post("/api/p/:slug/board/posts", (c) => mutation(c, async (user) => {
+    const parsed = messageBoardMutationRequest.safeParse(await c.req.json());
+    if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
+    const slug = c.req.param("slug");
+    if (!slug) return jsonError(c, "INVALID_REQUEST");
+    return c.json(MessageBoardMutationResponse.parse(await router.send(slug, { type: "CreateMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, text: parsed.data.text })));
+  }));
+  app.post("/api/p/:slug/board/posts/:postId/replies", (c) => mutation(c, async (user) => {
+    const parsed = messageBoardMutationRequest.safeParse(await c.req.json());
+    const slug = c.req.param("slug"); const postId = c.req.param("postId");
+    if (!parsed.success || !slug || !postId) return jsonError(c, "INVALID_REQUEST");
+    return c.json(MessageBoardMutationResponse.parse(await router.send(slug, { type: "ReplyToMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, postId, text: parsed.data.text })));
+  }));
+
   /** D1 supplies only canonical public offers; the prior PoolDO member read above is the access boundary. */
   app.get("/api/p/:slug/odds", (c) => memberRead(c, async (user) => {
     const slug = c.req.param("slug");

@@ -34,6 +34,10 @@ const poolCommandSchemaBase = z.discriminatedUnion("type", [
   /** Least-data authenticated entry check: nonmembers never receive pool views. */
   z.object({ type: z.literal("ReadPoolGate"), ...common }),
   z.object({ type: z.literal("ReadPoolView"), ...common }),
+  // This read advances only the caller's board watermark, so it is deliberately non-idempotent.
+  z.object({ type: z.literal("ReadMessageBoard"), ...common }).strict(),
+  z.object({ type: z.literal("CreateMessageBoardPost"), ...common, text: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ type: z.literal("ReplyToMessageBoardPost"), ...common, postId: z.string().min(1), text: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ type: z.literal("ReadStandings"), ...common }),
   z.object({ type: z.literal("ReadActivity"), ...common }),
   z.object({ type: z.literal("ReadSeasonHistory"), ...common, seasonId: z.string().min(1) }),

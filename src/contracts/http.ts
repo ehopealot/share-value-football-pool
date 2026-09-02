@@ -29,6 +29,9 @@ export const regradeWagerRequest = z.object({ idempotencyKey, reason: auditReaso
 export const seasonAnnotationRequest = z.object({ idempotencyKey, text: z.string().trim().min(1).max(2000) });
 export const shareOrderQuoteRequest = z.object({ seasonId: z.string().min(1).max(128), memberId: z.string().min(1).max(128), mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/), idempotencyKey });
 export const executeShareOrderRequest = shareOrderQuoteRequest.extend({ mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/), quote: z.object({ priceMicros: z.string().regex(/^(?:0|[1-9]\d*)$/), commandVersion: z.string().regex(/^(?:0|[1-9]\d*)$/) }), reason: z.string().trim().min(1).max(500) });
+/** A board read changes only the caller's durable HWM, so it still needs a strict POST body. */
+export const messageBoardReadRequest = z.object({}).strict();
+export const messageBoardMutationRequest = z.object({ text: z.string().trim().min(1).max(1000), idempotencyKey }).strict();
 
 /** Browser quote inputs are independently constructible semantic requests: no accepted terms or command version. */
 export const straightWagerQuoteRequest = quoteStraightSemantic.extend({ quoteKey, commandId: quoteKey }).strict().superRefine((value, ctx) => { if (value.quoteKey !== value.commandId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "quoteKey must equal commandId" }); });
@@ -57,21 +60,34 @@ export const seasonSummary = z.object({
   createdAt: z.string().datetime(), openedAt: z.string().datetime().nullable(), closedAt: z.null(),
   defaultOrderMode: z.enum(["shares", "value"]).nullable(), defaultOrderAmountMicros: decimalString.nullable(),
   floatMicros: decimalString, notionalValueMicros: decimalString,
-  superBowlCandidate: z.object({ eventId: z.string().min(1), providerEventName: z.string().min(1), confirmedAt: z.string().datetime().nullable() }).nullable().optional()
-});
-export const closedSeasonSummary = seasonSummary.extend({ state: z.literal("closed"), closedAt: z.string().datetime(), closeReason: z.string().nullable() });
-export const seasonBalance = z.object({ seasonId: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString });
-export const shareOrderSummary = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), mode: z.enum(["shares", "value"]), requestedMicros: decimalString, sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reversalOf: z.string().min(1).nullable(), reason: z.string(), createdAt: z.string().datetime() });
-export const seasonOrders = z.object({ seasonId: z.string().min(1), orders: z.array(shareOrderSummary) });
-export const memberDirectoryEntry = z.object({ memberId: z.string().min(1), displayName: z.string().min(1), role: z.enum(["commissioner", "member"]), status: z.enum(["active", "suspended"]) });
+  superBowlCandidate: z.object({ eventId: z.string().min(1), providerEventName: z.string().min(1), confirmedAt: z.string().datetime().nullable() }).strict().nullable().optional()
+}).strict();
+export const closedSeasonSummary = seasonSummary.extend({ state: z.literal("closed"), closedAt: z.string().datetime(), closeReason: z.string().nullable() }).strict();
+export const seasonBalance = z.object({ seasonId: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString }).strict();
+export const shareOrderSummary = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), mode: z.enum(["shares", "value"]), requestedMicros: decimalString, sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reversalOf: z.string().min(1).nullable(), reason: z.string(), createdAt: z.string().datetime() }).strict();
+export const seasonOrders = z.object({ seasonId: z.string().min(1), orders: z.array(shareOrderSummary) }).strict();
+export const memberDirectoryEntry = z.object({ memberId: z.string().min(1), displayName: z.string().min(1), role: z.enum(["commissioner", "member"]), status: z.enum(["active", "suspended"]) }).strict();
 export const ReadPoolView = z.object({
   commandVersion: decimalString,
-  pool: z.object({ poolId: z.string().min(1), slug: z.string().min(1), name: z.string().min(1), commissionerId: z.string().min(1), signupsOpen: z.boolean(), maxSideBetMicros: positiveCanonicalIntegerText }),
+  pool: z.object({ poolId: z.string().min(1), slug: z.string().min(1), name: z.string().min(1), commissionerId: z.string().min(1), signupsOpen: z.boolean(), maxSideBetMicros: positiveCanonicalIntegerText }).strict(),
   activeSeason: seasonSummary.nullable(), nextDraftSeason: seasonSummary.nullable(), latestClosedSeason: closedSeasonSummary.nullable(),
-  currentMember: z.object({ memberId: z.string().min(1), role: z.enum(["commissioner", "member"]), seasonBalances: z.array(seasonBalance) }),
-  members: z.array(memberDirectoryEntry), commissioner: z.object({ seasonOrders: z.array(seasonOrders) }).nullable()
-});
+  currentMember: z.object({ memberId: z.string().min(1), role: z.enum(["commissioner", "member"]), seasonBalances: z.array(seasonBalance), hasUnreadBoard: z.boolean() }).strict(),
+  members: z.array(memberDirectoryEntry), commissioner: z.object({ seasonOrders: z.array(seasonOrders) }).strict().nullable()
+}).strict();
 export type ReadPoolView = z.infer<typeof ReadPoolView>;
+
+const messageBoardReply = z.object({
+  replyId: z.string().min(1), authorDisplayName: z.string().min(1), text: z.string().min(1), createdAt: z.string().datetime()
+}).strict();
+const messageBoardThread = z.object({
+  postId: z.string().min(1), authorDisplayName: z.string().min(1), text: z.string().min(1), createdAt: z.string().datetime(), activityAt: z.string().datetime(), replies: z.array(messageBoardReply)
+}).strict();
+/** Exact member-visible board snapshot; its read operation atomically advances a durable HWM. */
+export const ReadMessageBoardResponse = z.object({ commandVersion: decimalString, threads: z.array(messageBoardThread) }).strict();
+/** Board mutations intentionally expose only their committed authority version. */
+export const MessageBoardMutationResponse = z.object({ commandVersion: decimalString }).strict();
+export type ReadMessageBoardResponse = z.infer<typeof ReadMessageBoardResponse>;
+export type MessageBoardMutationResponse = z.infer<typeof MessageBoardMutationResponse>;
 
 /** Exact authenticated odds-board response. Poll observations are stored provider facts, never inferred from offer timestamps. */
 export const OddsBoardResponse = z.object({

@@ -192,8 +192,8 @@ export async function stopOwnedProcess(child: ChildProcess | undefined, options:
 }
 
 /** Runs a detached owned stage and never resolves before its complete process group exits. */
-export async function runOwnedProcess(command: string, args: string[], timeoutMs: number, stdio: "inherit" | "pipe" | "ignore" = "inherit", options: CleanupOptions = {}) {
-  const child = spawn(command, args, { detached: true, stdio });
+export async function runOwnedProcess(command: string, args: string[], timeoutMs: number, stdio: "inherit" | "pipe" | "ignore" = "inherit", options: CleanupOptions = {}, environment: NodeJS.ProcessEnv = process.env) {
+  const child = spawn(command, args, { detached: true, stdio, env: environment });
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     let terminating = false;

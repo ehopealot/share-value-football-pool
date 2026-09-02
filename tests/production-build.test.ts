@@ -9,7 +9,9 @@ type ProductionBuildEnvironment = (environment: NodeJS.ProcessEnv, workerConfigP
 type SpawnSync = (...args: unknown[]) => { status: number; error?: Error };
 type IsolatedWorkerConfig = { configPath: string; dispose(): void };
 const buildModule = await import(pathToFileURL(resolve(root, "scripts/build-production.mjs")).href).catch(() => ({}));
-const viteConfig = (await import(pathToFileURL(resolve(root, "vite.config.ts")).href)).default;
+const viteModule = await import(pathToFileURL(resolve(root, "vite.config.ts")).href);
+const viteConfig = viteModule.default;
+const viteEnvDir = (viteModule as { viteEnvDir?: (e2eBuild: boolean, productionBuild: boolean) => string | false | undefined }).viteEnvDir;
 const productionBuildEnvironment = (buildModule as { productionBuildEnvironment?: ProductionBuildEnvironment }).productionBuildEnvironment;
 const createIsolatedProductionWorkerConfig = (buildModule as { createIsolatedProductionWorkerConfig?: (projectRoot: string) => IsolatedWorkerConfig }).createIsolatedProductionWorkerConfig;
 const buildProduction = (buildModule as { buildProduction?: (options: { environment: NodeJS.ProcessEnv; spawnSync: SpawnSync }) => void }).buildProduction;
@@ -72,6 +74,13 @@ describe("isolated production build", () => {
   it("emits source maps for native Workers diagnostic symbolication", () => {
     const config = viteConfig({ command: "build", mode: "production", isSsrBuild: false, isPreview: false });
     expect(config.build).toMatchObject({ minify: false, sourcemap: true });
+  });
+
+  it("disables root dotenv discovery for guarded production and E2E builds", () => {
+    expect(viteEnvDir).toEqual(expect.any(Function));
+    expect(viteEnvDir!(false, true)).toBe(false);
+    expect(viteEnvDir!(true, false)).toBe(false);
+    expect(viteEnvDir!(false, false)).toBeUndefined();
   });
 
   it("launches the Vite package bin through its installed filesystem path", () => {

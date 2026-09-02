@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
+import { localE2eClientBuildEnvironment } from "../../scripts/e2e-client-build";
 import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess } from "../../scripts/owned-process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +14,7 @@ const READINESS_TIMEOUT_MS = 60_000;
 const require = createRequire(import.meta.url);
 const resolveWrangler = () => require.resolve("wrangler");
 const ringBuffer = (stream: NodeJS.ReadableStream | null, limit = 64 * 1024) => { let output = ""; let truncated = false; stream?.on("data", (chunk: Buffer | string) => { output += String(chunk); if (output.length > limit) { output = output.slice(-limit); truncated = true; } }); return () => `${truncated ? "[truncated]\n" : ""}${output}`; };
-const run = (command: string, args: string[]) => runOwnedProcess(command, args, COMMAND_TIMEOUT_MS);
+const run = (command: string, args: string[], environment: NodeJS.ProcessEnv = process.env) => runOwnedProcess(command, args, COMMAND_TIMEOUT_MS, "inherit", {}, environment);
 export const stop = stopOwnedProcess;
 
 /** The Playwright fixture and opt-in owner harness intentionally share this lifecycle. */
@@ -21,6 +22,7 @@ export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<
   const persistence = await mkdtemp(join(tmpdir(), "share-value-pool-owned-e2e-"));
   const port = 31000 + Math.floor(Math.random() * 4000);
   const control = createOwnerControl();
+  const e2eEnvironment = localE2eClientBuildEnvironment(process.env);
   let child: ChildProcess | undefined;
   let primary: unknown;
   let cleaning: Promise<void> | undefined;
@@ -31,8 +33,8 @@ export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<
   })();
   const signalCleanup = installOwnedSignalCleanup({ cleanup });
   try {
-    await run(process.execPath, [resolveWrangler(), "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"]);
-    child = spawn(process.execPath, [resolveWrangler(), "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-e2e-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-e2e-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-e2e-projection-token", "--var", "ALLOW_INSECURE_LOCAL_AUTH:true"], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
+    await run(process.execPath, [resolveWrangler(), "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--env-file", "/dev/null"], e2eEnvironment);
+    child = spawn(process.execPath, [resolveWrangler(), "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-e2e-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-e2e-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-e2e-projection-token", "--var", "ALLOW_INSECURE_LOCAL_AUTH:true"], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: e2eEnvironment });
     const stdout = ringBuffer(child.stdout); const stderr = ringBuffer(child.stderr); const baseURL = `http://127.0.0.1:${port}`;
     if (!child.pid) throw new Error("local Worker did not provide a child PID before owner publication");
     let childError: Error | undefined;
@@ -60,7 +62,7 @@ export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<
 }
 
 export const test = base.extend<{ build: void; worker: LocalWorker }>({
-  build: [async ({}, use) => { await run("npm", ["run", "build"]); await run("npm", ["run", "build:local"]); await use(); }, { scope: "worker" }],
+  build: [async ({}, use) => { const e2eEnvironment = localE2eClientBuildEnvironment(process.env); await run("npm", ["run", "build"], e2eEnvironment); await run("npm", ["run", "build:local", "--", "--env-file", "/dev/null"], e2eEnvironment); await use(); }, { scope: "worker" }],
   worker: async ({ build: _build }, use) => runLocalWorkerOwner(use),
 });
 export { expect };

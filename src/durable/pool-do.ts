@@ -18,8 +18,10 @@ type Row = Record<string, SqlStorageValue>;
 const first = (sql: SqlStorage, query: string, ...params: SqlStorageValue[]): Row | undefined => [...sql.exec<Row>(query, ...params)][0];
 const now = () => new Date().toISOString();
 const actorId = (command: PoolCommand) => command.type === "InitializePool" ? command.creatorId : command.actorId;
-const isReadCommand = (command: PoolCommand) => command.type === "ReadPoolGate" || command.type === "ReadPoolView" || command.type === "ReadStandings" || command.type === "ReadActivity" || command.type === "ReadSeasonHistory" || command.type === "ReadWagers" || command.type === "ReadMyWagers" || command.type === "ReadAuditExport" || command.type === "ProbePlacementReplay" || command.type === "ReplayWagerQuote";
+const isReadCommand = (command: PoolCommand) => command.type === "ReadPoolGate" || command.type === "ReadPoolView" || command.type === "ReadMessageBoard" || command.type === "ReadStandings" || command.type === "ReadActivity" || command.type === "ReadSeasonHistory" || command.type === "ReadWagers" || command.type === "ReadMyWagers" || command.type === "ReadAuditExport" || command.type === "ProbePlacementReplay" || command.type === "ReplayWagerQuote";
 const isQuoteCommand = (command: PoolCommand) => command.type === "QuoteShareOrder" || command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager";
+/** Board conversation is authoritative-only and deliberately has no D1 projection or alarm work. */
+const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost";
 const canonical = (value: unknown) => JSON.stringify(value);
 /** The durable quote binding intentionally excludes snapshot and envelope metadata. */
 const placementTerms = (value: { wagerId: string; quoteKey: string; seasonId: string; riskMicros: string; acceptedOdds: number; rulesetVersion: string; leg?: unknown; teaserPoints?: number; legs?: unknown }) => value.leg !== undefined
@@ -71,7 +73,7 @@ export class PoolDO {
       if (!parsed.success) throw new Error("INVALID_COMMAND");
       const result = await this.state.storage.transaction(async () => this.execute(parsed.data));
       // Defer post-commit outbox draining very briefly so a request cannot race its own alarm; settlement then replaces this with the earliest lifecycle deadline.
-      if (!isReadCommand(parsed.data) && !isQuoteCommand(parsed.data)) await this.state.storage.setAlarm(Date.now() + 1_000);
+      if (shouldEnqueueOutbox(parsed.data)) await this.state.storage.setAlarm(Date.now() + 1_000);
       return Response.json(result);
     } catch (error) {
       if (error instanceof OrderQuoteStaleError) {
@@ -98,7 +100,7 @@ export class PoolDO {
     let result: PoolCommandResult;
     if (command.type === "InitializePool") result = this.initialize(sql, command);
     else result = this.authorized(sql, command);
-    if (!isReadCommand(command) && !isQuoteCommand(command)) {
+    if (shouldEnqueueOutbox(command)) {
       enqueueOutbox(sql, this.commandOutboxEvent(sql, command, result.commandVersion));
       if (command.type === "CloseSeason") {
         sql.exec("UPDATE season SET command_version = ? WHERE id = ?", result.commandVersion, command.seasonId);
@@ -190,6 +192,9 @@ export class PoolDO {
     }
     if (!member || member.status !== "active") throw new Error("FORBIDDEN");
     if (command.type === "ReadPoolView") return this.readPool(sql, command.actorId, String(pool.command_version), pool.active_season_id);
+    if (command.type === "ReadMessageBoard") return this.readMessageBoard(sql, command.actorId, String(pool.command_version));
+    if (command.type === "CreateMessageBoardPost") return this.createMessageBoardPost(sql, command);
+    if (command.type === "ReplyToMessageBoardPost") return this.replyToMessageBoardPost(sql, command);
     if (command.type === "ReadStandings") return { commandVersion: String(pool.command_version), standings: this.standings(sql, pool.active_season_id) };
     if (command.type === "ReadActivity") return { commandVersion: String(pool.command_version), activity: this.activity(sql, command.actorId) };
     if (command.type === "ReadSeasonHistory") return { commandVersion: String(pool.command_version), ...this.history(sql, command.seasonId, command.actorId) };
@@ -357,6 +362,45 @@ export class PoolDO {
     throw new Error("INVALID_COMMAND");
   }
 
+  private readMessageBoard(sql: SqlStorage, actorId: string, commandVersion: string): PoolCommandResult {
+    const latest = first(sql, "SELECT activity_at FROM message_board_entry WHERE parent_post_id IS NULL ORDER BY activity_at DESC, id DESC LIMIT 1");
+    if (latest?.activity_at !== null && latest?.activity_at !== undefined) this.advanceMessageBoardRead(sql, actorId, String(latest.activity_at));
+    const threads = [...sql.exec<Row>("SELECT entry.id AS post_id, member.display_name AS author_display_name, entry.text, entry.created_at, entry.activity_at FROM message_board_entry entry JOIN member ON member.user_id = entry.author_id WHERE entry.parent_post_id IS NULL ORDER BY entry.activity_at DESC, entry.created_at ASC, entry.id ASC")].map((post) => ({
+      postId: String(post.post_id), authorDisplayName: String(post.author_display_name), text: String(post.text), createdAt: String(post.created_at), activityAt: String(post.activity_at),
+      replies: [...sql.exec<Row>("SELECT entry.id AS reply_id, member.display_name AS author_display_name, entry.text, entry.created_at FROM message_board_entry entry JOIN member ON member.user_id = entry.author_id WHERE entry.parent_post_id = ? ORDER BY entry.created_at ASC, entry.id ASC", post.post_id)].map((reply) => ({ replyId: String(reply.reply_id), authorDisplayName: String(reply.author_display_name), text: String(reply.text), createdAt: String(reply.created_at) }))
+    }));
+    return { commandVersion, threads };
+  }
+
+  private createMessageBoardPost(sql: SqlStorage, command: Extract<PoolCommand, { type: "CreateMessageBoardPost" }>): PoolCommandResult {
+    const activityAt = this.nextMessageBoardActivityAt(sql);
+    sql.exec("INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at) VALUES (?, NULL, ?, ?, ?, ?)", crypto.randomUUID(), command.actorId, command.text, activityAt, activityAt);
+    this.advanceMessageBoardRead(sql, command.actorId, activityAt);
+    return { commandVersion: this.bumpVersion(sql) };
+  }
+
+  private replyToMessageBoardPost(sql: SqlStorage, command: Extract<PoolCommand, { type: "ReplyToMessageBoardPost" }>): PoolCommandResult {
+    const parent = first(sql, "SELECT parent_post_id FROM message_board_entry WHERE id = ?", command.postId);
+    if (!parent) throw new Error("MESSAGE_BOARD_POST_NOT_FOUND");
+    if (parent.parent_post_id !== null) throw new Error("MESSAGE_BOARD_REPLY_NOT_ALLOWED");
+    const activityAt = this.nextMessageBoardActivityAt(sql);
+    sql.exec("INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at) VALUES (?, ?, ?, ?, ?, ?)", crypto.randomUUID(), command.postId, command.actorId, command.text, activityAt, activityAt);
+    sql.exec("UPDATE message_board_entry SET activity_at = ? WHERE id = ?", activityAt, command.postId);
+    this.advanceMessageBoardRead(sql, command.actorId, activityAt);
+    return { commandVersion: this.bumpVersion(sql) };
+  }
+
+  private nextMessageBoardActivityAt(sql: SqlStorage): string {
+    const latest = first(sql, "SELECT activity_at FROM message_board_entry ORDER BY activity_at DESC, id DESC LIMIT 1");
+    const currentAt = this.authoritativeTime().getTime();
+    const latestAt = latest?.activity_at === null || latest?.activity_at === undefined ? Number.NEGATIVE_INFINITY : Date.parse(String(latest.activity_at));
+    return new Date(Number.isFinite(latestAt) ? Math.max(currentAt, latestAt + 1) : currentAt).toISOString();
+  }
+
+  private advanceMessageBoardRead(sql: SqlStorage, memberId: string, activityAt: string): void {
+    sql.exec("INSERT INTO message_board_read (member_id, last_read_at) VALUES (?, ?) ON CONFLICT(member_id) DO UPDATE SET last_read_at = CASE WHEN excluded.last_read_at > message_board_read.last_read_at THEN excluded.last_read_at ELSE message_board_read.last_read_at END", memberId, activityAt);
+  }
+
   private requireActiveMember(sql: SqlStorage, memberId: string): void {
     const member = first(sql, "SELECT status FROM member WHERE user_id = ?", memberId);
     if (!member) throw new Error("MEMBER_NOT_FOUND");
@@ -456,6 +500,10 @@ export class PoolDO {
     });
     const members = [...sql.exec<Row>("SELECT user_id, display_name, role, status FROM member ORDER BY joined_at, user_id")].map((member) => ({ memberId: String(member.user_id), displayName: String(member.display_name), role: String(member.role), status: String(member.status) }));
     const seasonOrders = lifecycleIds.map((seasonId) => ({ seasonId, orders: [...sql.exec<Row>("SELECT id, member_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, created_at FROM share_order WHERE season_id = ? ORDER BY created_at DESC, rowid DESC", seasonId)].map((order) => ({ orderId: String(order.id), memberId: String(order.member_id), mode: String(order.mode), requestedMicros: String(order.requested_micros), sharesMicros: String(order.shares_micros), valueMicros: String(order.value_micros), priceMicros: String(order.price_micros), reversalOf: order.reversal_of === null ? null : String(order.reversal_of), reason: String(order.reason), createdAt: String(order.created_at) })) }));
-    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
+    const latestBoardActivity = first(sql, "SELECT activity_at FROM message_board_entry WHERE parent_post_id IS NULL ORDER BY activity_at DESC, id DESC LIMIT 1");
+    const boardRead = first(sql, "SELECT last_read_at FROM message_board_read WHERE member_id = ?", actorId);
+    const hasUnreadBoard = latestBoardActivity?.activity_at !== null && latestBoardActivity?.activity_at !== undefined
+      && (boardRead?.last_read_at === null || boardRead?.last_read_at === undefined || String(latestBoardActivity.activity_at) > String(boardRead.last_read_at));
+    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances, hasUnreadBoard }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
   }
 }

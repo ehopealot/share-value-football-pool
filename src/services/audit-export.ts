@@ -36,6 +36,8 @@ export function infrastructureAuditExport(sql: SqlStorage): Record<string, unkno
     ...base,
     wagers: rows(sql, "SELECT id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, settled_result_version, confirmed_at FROM wager ORDER BY confirmed_at, rowid"),
     wagerLegs: rows(sql, "SELECT id, wager_id, event_id, league, canonical_book, retrieved_at, policy_version, offer_version, canonical_offer_id, canonical_proof_json, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, is_super_bowl, grade, result_version FROM wager_leg ORDER BY wager_id, id"),
-    wagerLegSnapshots: rows(sql, "SELECT wager_leg_snapshot.wager_leg_id, wager_leg_snapshot.home_team, wager_leg_snapshot.away_team FROM wager_leg JOIN wager_leg_snapshot ON wager_leg_snapshot.wager_leg_id = wager_leg.id ORDER BY wager_leg.wager_id, wager_leg.id").map((row) => ({ wagerLegId: String(row.wager_leg_id), homeTeam: String(row.home_team), awayTeam: String(row.away_team) }))
+    wagerLegSnapshots: rows(sql, "SELECT wager_leg_snapshot.wager_leg_id, wager_leg_snapshot.home_team, wager_leg_snapshot.away_team FROM wager_leg JOIN wager_leg_snapshot ON wager_leg_snapshot.wager_leg_id = wager_leg.id ORDER BY wager_leg.wager_id, wager_leg.id").map((row) => ({ wagerLegId: String(row.wager_leg_id), homeTeam: String(row.home_team), awayTeam: String(row.away_team) })),
+    messageBoardEntries: rows(sql, "SELECT id, parent_post_id, author_id, text, created_at, activity_at FROM message_board_entry ORDER BY created_at, rowid"),
+    messageBoardReadStates: rows(sql, "SELECT member_id, last_read_at FROM message_board_read ORDER BY member_id")
   };
 }

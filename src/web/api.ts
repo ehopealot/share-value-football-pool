@@ -1,4 +1,4 @@
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
 import type { z } from "zod";
 
 export class ApiError extends Error {
@@ -17,7 +17,7 @@ export const commandOutcome = (error: unknown): CommandOutcome => {
 
 export const errorMessage = (error: unknown) => {
   if (!(error instanceof ApiError)) return "Service unavailable.";
-  const messages: Record<string, string> = { LINE_CHANGED: "Line changed.", SUSPENDED: "Pool access suspended.", INSUFFICIENT_SHARES: "Not enough shares.", SIDE_BET_LIMIT: "Side bet limit reached.", WHOLE_SHARE_RISK_REQUIRED: "Whole shares required.", MARKET_STALE: "Odds are stale.", MARKET_UNAVAILABLE: "Market unavailable.", MARKET_LOCKED: "Event has started.", WAGER_NOT_STARTED: "Wager has not started.", SEASON_CLOSED: "Season is closed.", SEASON_NOT_ACTIVE: "No active season.", SEASON_NOT_CLOSED: "Season is not closed.", ORDER_QUOTE_STALE: "Share price changed.", ORDER_REVERSAL_INSUFFICIENT_AVAILABLE_SHARES: "Not enough shares to reverse this order.", RECENT_AUTH_REQUIRED: "Sign in again.", IDEMPOTENCY_CONFLICT: "Duplicate request.", POOL_NOT_AVAILABLE: "Pool unavailable.", POOL_UNAVAILABLE: "Pool unavailable." };
+  const messages: Record<string, string> = { LINE_CHANGED: "Line changed.", SUSPENDED: "Pool access suspended.", INSUFFICIENT_SHARES: "Not enough shares.", SIDE_BET_LIMIT: "Side bet limit reached.", WHOLE_SHARE_RISK_REQUIRED: "Whole shares required.", MARKET_STALE: "Odds are stale.", MARKET_UNAVAILABLE: "Market unavailable.", MARKET_LOCKED: "Event has started.", WAGER_NOT_STARTED: "Wager has not started.", SEASON_CLOSED: "Season is closed.", SEASON_NOT_ACTIVE: "No active season.", SEASON_NOT_CLOSED: "Season is not closed.", ORDER_QUOTE_STALE: "Share price changed.", ORDER_REVERSAL_INSUFFICIENT_AVAILABLE_SHARES: "Not enough shares to reverse this order.", RECENT_AUTH_REQUIRED: "Sign in again.", IDEMPOTENCY_CONFLICT: "Duplicate request.", MESSAGE_BOARD_POST_NOT_FOUND: "That post is no longer available.", MESSAGE_BOARD_REPLY_NOT_ALLOWED: "Replies can only be added to a top-level post.", REQUEST_FAILED: "Service unavailable.", POOL_NOT_AVAILABLE: "Pool unavailable.", POOL_UNAVAILABLE: "Pool unavailable." };
   return messages[error.code] ?? `Request failed: ${error.code}.`;
 };
 
@@ -47,6 +47,8 @@ export const buildTeaserPlacement = (quote: z.infer<typeof teaserWagerQuoteSnaps
 export const buildShareOrderExecution = (quote: z.infer<typeof shareOrderQuoteSnapshot>, mutationKey: string, reason: string) => executeShareOrderRequest.parse({ seasonId: quote.seasonId, memberId: quote.memberId, mode: quote.mode, amountMicros: quote.amountMicros, quote: { priceMicros: quote.priceMicros, commandVersion: quote.commandVersion }, reason, idempotencyKey: mutationKey });
 export const parseAuditExportSuccess = (value: unknown): AuditExportResponse => auditExportResponse.parse(value);
 export const parseOddsBoardSuccess = (value: unknown): OddsBoardResponseType => OddsBoardResponse.parse(value);
+export const parseReadMessageBoardSuccess = (value: unknown) => ReadMessageBoardResponse.parse(value);
+export const parseMessageBoardMutationSuccess = (value: unknown) => MessageBoardMutationResponse.parse(value);
 
 const json = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, { credentials: "same-origin", ...init, headers: { "content-type": "application/json", ...init?.headers } });
@@ -122,6 +124,13 @@ export const onSessionInvalidated = (listener: () => void) => {
   window.addEventListener(sessionInvalidated, listener);
   return () => window.removeEventListener(sessionInvalidated, listener);
 };
+const poolViewInvalidated = "share-pool:pool-view-invalidated";
+/** Board reads and successful board mutations use this local event to refresh the authoritative nav marker. */
+export const invalidatePoolView = () => window.dispatchEvent(new Event(poolViewInvalidated));
+export const onPoolViewInvalidated = (listener: () => void) => {
+  window.addEventListener(poolViewInvalidated, listener);
+  return () => window.removeEventListener(poolViewInvalidated, listener);
+};
 
 const REQUEST_TIMEOUT_MS = 5_000;
 /** A withheld completed quote or placement must return control to its retry state. */
@@ -140,6 +149,9 @@ export const api = {
   joinPool: (slug: string, password: string, idempotencyKey: string, security: Turnstile) => json(`/api/p/${encodeURIComponent(slug)}/join`, { method: "POST", body: JSON.stringify({ password, idempotencyKey, ...security }) }),
   updateNickname: (slug: string, displayName: string, idempotencyKey: string) => api.command(slug, "/nickname", { displayName, idempotencyKey }),
   poolView: async (slug: string): Promise<ReadPoolViewType> => ReadPoolView.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/view`, { method: "GET", headers: {} })),
+  readMessageBoard: async (slug: string) => parseReadMessageBoardSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/read`, { method: "POST", body: JSON.stringify({}) })),
+  createMessageBoardPost: async (slug: string, body: { text: string; idempotencyKey: string }) => parseMessageBoardMutationSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/posts`, { method: "POST", body: JSON.stringify(body) })),
+  replyToMessageBoardPost: async (slug: string, postId: string, body: { text: string; idempotencyKey: string }) => parseMessageBoardMutationSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/posts/${encodeURIComponent(postId)}/replies`, { method: "POST", body: JSON.stringify(body) })),
   // Bound a lost local/network odds response so stale-confirmation replay remains reachable.
   odds: async (slug: string, query = ""): Promise<OddsBoardResponseType> => parseOddsBoardSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/odds${query}`, { method: "GET", headers: {}, signal: AbortSignal.timeout(5_000) })),
   standings: async (slug: string): Promise<ReadStandingsType> => ReadStandings.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/standings`, { method: "GET", headers: {} })),

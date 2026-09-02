@@ -171,15 +171,21 @@ describe("member export and encrypted infrastructure backup", () => {
       INSERT INTO wager_leg VALUES ('backup-hidden:a', 'backup-hidden', 'protected-future-a', 'ncaaf', 'FanDuel', '2026-01-02T00:00:00.000Z', 'policy', 'offer-a', NULL, NULL, 'total', 'under', '44.5', -110, '6', '50.5', '2099-01-01T00:00:00.000Z', 0, NULL, NULL);
       INSERT INTO wager_leg_snapshot VALUES ('backup-hidden:z', 'Zebras', 'Yaks');
       INSERT INTO wager_leg_snapshot VALUES ('backup-hidden:a', 'Águilas', 'Bears');
+      INSERT INTO message_board_entry VALUES ('backup-board-post', NULL, 'member', 'Backup top-level post', '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:01.000Z');
+      INSERT INTO message_board_entry VALUES ('backup-board-reply', 'backup-board-post', 'viewer', 'Backup reply', '2026-01-03T00:00:01.000Z', '2026-01-03T00:00:01.000Z');
+      INSERT INTO message_board_read VALUES ('member', '2026-01-03T00:00:01.000Z');
+      INSERT INTO message_board_read VALUES ('viewer', '2026-01-03T00:00:00.000Z');
     `));
     const memberResponse = await createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, currentUser: async () => ({ id: "viewer", name: "Viewer" }) }).fetch(new Request("https://pool.example.test/api/p/backup-pool/export"));
     const memberExport = await memberResponse.json() as Record<string, unknown>;
     expect(memberResponse.status).toBe(200);
     expect(memberExport).not.toHaveProperty("wagerLegSnapshots");
+    expect(memberExport).not.toHaveProperty("messageBoardEntries");
+    expect(memberExport).not.toHaveProperty("messageBoardReadStates");
     expect(memberExport.wagers).toEqual([{
       wagerId: "backup-hidden", seasonId: "backup-season", memberId: "member", memberDisplayName: "Member", type: "teaser", status: "open", confirmedAt: "2026-01-02T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "0"
     }]);
-    expect(JSON.stringify(memberExport)).not.toMatch(/backup-hidden:[az]|protected-future-[az]|Águilas|Bears|Zebras|Yaks/);
+    expect(JSON.stringify(memberExport)).not.toMatch(/backup-hidden:[az]|protected-future-[az]|Águilas|Bears|Zebras|Yaks|Backup top-level post|Backup reply/);
 
     const objects: Array<{ key: string; value: string }> = [];
     const bucket = { put: async (objectKey: string, value: string) => { objects.push({ key: objectKey, value }); } } as unknown as R2Bucket;
@@ -199,6 +205,14 @@ describe("member export and encrypted infrastructure backup", () => {
     expect(backup.wagerLegSnapshots).toEqual([
       { wagerLegId: "backup-hidden:a", homeTeam: "Águilas", awayTeam: "Bears" },
       { wagerLegId: "backup-hidden:z", homeTeam: "Zebras", awayTeam: "Yaks" }
+    ]);
+    expect(backup.messageBoardEntries).toEqual([
+      { id: "backup-board-post", parent_post_id: null, author_id: "member", text: "Backup top-level post", created_at: "2026-01-03T00:00:00.000Z", activity_at: "2026-01-03T00:00:01.000Z" },
+      { id: "backup-board-reply", parent_post_id: "backup-board-post", author_id: "viewer", text: "Backup reply", created_at: "2026-01-03T00:00:01.000Z", activity_at: "2026-01-03T00:00:01.000Z" }
+    ]);
+    expect(backup.messageBoardReadStates).toEqual([
+      { member_id: "member", last_read_at: "2026-01-03T00:00:01.000Z" },
+      { member_id: "viewer", last_read_at: "2026-01-03T00:00:00.000Z" }
     ]);
   }, 90_000);
 
