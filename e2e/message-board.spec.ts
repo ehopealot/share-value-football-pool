@@ -23,22 +23,50 @@ test("Message board lets active members exchange one-level replies with durable 
   await expect(page.getByRole("heading", { name: "Message board" })).toBeVisible();
 
   for (const post of ["Opening thread", "Second thread"]) {
-    if (post === "Opening thread") await page.evaluate(async (pathname) => {
-      const response = await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "delay", delayMs: 750, pathname }) });
+    const announcement = post === "Opening thread";
+    if (announcement) await page.evaluate(async (pathname) => {
+      const response = await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname }) });
       if (!response.ok) throw new Error(`response barrier failed: ${response.status}`);
     }, `/api/p/${pool.slug}/board/posts`);
     await page.getByLabel("New post").fill(post);
+    if (announcement) {
+      await page.getByLabel("Send as a commissioner announcement and email active members (except you).").check();
+      await expect(page.getByRole("button", { name: "Post announcement and email league" })).toBeEnabled();
+    } else await expect(page.getByRole("button", { name: "Post", exact: true })).toBeEnabled();
     await expect(page.getByLabel("New post")).toHaveValue(post);
-    await expect(page.getByRole("button", { name: "Post", exact: true })).toBeEnabled();
-    const response = page.waitForResponse((candidate) => candidate.request().method() === "POST" && candidate.url().endsWith(`/api/p/${pool.slug}/board/posts`));
-    const submit = page.getByRole("button", { name: "Post", exact: true }).click();
-    if (post === "Opening thread") await expect(page.getByLabel("New post")).toBeDisabled();
+    const action = page.getByRole("button", { name: announcement ? "Post announcement and email league" : "Post", exact: true });
+    const response = announcement ? undefined : page.waitForResponse((candidate) => candidate.request().method() === "POST" && candidate.url().endsWith(`/api/p/${pool.slug}/board/posts`));
+    const submit = action.click();
+    if (announcement) await expect(page.getByLabel("New post")).toBeDisabled();
     await submit;
-    expect((await response).status()).toBe(200);
-    await expect(page.getByText(post, { exact: true })).toBeVisible();
+    if (announcement) {
+      await expect(page.getByRole("alert")).toContainText("Service unavailable.");
+      await expect(action).toBeEnabled();
+      await action.click();
+      await expect(page.getByText(post, { exact: true })).toHaveCount(1);
+    } else {
+      expect((await response!).status()).toBe(200);
+      await expect(page.getByText(post, { exact: true })).toBeVisible();
+    }
   }
-  await expect(page.locator(".message-board-thread")).toHaveCount(2);
-  await expect(page.locator(".message-board-thread-alt")).toHaveCount(1);
+  const announcementThread = page.locator(".message-board-thread").filter({ hasText: "Opening thread" });
+  await expect(announcementThread.locator('[title="Commissioner announcement"]')).toBeVisible();
+  await expect(announcementThread).toHaveAttribute("id", /^post-/);
+  const announcementArticleId = await announcementThread.getAttribute("id");
+  expect(announcementArticleId).toBeTruthy();
+  await page.evaluate(async (slug) => {
+    for (let index = 0; index < 12; index++) {
+      const response = await fetch(`/api/p/${slug}/board/posts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `Later thread ${index}`, idempotencyKey: crypto.randomUUID() }) });
+      if (!response.ok) throw new Error(`later post failed: ${response.status}`);
+    }
+  }, pool.slug);
+  await page.goto(`${worker.baseURL}/p/${pool.slug}/overview`);
+  await page.goto(`${worker.baseURL}/p/${pool.slug}/board#${announcementArticleId}`);
+  const deepLinkedAnnouncement = page.locator(`#${announcementArticleId}`);
+  await expect(deepLinkedAnnouncement).toBeInViewport();
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await expect(page.locator(".message-board-thread")).toHaveCount(14);
+  await expect(page.locator(".message-board-thread-alt")).toHaveCount(7);
   await page.evaluate(async (pathname) => {
     const response = await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname }) });
     if (!response.ok) throw new Error(`response barrier failed: ${response.status}`);
@@ -69,6 +97,8 @@ test("Message board lets active members exchange one-level replies with durable 
     await expect(member).toHaveURL(new RegExp(`/p/${pool.slug}/board$`));
     await expect(member.getByText("Opening thread", { exact: true })).toBeVisible();
     await expect(member.getByRole("link", { name: "Message board", exact: true })).toBeVisible();
+    await expect(member.getByLabel("Send as a commissioner announcement and email active members (except you).")).toHaveCount(0);
+    await expect(member.locator('[title="Commissioner announcement"]')).toBeVisible();
 
     const openingThread = member.locator(".message-board-thread").filter({ hasText: "Opening thread" });
     const replyButton = openingThread.getByRole("button", { name: "Reply to Message Board Commissioner" });
@@ -93,6 +123,16 @@ test("Message board lets active members exchange one-level replies with durable 
     await expect(openingThread.getByText("I am in.", { exact: true })).toHaveCount(1);
     await expect(openingThread.locator(".message-board-reply").getByRole("button")).toHaveCount(0);
     await expect(member.getByRole("link", { name: "Message board", exact: true })).toBeVisible();
+
+    await member.goto(`${worker.baseURL}/p/${pool.slug}/overview`);
+    await expect(member.getByRole("link", { name: "Message board", exact: true })).toBeVisible();
+    await member.evaluate(async (pathname) => {
+      const response = await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "delay", delayMs: 1_000, pathname }) });
+      if (!response.ok) throw new Error(`response barrier failed: ${response.status}`);
+    }, `/api/p/${pool.slug}/view`);
+    await member.getByRole("link", { name: "Standings", exact: true }).click();
+    await expect(member).toHaveURL(new RegExp(`/p/${pool.slug}/standings$`));
+    await expect(member.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Message board", exact: true })).toBeVisible({ timeout: 250 });
 
     await page.goto(`${worker.baseURL}/p/${pool.slug}/overview`);
     await expect(page.getByRole("link", { name: /Message board.*New/ })).toBeVisible();

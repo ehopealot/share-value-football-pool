@@ -11,7 +11,7 @@ const initialize = (slug: string) => send(slug, { type: "InitializePool", comman
 const join = (slug: string, actorId: string, displayName: string) => send(slug, { type: "JoinPool", commandId: `join-${actorId}`, actorId, displayName, password: "correct-password" });
 const view = (slug: string, actorId: string, commandId = `view-${crypto.randomUUID()}`) => send(slug, { type: "ReadPoolView", commandId, actorId });
 const read = (slug: string, actorId: string, commandId = `read-${crypto.randomUUID()}`) => send(slug, { type: "ReadMessageBoard", commandId, actorId });
-const post = (slug: string, actorId: string, commandId: string, text: string) => send(slug, { type: "CreateMessageBoardPost", commandId, actorId, text });
+const post = (slug: string, actorId: string, commandId: string, text: string, announcement = false) => send(slug, { type: "CreateMessageBoardPost", commandId, actorId, text, announcement });
 const reply = (slug: string, actorId: string, commandId: string, postId: string, text: string) => send(slug, { type: "ReplyToMessageBoardPost", commandId, actorId, postId, text });
 
 describe("PoolDO message board", () => {
@@ -20,9 +20,9 @@ describe("PoolDO message board", () => {
     await initialize(slug);
     await join(slug, "member", "Original nickname");
 
-    expect(await post(slug, "owner", "post-first", "First thread")).toEqual({ commandVersion: expect.any(String) });
+    expect(await post(slug, "owner", "post-first", "First thread")).toMatchObject({ commandVersion: expect.any(String), isAnnouncement: false });
     const firstPostId = String((await read(slug, "owner")).threads[0].postId);
-    expect(await post(slug, "member", "post-second", "Second thread")).toEqual({ commandVersion: expect.any(String) });
+    expect(await post(slug, "member", "post-second", "Second thread")).toMatchObject({ commandVersion: expect.any(String), isAnnouncement: false, replayed: false });
     expect(await reply(slug, "member", "reply-first", firstPostId, "First reply")).toEqual({ commandVersion: expect.any(String) });
     expect(await reply(slug, "owner", "reply-second", firstPostId, "Second reply")).toEqual({ commandVersion: expect.any(String) });
     expect(await send(slug, { type: "UpdateMemberNickname", commandId: "rename-member", actorId: "member", displayName: "Sunday Shark" })).toMatchObject({ commandVersion: expect.any(String) });
@@ -37,6 +37,43 @@ describe("PoolDO message board", () => {
     expect(await reply(slug, "owner", "reply-to-reply", board.threads[0].replies[0].replyId, "No nesting")).toEqual({ code: "MESSAGE_BOARD_REPLY_NOT_ALLOWED" });
   }, 30_000);
 
+  it("allows only the commissioner to persist a marked announcement with a stable replay identity", async () => {
+    const slug = `message-board-announcement-${crypto.randomUUID()}`;
+    await initialize(slug);
+    await join(slug, "member", "Member");
+
+    const first = await post(slug, "owner", "announcement-idempotent", "Draft starts at noon.", true);
+    expect(first).toEqual({ commandVersion: expect.any(String), postId: expect.any(String), isAnnouncement: true, replayed: false });
+    expect(await post(slug, "owner", "announcement-idempotent", "Draft starts at noon.", true)).toEqual({ ...first, replayed: true });
+    expect(await post(slug, "owner", "announcement-idempotent", "Changed body", true)).toEqual({ code: "IDEMPOTENCY_CONFLICT" });
+    expect(await post(slug, "member", "member-announcement", "Forged blast", true)).toEqual({ code: "FORBIDDEN" });
+    expect(await post(slug, "member", "member-normal", "Normal member post")).toMatchObject({ isAnnouncement: false, replayed: false });
+
+    const ownerBoard = await read(slug, "owner");
+    expect(ownerBoard).toMatchObject({ canAnnounce: true, threads: [
+      { text: "Normal member post", isAnnouncement: false },
+      { postId: first.postId, text: "Draft starts at noon.", isAnnouncement: true }
+    ] });
+    expect(await read(slug, "member")).toMatchObject({ canAnnounce: false });
+    expect(await storage(slug, (_instance, state) => [...state.storage.sql.exec<{ id: string; is_announcement: number }>("SELECT id, is_announcement FROM message_board_entry ORDER BY created_at, rowid")])).toEqual([
+      { id: first.postId, is_announcement: 1 },
+      { id: expect.any(String), is_announcement: 0 }
+    ]);
+  }, 30_000);
+
+  it("replays a pre-announcement post command without a duplicate post or email-eligible identity", async () => {
+    const slug = `message-board-legacy-post-${crypto.randomUUID()}`;
+    await initialize(slug);
+    await storage(slug, (_instance, state) => state.storage.sql.exec(
+      "INSERT INTO processed_command (id, type, actor_id, request_json, response_json, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+      "legacy-post", "CreateMessageBoardPost", "owner",
+      JSON.stringify({ type: "CreateMessageBoardPost", commandId: "legacy-post", actorId: "owner", text: "Pre-upgrade post" }),
+      JSON.stringify({ commandVersion: "1" }), "2099-01-01T00:00:00.000Z"
+    ));
+    expect(await post(slug, "owner", "legacy-post", "Pre-upgrade post")).toEqual({ commandVersion: "1", isAnnouncement: false, replayed: true });
+    expect(await storage(slug, (_instance, state) => [...state.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM message_board_entry")][0])).toEqual({ count: 0 });
+  }, 30_000);
+
   it("replays board mutations without projection work and leaves state-changing reads unrecorded", async () => {
     const slug = `message-board-effects-${crypto.randomUUID()}`;
     await initialize(slug);
@@ -48,8 +85,8 @@ describe("PoolDO message board", () => {
 
     const beforePost = Number((await view(slug, "owner")).commandVersion);
     const first = await post(slug, "owner", "post-idempotent", "One durable post");
-    expect(first).toEqual({ commandVersion: String(beforePost + 1) });
-    expect(await post(slug, "owner", "post-idempotent", "One durable post")).toEqual(first);
+    expect(first).toMatchObject({ commandVersion: String(beforePost + 1), postId: expect.any(String), isAnnouncement: false, replayed: false });
+    expect(await post(slug, "owner", "post-idempotent", "One durable post")).toEqual({ ...first, replayed: true });
     expect(await post(slug, "owner", "post-idempotent", "Changed text")).toEqual({ code: "IDEMPOTENCY_CONFLICT" });
     const postId = String((await read(slug, "owner", "board-read")).threads[0].postId);
     const beforeReply = Number((await view(slug, "member")).commandVersion);

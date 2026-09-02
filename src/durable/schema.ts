@@ -4,7 +4,7 @@ import { TEASER_RULESET_ID } from "../domain/teaser-table";
 export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', active_season_id TEXT, command_version TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS member (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('commissioner','member')), status TEXT NOT NULL CHECK(status IN ('active','suspended')), joined_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS message_board_entry (id TEXT PRIMARY KEY, parent_post_id TEXT, author_id TEXT NOT NULL, text TEXT NOT NULL CHECK(length(trim(text)) BETWEEN 1 AND 1000), created_at TEXT NOT NULL, activity_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS message_board_entry (id TEXT PRIMARY KEY, parent_post_id TEXT, author_id TEXT NOT NULL, text TEXT NOT NULL CHECK(length(trim(text)) BETWEEN 1 AND 1000), created_at TEXT NOT NULL, activity_at TEXT NOT NULL, is_announcement INTEGER NOT NULL DEFAULT 0 CHECK(is_announcement IN (0, 1)))`,
   `CREATE TABLE IF NOT EXISTS message_board_read (member_id TEXT PRIMARY KEY, last_read_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS message_board_thread_activity_idx ON message_board_entry(parent_post_id, activity_at DESC, created_at ASC, id ASC)`,
   `CREATE INDEX IF NOT EXISTS message_board_reply_order_idx ON message_board_entry(parent_post_id, created_at ASC, id ASC)`,
@@ -47,6 +47,9 @@ export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
   const poolColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")];
   if (!poolColumns.some((column) => column.name === "max_side_bet_micros")) sql.exec("ALTER TABLE pool ADD COLUMN max_side_bet_micros TEXT NOT NULL DEFAULT '800000000'");
   sql.exec("UPDATE pool SET max_side_bet_micros = '800000000' WHERE max_side_bet_micros IS NULL OR max_side_bet_micros = ''");
+  const boardColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(message_board_entry)")];
+  if (!boardColumns.some((column) => column.name === "is_announcement")) sql.exec("ALTER TABLE message_board_entry ADD COLUMN is_announcement INTEGER NOT NULL DEFAULT 0");
+  sql.exec("UPDATE message_board_entry SET is_announcement = 0 WHERE is_announcement IS NULL");
   const superBowlColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(season_super_bowl)")];
   if (!superBowlColumns.some((column) => column.name === "event_starts_at")) sql.exec("ALTER TABLE season_super_bowl ADD COLUMN event_starts_at TEXT");
 };

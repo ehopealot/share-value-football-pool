@@ -8,6 +8,7 @@ export interface PoolJoinNotifier {
   notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>;
   notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>;
   notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>;
+  notifyCommissionerAnnouncement(message: { to: string; poolName: string; authorName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
 }
 
 const resendEndpoint = "https://api.resend.com/emails";
@@ -30,13 +31,13 @@ function emailContent(message: EmailMessage): { subject: string; text: string; h
   };
 }
 
-async function sendResend(options: ResendEmailSenderOptions, to: string, content: { subject: string; text: string; html: string }): Promise<void> {
+async function sendResend(options: ResendEmailSenderOptions, to: string, content: { subject: string; text: string; html: string }, idempotencyKey?: string): Promise<void> {
   const fetcher = options.fetcher ?? fetch;
   let response: Response;
   try {
     response = await fetcher(resendEndpoint, {
       method: "POST",
-      headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json", "user-agent": "office-pool-reborn/1.0", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) },
       body: JSON.stringify({ from: options.from, to: [to], ...content }),
       signal: AbortSignal.timeout(10_000)
     });
@@ -61,6 +62,13 @@ export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions):
         text: `${message.memberName} joined ${message.poolName}.`,
         html: `<p><strong>${escapeHtmlAttribute(message.memberName)}</strong> joined <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`
       });
+    },
+    async notifyCommissionerAnnouncement(message) {
+      await sendResend(options, message.to, {
+        subject: `Commissioner announcement — ${message.poolName}`,
+        text: `${message.authorName} posted a commissioner announcement in ${message.poolName}:\n\n${message.text}\n\nView announcement: ${message.boardUrl}`,
+        html: `<p><strong>${escapeHtmlAttribute(message.authorName)}</strong> posted a commissioner announcement in <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p><p>${escapeHtmlAttribute(message.text)}</p><p><a href="${escapeHtmlAttribute(message.boardUrl)}">View announcement</a></p>`
+      }, message.idempotencyKey);
     },
     async notifyShareOrderFulfilled(message) {
       const shares = amount(message.sharesMicros);

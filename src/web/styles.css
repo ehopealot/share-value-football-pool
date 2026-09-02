@@ -150,6 +150,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .message-board-thread { padding: var(--space-2); border: 1px solid var(--line); background: var(--paper); }
 .message-board-thread-alt { background: #edf1f4; }
 .message-board-thread > header p, .message-board-reply > header p { margin: 0; }
+.message-board-announcement-icon { display: inline-flex; width: 1em; height: 1em; margin-left: 0.25rem; vertical-align: -0.1em; color: #7a2500; }
+.message-board-announcement-icon svg { width: 100%; height: 100%; fill: currentColor; }
+.message-board-announcement-option { display: flex; align-items: center; gap: var(--space-1); }
 .message-board-thread time, .message-board-reply time { color: #3b4046; font-size: 0.9rem; }
 .message-board-text { overflow-wrap: anywhere; white-space: pre-wrap; }
 .message-board-reply-toggle { margin-top: var(--space-1); }

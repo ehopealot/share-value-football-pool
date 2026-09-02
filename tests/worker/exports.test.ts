@@ -171,8 +171,8 @@ describe("member export and encrypted infrastructure backup", () => {
       INSERT INTO wager_leg VALUES ('backup-hidden:a', 'backup-hidden', 'protected-future-a', 'ncaaf', 'FanDuel', '2026-01-02T00:00:00.000Z', 'policy', 'offer-a', NULL, NULL, 'total', 'under', '44.5', -110, '6', '50.5', '2099-01-01T00:00:00.000Z', 0, NULL, NULL);
       INSERT INTO wager_leg_snapshot VALUES ('backup-hidden:z', 'Zebras', 'Yaks');
       INSERT INTO wager_leg_snapshot VALUES ('backup-hidden:a', 'Águilas', 'Bears');
-      INSERT INTO message_board_entry VALUES ('backup-board-post', NULL, 'member', 'Backup top-level post', '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:01.000Z');
-      INSERT INTO message_board_entry VALUES ('backup-board-reply', 'backup-board-post', 'viewer', 'Backup reply', '2026-01-03T00:00:01.000Z', '2026-01-03T00:00:01.000Z');
+      INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at, is_announcement) VALUES ('backup-board-post', NULL, 'member', 'Backup top-level post', '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:01.000Z', 1);
+      INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at, is_announcement) VALUES ('backup-board-reply', 'backup-board-post', 'viewer', 'Backup reply', '2026-01-03T00:00:01.000Z', '2026-01-03T00:00:01.000Z', 0);
       INSERT INTO message_board_read VALUES ('member', '2026-01-03T00:00:01.000Z');
       INSERT INTO message_board_read VALUES ('viewer', '2026-01-03T00:00:00.000Z');
     `));
@@ -207,8 +207,8 @@ describe("member export and encrypted infrastructure backup", () => {
       { wagerLegId: "backup-hidden:z", homeTeam: "Zebras", awayTeam: "Yaks" }
     ]);
     expect(backup.messageBoardEntries).toEqual([
-      { id: "backup-board-post", parent_post_id: null, author_id: "member", text: "Backup top-level post", created_at: "2026-01-03T00:00:00.000Z", activity_at: "2026-01-03T00:00:01.000Z" },
-      { id: "backup-board-reply", parent_post_id: "backup-board-post", author_id: "viewer", text: "Backup reply", created_at: "2026-01-03T00:00:01.000Z", activity_at: "2026-01-03T00:00:01.000Z" }
+      { id: "backup-board-post", parent_post_id: null, author_id: "member", text: "Backup top-level post", created_at: "2026-01-03T00:00:00.000Z", activity_at: "2026-01-03T00:00:01.000Z", is_announcement: 1 },
+      { id: "backup-board-reply", parent_post_id: "backup-board-post", author_id: "viewer", text: "Backup reply", created_at: "2026-01-03T00:00:01.000Z", activity_at: "2026-01-03T00:00:01.000Z", is_announcement: 0 }
     ]);
     expect(backup.messageBoardReadStates).toEqual([
       { member_id: "member", last_read_at: "2026-01-03T00:00:01.000Z" },

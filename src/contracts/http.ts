@@ -32,6 +32,8 @@ export const executeShareOrderRequest = shareOrderQuoteRequest.extend({ mode: z.
 /** A board read changes only the caller's durable HWM, so it still needs a strict POST body. */
 export const messageBoardReadRequest = z.object({}).strict();
 export const messageBoardMutationRequest = z.object({ text: z.string().trim().min(1).max(1000), idempotencyKey }).strict();
+/** Announcement is a top-level-post capability, never a reply field. */
+export const messageBoardPostRequest = messageBoardMutationRequest.extend({ announcement: z.boolean().default(false) }).strict();
 
 /** Browser quote inputs are independently constructible semantic requests: no accepted terms or command version. */
 export const straightWagerQuoteRequest = quoteStraightSemantic.extend({ quoteKey, commandId: quoteKey }).strict().superRefine((value, ctx) => { if (value.quoteKey !== value.commandId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "quoteKey must equal commandId" }); });
@@ -80,14 +82,19 @@ const messageBoardReply = z.object({
   replyId: z.string().min(1), authorDisplayName: z.string().min(1), text: z.string().min(1), createdAt: z.string().datetime()
 }).strict();
 const messageBoardThread = z.object({
-  postId: z.string().min(1), authorDisplayName: z.string().min(1), text: z.string().min(1), createdAt: z.string().datetime(), activityAt: z.string().datetime(), replies: z.array(messageBoardReply)
+  postId: z.string().min(1), authorDisplayName: z.string().min(1), text: z.string().min(1), createdAt: z.string().datetime(), activityAt: z.string().datetime(), isAnnouncement: z.boolean(), replies: z.array(messageBoardReply)
 }).strict();
 /** Exact member-visible board snapshot; its read operation atomically advances a durable HWM. */
-export const ReadMessageBoardResponse = z.object({ commandVersion: decimalString, threads: z.array(messageBoardThread) }).strict();
-/** Board mutations intentionally expose only their committed authority version. */
+export const ReadMessageBoardResponse = z.object({ commandVersion: decimalString, canAnnounce: z.boolean(), threads: z.array(messageBoardThread) }).strict();
+/** Replies intentionally expose only their committed authority version. */
 export const MessageBoardMutationResponse = z.object({ commandVersion: decimalString }).strict();
+/** A top-level post returns its durable identity so the Worker can schedule one best-effort announcement blast. */
+export const MessageBoardPostResponse = z.object({ commandVersion: decimalString, postId: z.string().min(1).optional(), isAnnouncement: z.boolean(), replayed: z.boolean() }).strict().superRefine((response, ctx) => {
+  if (response.postId === undefined && (!response.replayed || response.isAnnouncement)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["postId"], message: "Only a legacy ordinary replay may omit a post identity." });
+});
 export type ReadMessageBoardResponse = z.infer<typeof ReadMessageBoardResponse>;
 export type MessageBoardMutationResponse = z.infer<typeof MessageBoardMutationResponse>;
+export type MessageBoardPostResponse = z.infer<typeof MessageBoardPostResponse>;
 
 /** Exact authenticated odds-board response. Poll observations are stored provider facts, never inferred from offer timestamps. */
 export const OddsBoardResponse = z.object({

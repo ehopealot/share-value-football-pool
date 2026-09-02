@@ -38,6 +38,11 @@ const requestFingerprint = (command: PoolCommand, commandAuthenticatorKey?: stri
   if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager") return canonical({ type: command.type, commandId: command.commandId, actorId: command.actorId, identity: command.identity });
   return canonical(command);
 };
+/** Pre-announcement post commands remain replayable for the processed-command retention window. */
+const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "CreateMessageBoardPost" }>) => {
+  const { announcement: _announcement, ...legacy } = command;
+  return canonical(legacy);
+};
 
 /**
  * The sole authoritative, serialized state machine for one pool. D1 records
@@ -91,9 +96,11 @@ export class PoolDO {
     // Reads are authorization-sensitive snapshots and are intentionally never replayed from processed_command.
     const isRead = isReadCommand(command);
     if (previous && !isRead) {
-      if (previous.type !== command.type || previous.actor_id !== actorId(command) || previous.request_json !== requestFingerprint(command, commandAuthenticatorKey)) throw new Error("IDEMPOTENCY_CONFLICT");
-      const response = JSON.parse(String(previous.response_json));
+      const legacyPostReplay = command.type === "CreateMessageBoardPost" && !command.announcement && previous.request_json === legacyPostRequestFingerprint(command);
+      if (previous.type !== command.type || previous.actor_id !== actorId(command) || (previous.request_json !== requestFingerprint(command, commandAuthenticatorKey) && !legacyPostReplay)) throw new Error("IDEMPOTENCY_CONFLICT");
+      const response = JSON.parse(String(previous.response_json)) as Record<string, unknown>;
       // External notifications need to distinguish newly committed actions from idempotent replays.
+      if (command.type === "CreateMessageBoardPost") return { ...response, ...(typeof response.postId === "string" ? {} : { isAnnouncement: false }), replayed: true } as unknown as PoolCommandResult;
       return (command.type === "JoinPool" || command.type === "ExecuteShareOrder" ? { ...response, replayed: true } : response) as PoolCommandResult;
     }
 
@@ -192,8 +199,11 @@ export class PoolDO {
     }
     if (!member || member.status !== "active") throw new Error("FORBIDDEN");
     if (command.type === "ReadPoolView") return this.readPool(sql, command.actorId, String(pool.command_version), pool.active_season_id);
-    if (command.type === "ReadMessageBoard") return this.readMessageBoard(sql, command.actorId, String(pool.command_version));
-    if (command.type === "CreateMessageBoardPost") return this.createMessageBoardPost(sql, command);
+    if (command.type === "ReadMessageBoard") return this.readMessageBoard(sql, command.actorId, String(pool.command_version), String(pool.commissioner_id) === command.actorId && member.role === "commissioner");
+    if (command.type === "CreateMessageBoardPost") {
+      if (command.announcement && (String(pool.commissioner_id) !== command.actorId || member.role !== "commissioner")) throw new Error("FORBIDDEN");
+      return this.createMessageBoardPost(sql, command);
+    }
     if (command.type === "ReplyToMessageBoardPost") return this.replyToMessageBoardPost(sql, command);
     if (command.type === "ReadStandings") return { commandVersion: String(pool.command_version), standings: this.standings(sql, pool.active_season_id) };
     if (command.type === "ReadActivity") return { commandVersion: String(pool.command_version), activity: this.activity(sql, command.actorId) };
@@ -362,21 +372,22 @@ export class PoolDO {
     throw new Error("INVALID_COMMAND");
   }
 
-  private readMessageBoard(sql: SqlStorage, actorId: string, commandVersion: string): PoolCommandResult {
+  private readMessageBoard(sql: SqlStorage, actorId: string, commandVersion: string, canAnnounce: boolean): PoolCommandResult {
     const latest = first(sql, "SELECT activity_at FROM message_board_entry WHERE parent_post_id IS NULL ORDER BY activity_at DESC, id DESC LIMIT 1");
     if (latest?.activity_at !== null && latest?.activity_at !== undefined) this.advanceMessageBoardRead(sql, actorId, String(latest.activity_at));
-    const threads = [...sql.exec<Row>("SELECT entry.id AS post_id, member.display_name AS author_display_name, entry.text, entry.created_at, entry.activity_at FROM message_board_entry entry JOIN member ON member.user_id = entry.author_id WHERE entry.parent_post_id IS NULL ORDER BY entry.activity_at DESC, entry.created_at ASC, entry.id ASC")].map((post) => ({
-      postId: String(post.post_id), authorDisplayName: String(post.author_display_name), text: String(post.text), createdAt: String(post.created_at), activityAt: String(post.activity_at),
+    const threads = [...sql.exec<Row>("SELECT entry.id AS post_id, member.display_name AS author_display_name, entry.text, entry.created_at, entry.activity_at, entry.is_announcement FROM message_board_entry entry JOIN member ON member.user_id = entry.author_id WHERE entry.parent_post_id IS NULL ORDER BY entry.activity_at DESC, entry.created_at ASC, entry.id ASC")].map((post) => ({
+      postId: String(post.post_id), authorDisplayName: String(post.author_display_name), text: String(post.text), createdAt: String(post.created_at), activityAt: String(post.activity_at), isAnnouncement: Boolean(post.is_announcement),
       replies: [...sql.exec<Row>("SELECT entry.id AS reply_id, member.display_name AS author_display_name, entry.text, entry.created_at FROM message_board_entry entry JOIN member ON member.user_id = entry.author_id WHERE entry.parent_post_id = ? ORDER BY entry.created_at ASC, entry.id ASC", post.post_id)].map((reply) => ({ replyId: String(reply.reply_id), authorDisplayName: String(reply.author_display_name), text: String(reply.text), createdAt: String(reply.created_at) }))
     }));
-    return { commandVersion, threads };
+    return { commandVersion, canAnnounce, threads };
   }
 
   private createMessageBoardPost(sql: SqlStorage, command: Extract<PoolCommand, { type: "CreateMessageBoardPost" }>): PoolCommandResult {
     const activityAt = this.nextMessageBoardActivityAt(sql);
-    sql.exec("INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at) VALUES (?, NULL, ?, ?, ?, ?)", crypto.randomUUID(), command.actorId, command.text, activityAt, activityAt);
+    const postId = crypto.randomUUID();
+    sql.exec("INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at, is_announcement) VALUES (?, NULL, ?, ?, ?, ?, ?)", postId, command.actorId, command.text, activityAt, activityAt, command.announcement ? 1 : 0);
     this.advanceMessageBoardRead(sql, command.actorId, activityAt);
-    return { commandVersion: this.bumpVersion(sql) };
+    return { commandVersion: this.bumpVersion(sql), postId, isAnnouncement: command.announcement, replayed: false };
   }
 
   private replyToMessageBoardPost(sql: SqlStorage, command: Extract<PoolCommand, { type: "ReplyToMessageBoardPost" }>): PoolCommandResult {

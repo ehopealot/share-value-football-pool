@@ -5,8 +5,8 @@ import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
-import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest } from "../contracts/http";
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot } from "../contracts/http";
+import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest, messageBoardPostRequest } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateWagerOffers } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -37,6 +37,7 @@ const csrf = (c: Context) => {
   } catch { return false; }
 };
 const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.stringify(ticket);
+const recipientChunkSize = 100;
 
 /** Installs only early authenticated pool mutations; reads, wagers, exports, and settlement stay deferred. */
 export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): void {
@@ -61,6 +62,20 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       if (error instanceof PoolCommandError) return c.json({ ...error.details, code, ...(code === "ORDER_QUOTE_STALE" ? { reconfirmationRequired: true } : {}) }, unavailable ? 503 : code === "FORBIDDEN" || code === "SUSPENDED" ? 403 : 400);
       if (code === "FORBIDDEN" || code === "SUSPENDED") return jsonError(c, code, 403);
       return jsonError(c, code, unavailable ? 503 : 400);
+    }
+  };
+
+  /** Best-effort only: a committed announcement never waits for, retries, or exposes mail delivery. */
+  const dispatchCommissionerAnnouncement = async (input: { slug: string; actor: AuthenticatedUser; postId: string; text: string; boardUrl: string }) => {
+    if (!dependencies.poolJoinNotifier) return;
+    const view = ReadPoolView.parse(await router.send(input.slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: input.actor.id }));
+    const recipientIds = view.members.filter((member) => member.status === "active" && member.memberId !== view.pool.commissionerId && member.memberId !== input.actor.id).map((member) => member.memberId);
+    const authorName = view.members.find((member) => member.memberId === input.actor.id)?.displayName ?? input.actor.name;
+    for (let offset = 0; offset < recipientIds.length; offset += recipientChunkSize) {
+      const ids = recipientIds.slice(offset, offset + recipientChunkSize);
+      if (!ids.length) continue;
+      const recipients = await dependencies.db.prepare(`SELECT id, email FROM user WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; email: string }>();
+      await Promise.allSettled(recipients.results.map((recipient) => dependencies.poolJoinNotifier!.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` })));
     }
   };
 
@@ -119,11 +134,16 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     return c.json(ReadMessageBoardResponse.parse(await router.send(slug, { type: "ReadMessageBoard", commandId: crypto.randomUUID(), actorId: user.id })));
   }));
   app.post("/api/p/:slug/board/posts", (c) => mutation(c, async (user) => {
-    const parsed = messageBoardMutationRequest.safeParse(await c.req.json());
+    const parsed = messageBoardPostRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const slug = c.req.param("slug");
     if (!slug) return jsonError(c, "INVALID_REQUEST");
-    return c.json(MessageBoardMutationResponse.parse(await router.send(slug, { type: "CreateMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, text: parsed.data.text })));
+    const result = MessageBoardPostResponse.parse(await router.send(slug, { type: "CreateMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, text: parsed.data.text, announcement: parsed.data.announcement }));
+    if (result.isAnnouncement && !result.replayed && result.postId && dependencies.poolJoinNotifier) {
+      const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(result.postId)}`, c.req.url).toString();
+      c.executionCtx.waitUntil(dispatchCommissionerAnnouncement({ slug, actor: user, postId: result.postId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+    }
+    return c.json(result);
   }));
   app.post("/api/p/:slug/board/posts/:postId/replies", (c) => mutation(c, async (user) => {
     const parsed = messageBoardMutationRequest.safeParse(await c.req.json());

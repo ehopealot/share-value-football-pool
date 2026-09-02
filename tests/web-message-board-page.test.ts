@@ -4,9 +4,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PoolNavigation, PoolViewLoadGeneration } from "../src/web/components/Layout";
+import { PoolNavigation, PoolNavigationCache, PoolViewLoadGeneration, SessionLoadGeneration } from "../src/web/components/Layout";
 import { api, onPoolViewInvalidated } from "../src/web/api";
-import { MessageBoardThreads, createMessageBoardPostAndInvalidate, readMessageBoardAndInvalidate, replyToMessageBoardPostAndInvalidate } from "../src/web/pages/MessageBoardPage";
+import { MessageBoardThreads, createMessageBoardPostAndInvalidate, readMessageBoardAndInvalidate, replyToMessageBoardPostAndInvalidate, scrollMessageBoardFragment, shouldScrollMessageBoardFragment } from "../src/web/pages/MessageBoardPage";
 
 const root = resolve(import.meta.dirname, "..");
 const pageSource = () => readFileSync(resolve(root, "src/web/pages/MessageBoardPage.tsx"), "utf8");
@@ -21,8 +21,8 @@ const view = {
   members: [], commissioner: null
 };
 const board = {
-  commandVersion: "8",
-  threads: [{ postId: "post-1", authorDisplayName: "Sunday Shark", text: "Who is ready?", createdAt: "2030-09-01T12:00:00.000Z", activityAt: "2030-09-01T12:01:00.000Z", replies: [{ replyId: "reply-1", authorDisplayName: "Fourth Quarter", text: "I am.", createdAt: "2030-09-01T12:01:00.000Z" }] }]
+  commandVersion: "8", canAnnounce: false,
+  threads: [{ postId: "post-1", authorDisplayName: "Sunday Shark", text: "Who is ready?", createdAt: "2030-09-01T12:00:00.000Z", activityAt: "2030-09-01T12:01:00.000Z", isAnnouncement: false, replies: [{ replyId: "reply-1", authorDisplayName: "Fourth Quarter", text: "I am.", createdAt: "2030-09-01T12:01:00.000Z" }] }]
 };
 
 describe("Message board presentation and nav state", () => {
@@ -47,6 +47,38 @@ describe("Message board presentation and nav state", () => {
     expect(loads.current(freshFalse)).toBe(true);
   });
 
+  it("fences stale session reads before they can restore an old navigation identity", () => {
+    const loads = new SessionLoadGeneration();
+    const stale = loads.start();
+    loads.invalidate();
+    const current = loads.start();
+    expect(loads.current(stale)).toBe(false);
+    expect(loads.current(current)).toBe(true);
+  });
+
+  it("retains a cached pool ribbon only for its authenticated member while clearing a locally read New marker", () => {
+    const cache = new PoolNavigationCache();
+    cache.setSession({ id: "member-a" });
+    cache.store("pool", view);
+    expect(cache.get("pool")).toEqual(view);
+    expect(cache.markBoardRead("pool")).toMatchObject({ currentMember: { hasUnreadBoard: false } });
+    expect(cache.get("pool")).toMatchObject({ currentMember: { hasUnreadBoard: false } });
+    cache.setSession({ id: "member-b" });
+    expect(cache.get("pool")).toBeUndefined();
+    cache.clear();
+    expect(cache.get("pool")).toBeUndefined();
+  });
+
+  it("replays an encoded board fragment once after asynchronous threads mount", () => {
+    const scrollIntoView = vi.fn();
+    scrollMessageBoardFragment("#post-post%2F1", (id) => id === "post-post/1" ? { scrollIntoView } as unknown as HTMLElement : null);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    expect(shouldScrollMessageBoardFragment(undefined, "pool", "#post-1")).toBe(true);
+    expect(shouldScrollMessageBoardFragment("pool:#post-1", "pool", "#post-1")).toBe(false);
+    expect(shouldScrollMessageBoardFragment("pool:#post-1", "pool", "#post-2")).toBe(true);
+    expect(() => scrollMessageBoardFragment("#%E0%A4%A", () => null)).not.toThrow();
+  });
+
   it("renders labelled semantic threads and only offers replies on parents", () => {
     const markup = renderToStaticMarkup(createElement(MessageBoardThreads, {
       threads: board.threads, openReplyPostId: "post-1", replyText: "", replyPending: false,
@@ -57,6 +89,13 @@ describe("Message board presentation and nav state", () => {
     expect(markup.match(/<article/g)).toHaveLength(2);
     expect(markup).toContain('dateTime="2030-09-01T12:00:00.000Z"');
     expect(markup).toContain('aria-label="Reply to Sunday Shark"');
+    const announcementMarkup = renderToStaticMarkup(createElement(MessageBoardThreads, {
+      threads: [{ ...board.threads[0], isAnnouncement: true }], openReplyPostId: undefined, replyText: "", replyPending: false,
+      onToggleReply: () => {}, onReplyTextChange: () => {}, onReplySubmit: () => {}
+    }));
+    expect(announcementMarkup).toContain('id="post-post-1"');
+    expect(announcementMarkup).toContain('title="Commissioner announcement"');
+    expect(announcementMarkup).toContain('aria-label="Commissioner announcement"');
     expect(markup.match(/>Reply<\/button>/g)).toHaveLength(1);
     expect(markup).toContain('aria-label="Reply to Sunday Shark"');
     const pendingMarkup = renderToStaticMarkup(createElement(MessageBoardThreads, {
@@ -71,6 +110,9 @@ describe("Message board presentation and nav state", () => {
     expect(pageSource()).toContain("reply.retire()");
     expect(pageSource()).toContain("onToggleReply={(postId) => { setReplyError");
     expect(pageSource()).not.toContain("onToggleReply={(postId) => { reply.retire()");
+    expect(pageSource()).toContain("board.canAnnounce");
+    expect(pageSource()).toContain("Post announcement and email league");
+    expect(pageSource()).toContain("Commissioner announcement");
   });
 
   it("invalidates the authoritative pool view after successful reads and mutations", async () => {
@@ -78,14 +120,14 @@ describe("Message board presentation and nav state", () => {
     const invalidated = vi.fn();
     const unsubscribe = onPoolViewInvalidated(invalidated);
     const read = vi.spyOn(api, "readMessageBoard").mockResolvedValue(board);
-    const post = vi.spyOn(api, "createMessageBoardPost").mockResolvedValue({ commandVersion: "9" });
+    const post = vi.spyOn(api, "createMessageBoardPost").mockResolvedValue({ commandVersion: "9", postId: "post-2", isAnnouncement: false, replayed: false });
     const reply = vi.spyOn(api, "replyToMessageBoardPost").mockResolvedValue({ commandVersion: "10" });
     try {
       await expect(readMessageBoardAndInvalidate("pool")).resolves.toEqual(board);
-      await expect(createMessageBoardPostAndInvalidate("pool", { text: "Post", idempotencyKey: "post-key" })).resolves.toEqual({ commandVersion: "9" });
+      await expect(createMessageBoardPostAndInvalidate("pool", { text: "Post", idempotencyKey: "post-key", announcement: false })).resolves.toEqual({ commandVersion: "9", postId: "post-2", isAnnouncement: false, replayed: false });
       await expect(replyToMessageBoardPostAndInvalidate("pool", "post-1", { text: "Reply", idempotencyKey: "reply-key" })).resolves.toEqual({ commandVersion: "10" });
       expect(read).toHaveBeenCalledWith("pool");
-      expect(post).toHaveBeenCalledWith("pool", { text: "Post", idempotencyKey: "post-key" });
+      expect(post).toHaveBeenCalledWith("pool", { text: "Post", idempotencyKey: "post-key", announcement: false });
       expect(reply).toHaveBeenCalledWith("pool", "post-1", { text: "Reply", idempotencyKey: "reply-key" });
       expect(invalidated).toHaveBeenCalledTimes(3);
     } finally {

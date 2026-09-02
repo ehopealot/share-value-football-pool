@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { acquireTurnstileToken, api, ApiError, TurnstileClientError } from "../api";
+import { acquireTurnstileToken, api, ApiError, invalidateSession, TurnstileClientError } from "../api";
 import { Layout } from "../components/Layout";
 import { ErrorSummary, StateNotice } from "../components/Status";
 
@@ -25,7 +25,7 @@ export function SignUpPage() {
 }
 export function LoginPage() {
   const nav = useNavigate(); const location = useLocation(); const turnstileTarget = useRef<HTMLDivElement>(null); const [error, setError] = useState(""); const [pending, setPending] = useState(false); const next = destination(location.search);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setPending(true); setError(""); const form = new FormData(event.currentTarget); try { await api.signIn(String(form.get("email")), String(form.get("password")), { turnstileToken: await acquireTurnstileToken(turnstileTarget.current) }); nav(next); } catch (e) { setError(message(e)); } finally { setPending(false); } };
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setPending(true); setError(""); const form = new FormData(event.currentTarget); try { await api.signIn(String(form.get("email")), String(form.get("password")), { turnstileToken: await acquireTurnstileToken(turnstileTarget.current) }); invalidateSession(); nav(next); } catch (e) { setError(message(e)); } finally { setPending(false); } };
   return <Layout><h1>Log in</h1><ErrorSummary message={error}/><form onSubmit={submit} aria-busy={pending}><p><label>Email address<br/><input name="email" type="email" required autoComplete="email" disabled={pending}/></label></p><p><label>Password<br/><input name="password" type="password" required autoComplete="current-password" disabled={pending}/></label></p><div ref={turnstileTarget}/><button className="primary-action" type="submit" disabled={pending}>{pending ? "Logging in…" : "Log in"}</button></form><p><Link to={withNext("/forgot-password", next)}>Forgot password?</Link> · <Link to={withNext("/sign-up", next)}>Create account</Link></p></Layout>;
 }
 export function ForgotPasswordPage() { const location = useLocation(); const next = destination(location.search); const [done, setDone] = useState(false); const [error, setError] = useState(""); const [pending, setPending] = useState(false); const submit = async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); setPending(true); setError(""); try { await api.forgotPassword(String(new FormData(e.currentTarget).get("email")), next); setDone(true); } catch (error) { setError(message(error)); } finally { setPending(false); } }; return <Layout><h1>Reset password</h1><ErrorSummary message={error}/>{done ? <StateNotice title="Check your mailbox"><p>If that address has an account, it has reset instructions.</p></StateNotice> : <form onSubmit={submit} aria-busy={pending}><label>Email address<br/><input name="email" type="email" required autoComplete="email" disabled={pending}/></label><p><button className="primary-action" disabled={pending}>{pending ? "Sending instructions…" : "Send reset instructions"}</button></p></form>}</Layout>; }

@@ -64,6 +64,25 @@ describe("PoolDO authority", () => {
     expect(coldRows).toEqual([{ id: "new", created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), ruleset_version: "SHARE_POOL_2026_V1" }]);
   }, 90_000);
 
+  it("upgrades legacy message-board rows with a false announcement marker", async () => {
+    const slug = `board-announcement-schema-${crypto.randomUUID()}`;
+    const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Board schema", creatorId: "owner", creatorName: "Owner", password: "correct-password" };
+    await send(slug, initialize);
+    const migrated = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("DROP TABLE message_board_entry");
+      sql.exec("CREATE TABLE message_board_entry (id TEXT PRIMARY KEY, parent_post_id TEXT, author_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL, activity_at TEXT NOT NULL)");
+      sql.exec("INSERT INTO message_board_entry VALUES ('legacy-post', NULL, 'owner', 'Legacy post', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')");
+      migrateSeasonCreatedAt(sql);
+      const firstPass = [...sql.exec<{ id: string; is_announcement: number }>("SELECT id, is_announcement FROM message_board_entry")];
+      migrateSeasonCreatedAt(sql);
+      return { columns: [...sql.exec<{ name: string }>("PRAGMA table_info(message_board_entry)")], firstPass, secondPass: [...sql.exec<{ id: string; is_announcement: number }>("SELECT id, is_announcement FROM message_board_entry")] };
+    });
+    expect(migrated.columns).toContainEqual(expect.objectContaining({ name: "is_announcement" }));
+    expect(migrated.firstPass).toEqual([{ id: "legacy-post", is_announcement: 0 }]);
+    expect(migrated.secondPass).toEqual(migrated.firstPass);
+  }, 90_000);
+
   it("serializes membership, seasons, idempotency, and suspension authorization", async () => {
     const slug = `pool-${crypto.randomUUID()}`;
     const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Friday Pool", creatorId: "owner", creatorName: "Owner", password: "correct-password" };

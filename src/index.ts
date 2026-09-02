@@ -34,7 +34,7 @@ export async function handleInternalSettlement(request: Request, env: Pick<Env, 
 }
 
 const worker: ExportedHandler<Env> = {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const internalSettlement = await handleInternalSettlement(request, env);
     if (internalSettlement) return internalSettlement;
     if (!env.BETTER_AUTH_SECRET || !env.RESEND_API_KEY?.trim()) return Response.json({ code: "AUTH_CONFIGURATION_UNAVAILABLE" }, { status: 503 });
@@ -48,7 +48,7 @@ const worker: ExportedHandler<Env> = {
       async currentUser(sessionRequest) { const session = await auth.api.getSession({ headers: sessionRequest.headers }); return session?.user ? { id: session.user.id, name: session.user.name } : null; },
       async recentlyAuthenticated(sessionRequest, user) { const session = await auth.api.getSession({ headers: sessionRequest.headers }); if (!session?.user || session.user.id !== user.id) return false; const createdAt = new Date(session.session.createdAt).getTime(); return Number.isFinite(createdAt) && Date.now() - createdAt <= 15 * 60 * 1000; }
     });
-    return app.fetch(request, env);
+    return app.fetch(request, env, ctx);
   },
   scheduled(_event, env, ctx): void { if (env.ODDS_API_KEY) ctx.waitUntil(runOddsCron(env.DB, new TheOddsApiProvider(env.ODDS_API_KEY))); if (backupConfigured(env) && env.BACKUPS && env.BACKUP_ENCRYPTION_KEY && env.POOL_BACKUP_SERVICE_TOKEN) ctx.waitUntil(runBackupCron({ db: env.DB, pools: env.POOL_DO, bucket: env.BACKUPS, encryptionKey: env.BACKUP_ENCRYPTION_KEY, backupServiceToken: env.POOL_BACKUP_SERVICE_TOKEN })); },
   queue(batch, env, ctx): void { ctx.waitUntil(consumeProjectionQueue(batch, { db: env.DB, pools: env.POOL_DO, projectionServiceToken: env.POOL_PROJECTION_SERVICE_TOKEN })); }

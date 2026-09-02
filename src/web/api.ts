@@ -1,4 +1,4 @@
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
 import type { z } from "zod";
 
 export class ApiError extends Error {
@@ -49,6 +49,7 @@ export const parseAuditExportSuccess = (value: unknown): AuditExportResponse => 
 export const parseOddsBoardSuccess = (value: unknown): OddsBoardResponseType => OddsBoardResponse.parse(value);
 export const parseReadMessageBoardSuccess = (value: unknown) => ReadMessageBoardResponse.parse(value);
 export const parseMessageBoardMutationSuccess = (value: unknown) => MessageBoardMutationResponse.parse(value);
+export const parseMessageBoardPostSuccess = (value: unknown) => MessageBoardPostResponse.parse(value);
 
 const json = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, { credentials: "same-origin", ...init, headers: { "content-type": "application/json", ...init?.headers } });
@@ -150,7 +151,7 @@ export const api = {
   updateNickname: (slug: string, displayName: string, idempotencyKey: string) => api.command(slug, "/nickname", { displayName, idempotencyKey }),
   poolView: async (slug: string): Promise<ReadPoolViewType> => ReadPoolView.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/view`, { method: "GET", headers: {} })),
   readMessageBoard: async (slug: string) => parseReadMessageBoardSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/read`, { method: "POST", body: JSON.stringify({}) })),
-  createMessageBoardPost: async (slug: string, body: { text: string; idempotencyKey: string }) => parseMessageBoardMutationSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/posts`, { method: "POST", body: JSON.stringify(body) })),
+  createMessageBoardPost: async (slug: string, body: { text: string; idempotencyKey: string; announcement: boolean }) => parseMessageBoardPostSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/posts`, { method: "POST", body: JSON.stringify(body) })),
   replyToMessageBoardPost: async (slug: string, postId: string, body: { text: string; idempotencyKey: string }) => parseMessageBoardMutationSuccess(await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/board/posts/${encodeURIComponent(postId)}/replies`, { method: "POST", body: JSON.stringify(body) })),
   // Bound a lost local/network odds response so stale-confirmation replay remains reachable.
   odds: async (slug: string, query = ""): Promise<OddsBoardResponseType> => parseOddsBoardSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/odds${query}`, { method: "GET", headers: {}, signal: AbortSignal.timeout(5_000) })),
