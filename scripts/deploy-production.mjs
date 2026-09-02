@@ -2,9 +2,11 @@ import { spawnSync as nativeSpawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { buildProduction as nativeBuildProduction } from "./build-production.mjs";
 
-const oauthEnvironment = (environment) => {
+const cloudflareCredentialNames = ["CLOUDFLARE_API_TOKEN", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"];
+
+const cloudflareCredentialEnvironment = (environment, preserveApiToken = false) => {
   const clean = { ...environment };
-  for (const name of ["CLOUDFLARE_API_TOKEN", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"]) delete clean[name];
+  for (const name of cloudflareCredentialNames) if (name !== "CLOUDFLARE_API_TOKEN" || !preserveApiToken) delete clean[name];
   return clean;
 };
 
@@ -22,10 +24,12 @@ export function deployProduction(options = {}) {
   const buildProduction = options.buildProduction ?? nativeBuildProduction;
   const wrangler = resolve(cwd, "node_modules", ".bin", "wrangler");
 
-  buildProduction({ cwd, environment });
-  const deployEnvironment = oauthEnvironment(environment);
+  const buildEnvironment = cloudflareCredentialEnvironment(environment);
+  const deployEnvironment = cloudflareCredentialEnvironment(environment, environment.CI === "true");
+
+  buildProduction({ cwd, environment: buildEnvironment });
   run(spawnSync, wrangler, ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], { cwd, env: deployEnvironment });
-  run(spawnSync, process.execPath, [resolve(cwd, "scripts", "verify-production-artifact.mjs")], { cwd, env: deployEnvironment });
+  run(spawnSync, process.execPath, [resolve(cwd, "scripts", "verify-production-artifact.mjs")], { cwd, env: buildEnvironment });
   run(spawnSync, wrangler, ["deploy", "--keep-vars", "--config", "dist/office_pool_reborn/wrangler.json"], { cwd, env: deployEnvironment });
 }
 
