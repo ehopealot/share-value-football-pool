@@ -14,6 +14,14 @@ import { shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { TEASER_RULESET_ID } from "../domain/teaser-table";
 
+/**
+ * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
+ * but alarm() can re-arm lifecycle/retry deadlines; tests driving due non-terminal
+ * alarms must use far-future fixtures or state.storage.deleteAlarm() afterwards.
+ */
+const configuredDrainGraceMs = (globalThis as Record<string, unknown>).POOL_OUTBOX_DRAIN_GRACE_MS;
+const outboxDrainGraceMs = typeof configuredDrainGraceMs === "number" && Number.isInteger(configuredDrainGraceMs) && Number.isFinite(configuredDrainGraceMs) && configuredDrainGraceMs >= 1_000 && configuredDrainGraceMs <= 31_536_000_000 ? configuredDrainGraceMs : 1_000;
+
 type Row = Record<string, SqlStorageValue>;
 const first = (sql: SqlStorage, query: string, ...params: SqlStorageValue[]): Row | undefined => [...sql.exec<Row>(query, ...params)][0];
 const now = () => new Date().toISOString();
@@ -78,7 +86,7 @@ export class PoolDO {
       if (!parsed.success) throw new Error("INVALID_COMMAND");
       const result = await this.state.storage.transaction(async () => this.execute(parsed.data));
       // Defer post-commit outbox draining very briefly so a request cannot race its own alarm; settlement then replaces this with the earliest lifecycle deadline.
-      if (shouldEnqueueOutbox(parsed.data)) await this.state.storage.setAlarm(Date.now() + 1_000);
+      if (shouldEnqueueOutbox(parsed.data)) await this.state.storage.setAlarm(Date.now() + outboxDrainGraceMs);
       return Response.json(result);
     } catch (error) {
       if (error instanceof OrderQuoteStaleError) {

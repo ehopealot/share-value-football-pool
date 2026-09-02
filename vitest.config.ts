@@ -4,7 +4,8 @@ import { defineConfig } from "vitest/config";
 // Worker tests use an isolated config directory and never load operator-local dotenv files.
 process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false";
 process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = "false";
-const workers = { wrangler: { configPath: "./tests/fixtures/wrangler.test.jsonc" }, miniflare: { bindings: { POOL_COMMAND_AUTHENTICATOR_KEY: "test-only-command-authenticator-key", SETTLEMENT_SERVICE_TOKEN: "test-only-settlement-token", POOL_PROJECTION_SERVICE_TOKEN: "test-only-projection-token", POOL_BACKUP_SERVICE_TOKEN: "test-only-backup-token" } } };
+const workers = { wrangler: { configPath: "./tests/fixtures/wrangler.vitest.jsonc" }, miniflare: { bindings: { POOL_COMMAND_AUTHENTICATOR_KEY: "test-only-command-authenticator-key", SETTLEMENT_SERVICE_TOKEN: "test-only-settlement-token", POOL_PROJECTION_SERVICE_TOKEN: "test-only-projection-token", POOL_BACKUP_SERVICE_TOKEN: "test-only-backup-token" } } };
+const workerTests = ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/worker/entry-composition.test.ts"];
 
 export default defineConfig({
   test: {
@@ -14,7 +15,7 @@ export default defineConfig({
           name: "node",
           environment: "node",
           include: ["tests/**/*.test.ts"],
-          exclude: ["tests/local/**/*.test.ts", "tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/durable/wagers-settlement.test.ts", "tests/durable/privacy-outbox.test.ts"],
+          exclude: ["tests/local/**/*.test.ts", ...workerTests],
           setupFiles: ["tests/setup.ts"]
         }
       },
@@ -33,7 +34,7 @@ export default defineConfig({
         plugins: [cloudflareTest(workers)],
         test: {
           name: "workers",
-          include: ["tests/worker-pool-smoke.test.ts", "tests/durable/**/*.test.ts", "tests/odds/**/*.test.ts", "tests/auth/better-auth.test.ts", "tests/worker/registry.test.ts", "tests/worker/create-pool-saga.integration.test.ts", "tests/worker/security.test.ts", "tests/worker/queue-health.test.ts", "tests/worker/exports.test.ts", "tests/worker/api.test.ts", "tests/worker/local-fixtures.test.ts", "tests/worker/deterministic-reader-snapshot.test.ts", "tests/worker/t11-admin-api.test.ts", "tests/worker/entry-read.test.ts", "tests/durable/wagers-settlement.test.ts", "tests/durable/privacy-outbox.test.ts"],
+          include: workerTests,
           pool: cloudflarePool(workers),
           setupFiles: ["tests/setup.ts"]
         }

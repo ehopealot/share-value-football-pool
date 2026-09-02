@@ -31,7 +31,7 @@ describe("local E2E client build environment", () => {
     expect(vite).toContain('OFFICE_POOL_REBORN_E2E_BUILD');
     expect(vite).toContain("envDir: viteEnvDir(e2eBuild, productionBuild)");
     expect(vitest).toContain('CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false"');
-    expect(vitest).toContain('configPath: "./tests/fixtures/wrangler.test.jsonc"');
+    expect(vitest).toContain('configPath: "./tests/fixtures/wrangler.vitest.jsonc"');
     expect(fixture).toContain('"--env-file", "/dev/null"');
     expect(fixture).toContain('localE2eClientBuildEnvironment(process.env)');
     expect(workerConfig).toMatchObject({ main: "../../src/index.ts", d1_databases: [{ migrations_dir: "../../src/db/migrations" }] });

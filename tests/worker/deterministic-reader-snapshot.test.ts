@@ -184,6 +184,7 @@ describe("deterministic D1 reader snapshots", () => {
     const app = createWorkerApp({ db: barrier.db, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
     const placementStartedAt = Date.now();
     const response = await app.fetch(http(`/api/p/${slug}/wagers/straight/place`, placement));
+    const placementCompletedAt = Date.now();
     const responseBody = await response.json() as any;
     expect(barrier.proof()).toEqual({ fired: true, targetBatchStatements: 2, targetReads: boundary === "after" ? 2 : 1 });
     if (boundary === "after") {
@@ -213,8 +214,13 @@ describe("deterministic D1 reader snapshots", () => {
       expect(rows("administration_audit")).toEqual([]);
       const alarm = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => state.storage.getAlarm());
       expect(alarm).not.toBeNull();
-      expect(alarm!).toBeGreaterThanOrEqual(placementStartedAt);
-      expect(alarm!).toBeLessThanOrEqual(Date.now() + 5_000);
+      // The drain grace is compile-time configurable (far-future in the vitest Worker). Pin the
+      // compiled value so a missing define cannot silently fall back to the 1s production grace,
+      // then assert the alarm sits exactly one grace period past the placement request.
+      const drainGraceMs = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), () => (globalThis as { POOL_OUTBOX_DRAIN_GRACE_MS?: number }).POOL_OUTBOX_DRAIN_GRACE_MS ?? 1_000);
+      expect(drainGraceMs).toBe(3_600_000);
+      expect(alarm!).toBeGreaterThanOrEqual(placementStartedAt + drainGraceMs);
+      expect(alarm!).toBeLessThanOrEqual(placementCompletedAt + drainGraceMs);
       return;
     }
     expect(response.status).toBe(400);
