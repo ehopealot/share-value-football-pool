@@ -1,0 +1,21 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/ActivityPage.tsx"), "utf8");
+
+describe("Activity page", () => {
+  it("offers a week selector and renders one compact performance table", () => {
+    expect(source).toContain('<label>Week <select');
+    expect(source).toContain('].sort().reverse();');
+    expect(source).toContain('weeks.includes(selectedWeek) ? selectedWeek : weeks[0]');
+    expect(source).toContain('className="activity-table"');
+    expect(source).toContain('<th>Member</th><th>Wager</th><th>Result</th><th>P&amp;L</th>');
+  });
+
+  it("uses semantic selected-pick rendering and preserves hidden tickets", () => {
+    expect(source).toContain('formatActivityLeg');
+    expect(source).toContain('<strong key={index}>{segment.text}</strong>');
+    expect(source).toContain('Selection hidden until the game starts.');
+  });
+});

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "../src/web/api";
 import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
-import { boardEnablesWagerReview, failureReason, groupBoardByEvent, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
+import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome } from "../src/web/teaser-slip";
 import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserRecoveryTransition, teaserTerminalTransition } from "../src/web/pages/TeaserPage";
@@ -134,6 +134,31 @@ describe("entry redirects", () => {
     expect(weekStartOf(new Date("2026-09-01T03:59:59.000Z")).toISOString()).toBe("2026-08-25T04:00:00.000Z");
     expect(weekStartOf(new Date("2026-09-01T04:00:00.000Z")).toISOString()).toBe("2026-09-01T04:00:00.000Z");
     expect(SEASON_WEEK1_ANCHOR).toBe(Date.parse("2026-08-25T04:00:00.000Z"));
+  });
+
+  it("keeps Eastern Tuesday week identity and sequencing correct across DST", () => {
+    const fall = new Date("2026-10-27T04:00:00.000Z");
+    expect(nextWeekStart(fall).toISOString()).toBe("2026-11-03T05:00:00.000Z");
+    expect(inWeek("2026-11-10T04:59:59.000Z", "2026-11-03T05:00:00.000Z")).toBe(true);
+    expect(inWeek("2026-11-10T05:00:00.000Z", "2026-11-03T05:00:00.000Z")).toBe(false);
+
+    const spring = new Date("2026-03-03T05:00:00.000Z");
+    expect(nextWeekStart(spring).toISOString()).toBe("2026-03-10T04:00:00.000Z");
+    expect(inWeek("2026-03-17T03:59:59.000Z", "2026-03-10T04:00:00.000Z")).toBe(true);
+    expect(inWeek("2026-03-17T04:00:00.000Z", "2026-03-10T04:00:00.000Z")).toBe(false);
+  });
+
+  it("uses the Tuesday identity for Sunday and Monday wagers in DST transition weeks", () => {
+    const cases = [
+      ["2026-11-01T23:59:59.000Z", "2026-10-27T04:00:00.000Z"],
+      ["2026-11-03T04:59:59.000Z", "2026-10-27T04:00:00.000Z"],
+      ["2026-03-08T23:59:59.000Z", "2026-03-03T05:00:00.000Z"],
+      ["2026-03-10T03:59:59.000Z", "2026-03-03T05:00:00.000Z"],
+    ] as const;
+    for (const [startsAt, expectedWeek] of cases) {
+      expect(weekStartOf(new Date(startsAt)).toISOString()).toBe(expectedWeek);
+      expect(inWeek(startsAt, expectedWeek)).toBe(true);
+    }
   });
 
   it("separates fetched semantic unavailability from retryable odds retrieval failure", async () => {

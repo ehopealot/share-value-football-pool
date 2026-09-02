@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { auditExportResponse, OddsBoardResponse, ReadActivity, ReadPoolView, ReadSeasonHistory, ReadStandings } from "../../src/contracts/http";
 
 describe("T11 member read contracts", () => {
-  const wager = { wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z" };
+  const wager = { wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-29T00:00:00.000Z", performanceMicros: "0" };
   it("strictly describes truthful odds-board feed observations and offer sources", () => {
     const response = {
       offers: [{ eventId: "event-1", league: "nfl", homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread", canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v1", policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }] }],
@@ -30,11 +30,13 @@ describe("T11 member read contracts", () => {
     expect(() => ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "01", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }] })).toThrow();
   });
   it("requires redacted wager shapes, safe season identity, and immutable history fields", () => {
-    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).toMatchObject({ seasonId: "s" });
+    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).toMatchObject({ seasonId: "s", weekStart: "2025-12-29T00:00:00.000Z", performanceMicros: "0" });
     expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).not.toHaveProperty("riskMicros");
     expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, seasonId: undefined }] } })).toThrow();
     expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, memberId: undefined }] } })).toThrow();
     expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, memberDisplayName: undefined }] } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, weekStart: undefined }] } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, performanceMicros: undefined }] } })).toThrow();
     const history = ReadSeasonHistory.parse({
       commandVersion: "1",
       season: { seasonId: "s", label: "Closed", rulesetVersion: "SHARE_POOL_2026_V1", state: "closed", openedAt: "2026-01-01T00:00:00.000Z", closedAt: "2026-02-01T00:00:00.000Z", closeReason: "complete", floatMicros: "3", notionalMicros: "5", priceMicros: "1666667" },

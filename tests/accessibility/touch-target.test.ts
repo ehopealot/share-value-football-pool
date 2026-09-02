@@ -8,4 +8,10 @@ describe("narrow-screen touch targets", () => {
   it("gives ribbon and action controls a 44px minimum target at the mobile breakpoint", () => {
     expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.nav-bar a, \.nav-button, button, \.primary-action, \.secondary-action\s*\{[\s\S]*min-height:\s*44px/);
   });
+
+  it("keeps the compact bet-slip Remove text control touch-sized on mobile", () => {
+    expect(css).toMatch(/\.selection-tray-remove\s*\{[\s\S]*background:\s*transparent[\s\S]*text-decoration:\s*underline/);
+    expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.selection-tray-remove\s*\{[\s\S]*min-height:\s*44px/);
+    expect(css).toContain('button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:not(:disabled)');
+  });
 });

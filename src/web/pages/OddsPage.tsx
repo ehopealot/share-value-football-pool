@@ -9,6 +9,8 @@ import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatAmericanOdds, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
+import { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
+export { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export type BoardPick = { offer: any; outcome: any };
 /** Review controls follow the parsed fail-closed board state, never retained editor data. */
 export const boardEnablesWagerReview = (board: { offers?: unknown[]; feed?: { status?: string } } | undefined): boolean => board?.feed?.status === "current" && !!board.offers?.length;
@@ -16,21 +18,6 @@ export const boardEnablesWagerReview = (board: { offers?: unknown[]; feed?: { st
 export type MarketCell = { offer: any; outcome: any; label: string; selection: string; name: string; odds: string };
 export type GameMarkets = { spread: { away?: MarketCell; home?: MarketCell }; total: { over?: MarketCell; under?: MarketCell }; moneyline: { away?: MarketCell; home?: MarketCell } };
 export type GameRow = { eventId: string; startsAt: string; awayTeam: string; homeTeam: string; markets: GameMarkets };
-/** Weeks run Tuesday–Monday inclusive on Eastern Time; season Week 1 starts Tuesday 2026-08-25 at 00:00 ET. */
-const ET_TIME_ZONE = "America/New_York";
-const etOffsetMs = (instant: Date): number => {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: ET_TIME_ZONE, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(instant).map((part) => [part.type, part.value]));
-  return Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)) - instant.getTime();
-};
-const etMidnightUtc = (etDate: string): number => { const wallClock = Date.parse(`${etDate}T00:00:00Z`); return wallClock - etOffsetMs(new Date(wallClock)); };
-export const SEASON_WEEK1_ANCHOR = etMidnightUtc("2026-08-25");
-export function weekStartOf(date: Date): Date {
-  const shifted = new Date(date.getTime() + etOffsetMs(date));
-  const daysSinceTuesday = (shifted.getUTCDay() + 5) % 7;
-  return new Date(etMidnightUtc(shifted.toISOString().slice(0, 10)) - daysSinceTuesday * 86_400_000);
-}
-export const inWeek = (startsAt: string, weekStart: string): boolean => { const time = new Date(startsAt).getTime(); const start = new Date(weekStart).getTime(); return time >= start && time < start + 7 * 24 * 60 * 60 * 1000; };
-export const weekNumberLabel = (weekStart: string): string => { const number = Math.floor((new Date(weekStart).getTime() - SEASON_WEEK1_ANCHOR) / (7 * 24 * 60 * 60 * 1000)) + 1; return number >= 1 ? `Week ${number}` : "Preseason"; };
 const americanToProbability = (price: number): number | undefined => price > 0 ? 100 / (price + 100) : price < 0 ? (-price) / (-price + 100) : undefined;
 const probabilityToAmerican = (probability: number): number => { const decimal = 1 / probability; return decimal >= 2 ? Math.round((decimal - 1) * 100) : -Math.round(100 / (decimal - 1)); };
 /** Removes the bookmaker's vig from a two-way moneyline: fair price = implied probability normalized by the overround. */
@@ -201,9 +188,9 @@ export function OddsPage() {
 
   const currentWeek = weekStartOf(new Date()).toISOString();
   // Every season week from the anchor through today is selectable (history included), plus any week carrying live offers.
-  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  const elapsedWeeks = Math.max(0, Math.floor((weekStartOf(new Date()).getTime() - SEASON_WEEK1_ANCHOR) / WEEK_MS) + 1);
-  const weekOptions: string[] = [...new Set<string>([...Array.from({ length: elapsedWeeks }, (_, index) => new Date(SEASON_WEEK1_ANCHOR + index * WEEK_MS).toISOString()), ...(board?.offers ?? []).map((offer: any) => weekStartOf(new Date(offer.startsAt)).toISOString())])].sort();
+  const seasonWeeks: string[] = [];
+  for (let cursor = new Date(SEASON_WEEK1_ANCHOR), latest = weekStartOf(new Date()); cursor <= latest; cursor = nextWeekStart(cursor)) seasonWeeks.push(cursor.toISOString());
+  const weekOptions: string[] = [...new Set<string>([...seasonWeeks, ...(board?.offers ?? []).map((offer: any) => weekStartOf(new Date(offer.startsAt)).toISOString())])].sort();
   // Default to the earliest week with games (future weeks count); the current week is the fallback.
   const week = selectedWeek || weekOptions.find((option) => (board?.offers ?? []).some((offer: any) => inWeek(offer.startsAt, option))) || currentWeek;
   const games = groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week)));
@@ -237,7 +224,7 @@ export function OddsPage() {
     })}</tbody></table></div>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board, item, resolved); return <li key={identity(item)}>{resolved ? <span className="tray-item-label">{label}</span> : <em className="tray-item-label">{label}</em>}<label> Risk <input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => identity(candidate) === identity(item) ? { ...candidate, risk: e.target.value } : candidate))} /></label><button onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
+      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board, item, resolved); return <li key={identity(item)}>{resolved ? <span className="tray-item-label">{label}</span> : <em className="tray-item-label">{label}</em>}<label> Risk <input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => identity(candidate) === identity(item) ? { ...candidate, risk: e.target.value } : candidate))} /></label><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button className="primary-action" disabled={!view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
         <p className="bet-slip-error" aria-live="polite">{riskError}</p></>}

@@ -158,6 +158,8 @@ describe("T11 authoritative member reads", () => {
       sql.exec("UPDATE share_order SET created_at = '2026-02-04T00:00:00.000Z' WHERE id = ?", String(reversal.orderId));
       sql.exec("UPDATE wager SET confirmed_at = '2026-03-01T00:00:00.000Z' WHERE id = 'w-m'");
       sql.exec("UPDATE wager SET confirmed_at = '2026-03-02T00:00:00.000Z' WHERE id = 'w-n'");
+      // w-m remains redacted to n, but both activity tickets retain their safe Monday week.
+      sql.exec("UPDATE wager_leg SET event_starts_at = '2030-03-06T18:00:00.000Z' WHERE wager_id = 'w-m'");
       // Kickoff passes only for w-n's leg: the delayed per-leg reveal boundary.
       sql.exec("UPDATE wager_leg SET event_starts_at = '2026-01-01T00:00:00.000Z' WHERE wager_id = 'w-n'");
     });
@@ -167,22 +169,32 @@ describe("T11 authoritative member reads", () => {
     expect(asNonOwner.activity.orders[0]).toEqual({ orderId: String(reversal.orderId), memberId: "n", memberDisplayName: "Nne", sharesMicros: "-2000000", valueMicros: "-2000000", priceMicros: "1000000", reason: "reversal n1", createdAt: "2026-02-04T00:00:00.000Z" });
     expect(asNonOwner.activity.orders[3]).toEqual({ orderId: String(m1.orderId), memberId: "m", memberDisplayName: "Mem", sharesMicros: "2000000", valueMicros: "2000000", priceMicros: "1000000", reason: "funding m", createdAt: "2026-02-01T00:00:00.000Z" });
     expect(asNonOwner.activity.wagers.map((wager: any) => wager.wagerId)).toEqual(["w-m", "w-n"]);
-    // Another member's unstarted selection must expose identity only — no risk, terms, or legs.
+    // Another member's unstarted selection must expose identity and its safe week only — no risk, terms, or legs.
     const hidden = asNonOwner.activity.wagers[0];
-    expect(Object.keys(hidden).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "seasonId", "status", "type", "wagerId"]);
-    expect(hidden).toEqual({ wagerId: "w-m", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: "2026-03-01T00:00:00.000Z" });
+    expect(Object.keys(hidden).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
+    expect(hidden).toEqual({ wagerId: "w-m", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: "2026-03-01T00:00:00.000Z", weekStart: "2030-03-05T05:00:00.000Z", performanceMicros: "0" });
     const own = asNonOwner.activity.wagers[1];
-    expect(own).toMatchObject({ wagerId: "w-n", type: "straight", status: "refunded", confirmedAt: "2026-03-02T00:00:00.000Z", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "refunded", returnMicros: "1000000", profitMicros: "0" });
+    expect(own).toMatchObject({ wagerId: "w-n", type: "straight", status: "refunded", confirmedAt: "2026-03-02T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "refunded", returnMicros: "1000000", profitMicros: "0" });
     expect(own.settledAt).toEqual(expect.any(String));
     expect(own.legs[0]).toMatchObject({ eventId: "w-n", market: "spread", selection: "home", eventStartsAt: "2026-01-01T00:00:00.000Z" });
 
     // Commissioner redaction is byte-identical to nonowner redaction for another member's ticket.
     const asCommissioner = await send(slug, { type: "ReadActivity", commandId: "read-owner", actorId: "owner" });
     expect(asCommissioner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toEqual(hidden);
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE wager SET status = 'lost' WHERE id = 'w-m'");
+      sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('loss-w-m', 'w-m', 'loss-v1', 'loss', '0', '0', '[]', NULL, 'system', NULL, '2026-03-03T00:00:00.000Z')");
+    });
+    const lostAsNonOwner = await send(slug, { type: "ReadActivity", commandId: "read-lost-n", actorId: "n" });
+    const lostAsOwner = await send(slug, { type: "ReadActivity", commandId: "read-lost-m", actorId: "m" });
+    expect(lostAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toMatchObject({ status: "lost", performanceMicros: "-1000000" });
+    expect(lostAsOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toMatchObject({ status: "lost", performanceMicros: "-1000000" });
+    expect(lostAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).not.toHaveProperty("riskMicros");
     // The ticket owner alone sees its own unstarted selection and risk.
     const asOwner = await send(slug, { type: "ReadActivity", commandId: "read-m", actorId: "m" });
     const ownUnstarted = asOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m");
-    expect(ownUnstarted).toMatchObject({ wagerId: "w-m", status: "open", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1" });
+    expect(ownUnstarted).toMatchObject({ wagerId: "w-m", status: "lost", performanceMicros: "-1000000", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1" });
     expect(ownUnstarted.legs[0]).toMatchObject({ eventId: "w-m", market: "spread", selection: "home" });
   }, 90_000);
 
@@ -228,8 +240,8 @@ describe("T11 authoritative member reads", () => {
     expect(history.annotations[0]).toMatchObject({ authorDisplayName: "Owner" });
     // The commissioner is not the ticket owner, so history exposes identity only.
     expect(history.wagers.map((wager: any) => wager.wagerId)).toEqual(["w-closed"]);
-    expect(Object.keys(history.wagers[0]).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "seasonId", "status", "type", "wagerId"]);
-    expect(history.wagers[0]).toMatchObject({ seasonId: "closed", memberId: "m", memberDisplayName: "Mem" });
+    expect(Object.keys(history.wagers[0]).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
+    expect(history.wagers[0]).toMatchObject({ seasonId: "closed", memberId: "m", memberDisplayName: "Mem", weekStart: expect.any(String), performanceMicros: "0" });
     const asNonowner = await send(slug, { type: "ReadSeasonHistory", commandId: "history-n", actorId: "n", seasonId: "closed" });
     expect(asNonowner.wagers[0]).toEqual(history.wagers[0]);
     const asOwner = await send(slug, { type: "ReadSeasonHistory", commandId: "history-m", actorId: "m", seasonId: "closed" });
@@ -274,6 +286,6 @@ describe("T11 authoritative member reads", () => {
     // No local read-time table exists in production storage, and the unstarted leg stays hidden by real time.
     expect(await storage(slug, (state) => [...state.storage.sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'local_read_time'")].map((row) => row.name))).toEqual([]);
     const asNonOwner = await send(slug, { type: "ReadActivity", commandId: "read-n", actorId: "n" });
-    expect(asNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-future")).toEqual({ wagerId: "w-future", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: expect.any(String) });
+    expect(asNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-future")).toEqual({ wagerId: "w-future", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: expect.any(String), weekStart: expect.any(String), performanceMicros: "0" });
   }, 90_000);
 });

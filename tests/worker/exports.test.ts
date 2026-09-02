@@ -177,7 +177,7 @@ describe("member export and encrypted infrastructure backup", () => {
     expect(memberResponse.status).toBe(200);
     expect(memberExport).not.toHaveProperty("wagerLegSnapshots");
     expect(memberExport.wagers).toEqual([{
-      wagerId: "backup-hidden", seasonId: "backup-season", memberId: "member", memberDisplayName: "Member", type: "teaser", status: "open", confirmedAt: "2026-01-02T00:00:00.000Z"
+      wagerId: "backup-hidden", seasonId: "backup-season", memberId: "member", memberDisplayName: "Member", type: "teaser", status: "open", confirmedAt: "2026-01-02T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "0"
     }]);
     expect(JSON.stringify(memberExport)).not.toMatch(/backup-hidden:[az]|protected-future-[az]|Águilas|Bears|Zebras|Yaks/);
 

@@ -70,13 +70,13 @@ describe("T11 member read boundaries over the Worker API", () => {
     const memberBody = await memberActivity.json() as any;
     expect(Object.keys(memberBody.activity.orders[0]).sort()).toEqual(orderKeys);
     expect(memberBody.activity.orders[0]).toMatchObject({ memberId: "member", memberDisplayName: "Member", sharesMicros: "2000000", valueMicros: "2000000", priceMicros: "1000000", reason: "funding" });
-    expect(memberBody.activity.wagers[0]).toMatchObject({ wagerId: "w1", type: "straight", status: "open", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1" });
+    expect(memberBody.activity.wagers[0]).toMatchObject({ wagerId: "w1", type: "straight", status: "open", weekStart: expect.any(String), riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1" });
     expect(memberBody.activity.wagers[0].legs[0]).toMatchObject({ eventId: "w1", market: "spread", selection: "home" });
     // The commissioner sees the identical redacted shape for another member's unstarted ticket.
     const ownerActivity = await owner.fetch(request(`/api/p/${slug}/activity`, undefined, "GET"));
     const ownerBody = await ownerActivity.json() as any;
-    expect(Object.keys(ownerBody.activity.wagers[0]).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "seasonId", "status", "type", "wagerId"]);
-    expect(ownerBody.activity.wagers[0]).toEqual({ wagerId: "w1", seasonId: "s1", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: memberBody.activity.wagers[0].confirmedAt });
+    expect(Object.keys(ownerBody.activity.wagers[0]).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
+    expect(ownerBody.activity.wagers[0]).toEqual({ wagerId: "w1", seasonId: "s1", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: memberBody.activity.wagers[0].confirmedAt, weekStart: memberBody.activity.wagers[0].weekStart, performanceMicros: "0" });
 
     const history = await member.fetch(request(`/api/p/${slug}/history/s0`, undefined, "GET"));
     expect(history.status).toBe(200);
@@ -163,8 +163,8 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect((automatic.settlements[0].sourceResult as unknown[])).toHaveLength(1);
     const commissionerAutomatic = await authenticatedExport(owner);
     const commissionerWager = commissionerAutomatic.wagers[0] as Record<string, unknown>;
-    expect(Object.keys(commissionerWager).sort()).toEqual(["confirmedAt", "legs", "memberDisplayName", "memberId", "seasonId", "status", "type", "wagerId"]);
-    expect(commissionerWager).toMatchObject({ memberId: "member", memberDisplayName: "Member" });
+    expect(Object.keys(commissionerWager).sort()).toEqual(["confirmedAt", "legs", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
+    expect(commissionerWager).toMatchObject({ memberId: "member", memberDisplayName: "Member", weekStart: expect.any(String), performanceMicros: "833333" });
     expect(JSON.stringify(commissionerWager)).not.toMatch(/riskMicros|acceptedOdds|outcome|returnMicros|profitMicros|canonicalOfferProof|ownerMemberId/);
 
     const regrade = await owner.fetch(request(`/api/p/${slug}/admin/corrections/same-game-wager/regrade`, { reason: "Official correction", correctedResults: [result("official-2", 17, 24)], idempotencyKey: "same-game-regrade" }));

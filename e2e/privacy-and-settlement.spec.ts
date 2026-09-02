@@ -75,7 +75,8 @@ const controlStatus = (page: Page, path: string, body: unknown) => page.evaluate
 const reseedUpcomingEvent = async (page: Page) => { expect(await controlStatus(page, "/__local-test/seed", {})).toBe(200); };
 
 async function settleFixtureResult(page: Page, poolSlug: string, homeScore: number, awayScore: number) {
-  const currentTime = new Date(Date.now() + 10 * 60_000).toISOString();
+  // The local upcoming fixture starts just over 24 hours after reseeding; advance past kickoff before settling.
+  const currentTime = new Date(Date.now() + 26 * 60 * 60_000).toISOString();
   expect(await controlStatus(page, "/__local-test/result", { eventId: "local-nfl-upcoming", homeScore, awayScore })).toBe(200);
   expect(await controlStatus(page, "/__local-test/alarm", { poolSlug, currentTime })).toBe(200);
   expect(await controlStatus(page, "/__local-test/current-time", { poolSlug, currentTime })).toBe(200);
@@ -432,15 +433,16 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(hiddenCommissioner).toBe(hiddenViewer);
     expect(teaserFrom(hiddenViewer).legs).toBeUndefined();
     for (const protectedText of [...forbiddenFutureFields, "local-nfl-upcoming", "local-nfl-super-bowl", "Local Home", "Local Away", "T11 Super Home", "T11 Super Away", "riskMicros"]) expect(hiddenViewer).not.toContain(protectedText);
-    const teaserSection = (actor: Page) => actor.getByRole("heading", { name: `${ticketOwnerName} — teaser wager` }).locator("..");
+    const teaserRow = (actor: Page) => actor.locator(".activity-table tbody tr").filter({ hasText: ticketOwnerName });
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserSection(viewer)).toContainText("Selection hidden until start");
-    await expect(teaserSection(viewer)).toContainText("Awaiting settlement");
-    await expect(teaserSection(viewer)).not.toContainText(commissionerName);
+    await expect(teaserRow(viewer)).toContainText("Selection hidden until the game starts.");
+    await expect(teaserRow(viewer)).toContainText("Open");
+    await expect(teaserRow(viewer)).toContainText("0.00 shares");
+    await expect(teaserRow(viewer)).not.toContainText(commissionerName);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserSection(page)).toContainText("Selection hidden until start");
+    await expect(teaserRow(page)).toContainText("Selection hidden until the game starts.");
     await ticketOwner.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserSection(ticketOwner).getByRole("row")).toHaveCount(3);
+    await expect(teaserRow(ticketOwner)).toHaveCount(1);
 
     // Between accepted starts, only the first leg exists in each nonowner response. No second-event
     // identity, team, line, market, selection, or hidden/future count leaks through JSON or the UI.
@@ -453,17 +455,12 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(firstVisible[0]).toMatchObject({ eventId: "local-nfl-upcoming", market: "spread", selection: "away", originalLine: "3", adjustedLine: "9", homeTeam: "Local Home", awayTeam: "Local Away" });
     for (const protectedText of [secondLeg.eventId, secondLeg.homeTeam, secondLeg.awayTeam, "legCount", "futureLeg"]) expect(firstViewer).not.toContain(protectedText);
     await viewer.reload();
-    const firstRendered = teaserSection(viewer).getByRole("row", { name: /local-nfl-upcoming/ });
-    await expect(firstRendered).toContainText("nfl");
-    await expect(firstRendered).toContainText("Local Away at Local Home");
-    await expect(firstRendered).toContainText("spread");
-    await expect(firstRendered).toContainText("away");
-    await expect(firstRendered).toContainText("3");
-    await expect(firstRendered).toContainText("9");
-    await expect(firstRendered).toContainText("DraftKings");
-    await expect(teaserSection(viewer)).not.toContainText(secondLeg.eventId);
+    const firstRendered = teaserRow(viewer);
+    await expect(firstRendered).toContainText("Local Away (+9) at Local Home");
+    await expect(firstRendered).locator("strong").toHaveText("Local Away (+9)");
+    await expect(teaserRow(viewer)).not.toContainText(secondLeg.eventId);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserSection(page).getByRole("row", { name: /local-nfl-upcoming/ })).toBeVisible();
+    await expect(teaserRow(page)).toContainText("Local Away (+9) at Local Home");
 
     // Crossing only the second accepted start reveals the complete immutable ticket to both nonowners.
     expect(await controlStatus(page, "/__local-test/current-time", { poolSlug: slug, currentTime: new Date(new Date(secondLeg.eventStartsAt).getTime() + 1_000).toISOString() })).toBe(200);
@@ -474,10 +471,10 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(bothLegs).toHaveLength(2);
     expect(bothLegs.map((leg) => `${leg.eventId}:${leg.market}:${leg.selection}:${leg.originalLine}:${leg.adjustedLine}`).sort()).toEqual(["local-nfl-super-bowl:spread:away:4:10", "local-nfl-upcoming:spread:away:3:9"]);
     await viewer.reload();
-    await expect(teaserSection(viewer).getByRole("row", { name: /local-nfl-upcoming/ })).toBeVisible();
-    await expect(teaserSection(viewer).getByRole("row", { name: /local-nfl-super-bowl/ })).toBeVisible();
+    await expect(teaserRow(viewer)).toContainText("Local Away (+9) at Local Home");
+    await expect(teaserRow(viewer)).toContainText("T11 Super Away (+10) at T11 Super Home");
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserSection(page).locator("tbody tr")).toHaveCount(2);
+    await expect(teaserRow(page)).toHaveCount(1);
   } finally { await ticketOwnerContext.close(); await viewerContext.close(); }
 });
 
@@ -574,45 +571,35 @@ test("activity stays immutable and presents only the current settlement without 
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await settleFixtureResult(page, slug, 17, 24);
-    // The owner's activity carries the current outcome; the immutable funding order is member-visible.
+    const activityRow = (actor: Page) => actor.locator(".activity-table tbody tr").filter({ hasText: commissionerName });
+    // Both viewers receive the same safe settlement performance, while only the owner receives protected terms.
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(page.getByRole("row", { name: commissionerName })).toContainText("3.00 shares");
-    await expect(page.getByRole("row", { name: commissionerName })).toContainText("3.00 virtual value");
-    const ownerWager = page.getByRole("heading", { name: `${commissionerName} — straight wager` }).locator("..");
-    await expect(ownerWager).toContainText("Current outcome: won");
-    // A nonowner sees the same immutable rows with neutral settled presentation and no protected field.
+    await expect(activityRow(page)).toContainText("won");
+    await expect(activityRow(page)).toContainText("+1.00 shares");
     await member.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(member.getByRole("row", { name: commissionerName })).toContainText("3.00 shares");
-    const memberWager = member.getByRole("heading", { name: `${commissionerName} — straight wager` }).locator("..");
-    await expect(memberWager).toContainText("won");
-    await expect(memberWager).toContainText("Settled");
-    await expect(memberWager).not.toContainText("Awaiting settlement");
+    await expect(activityRow(member)).toContainText("won");
+    await expect(activityRow(member)).toContainText("+1.00 shares");
     const hidden = await activityJson(member, slug);
     expect(hidden).not.toContain("riskMicros");
-    expect(hidden).not.toContain("Current outcome");
+    expect(hidden).toContain('"performanceMicros":"1000000"');
     expect(hidden).toContain("Local Away");
-    // The correction chain replaces only the current outcome presentation, never the rows themselves.
+    // The correction chain replaces only the current outcome and safe performance presentation.
     expect(await correctWager(page, slug, wagerId, "lost", "Official scoring correction", "official-loss-v2")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(ownerWager).toContainText("Current outcome: lost");
-    await expect(ownerWager).not.toContainText("Current outcome: won");
+    await expect(activityRow(page)).toContainText("lost");
+    await expect(activityRow(page)).toContainText("-1.00 shares");
     await member.reload();
-    await expect(memberWager).toContainText("lost");
-    await expect(memberWager).toContainText("Settled");
-    await expect(memberWager).not.toContainText("Awaiting settlement");
+    await expect(activityRow(member)).toContainText("lost");
+    await expect(activityRow(member)).toContainText("-1.00 shares");
     expect(await correctWager(page, slug, wagerId, "refunded", "Settled ticket voided", "official-void-v3")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(ownerWager).toContainText("Current outcome: refunded");
-    await expect(ownerWager).not.toContainText("Current outcome: lost");
+    await expect(activityRow(page)).toContainText("refunded");
+    await expect(activityRow(page)).toContainText("0.00 shares");
     await member.reload();
-    await expect(memberWager).toContainText("refunded");
-    await expect(memberWager).toContainText("Settled");
-    await expect(memberWager).not.toContainText("Awaiting settlement");
-    // Immutable audit: the funding order and exactly one wager row remain after every correction.
-    await expect(page.getByRole("row", { name: commissionerName })).toContainText("3.00 shares");
-    await expect(page.getByRole("row", { name: commissionerName })).toContainText("3.00 virtual value");
-    expect(await page.getByRole("heading", { name: `${commissionerName} — straight wager` }).count()).toBe(1);
-    expect(await member.getByRole("heading", { name: `${commissionerName} — straight wager` }).count()).toBe(1);
+    await expect(activityRow(member)).toContainText("refunded");
+    await expect(activityRow(member)).toContainText("0.00 shares");
+    expect(await activityRow(page).count()).toBe(1);
+    expect(await activityRow(member).count()).toBe(1);
   } finally { await memberContext.close(); }
 });
 
