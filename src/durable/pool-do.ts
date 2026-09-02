@@ -21,7 +21,7 @@ import { TEASER_RULESET_ID } from "../domain/teaser-table";
  * one-second drain.
  */
 const configuredDrainGraceMs = (globalThis as Record<string, unknown>).POOL_OUTBOX_DRAIN_GRACE_MS;
-const outboxDrainGraceMs = typeof configuredDrainGraceMs === "number" && configuredDrainGraceMs >= 1_000 ? configuredDrainGraceMs : 1_000;
+const outboxDrainGraceMs = typeof configuredDrainGraceMs === "number" && Number.isInteger(configuredDrainGraceMs) && Number.isFinite(configuredDrainGraceMs) && configuredDrainGraceMs >= 1_000 && configuredDrainGraceMs <= 31_536_000_000 ? configuredDrainGraceMs : 1_000;
 
 type Row = Record<string, SqlStorageValue>;
 const first = (sql: SqlStorage, query: string, ...params: SqlStorageValue[]): Row | undefined => [...sql.exec<Row>(query, ...params)][0];
