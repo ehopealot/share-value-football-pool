@@ -15,10 +15,9 @@ import { infrastructureAuditExport, memberAuditExport } from "../services/audit-
 import { TEASER_RULESET_ID } from "../domain/teaser-table";
 
 /**
- * Grace period before the post-commit outbox drain alarm. Tests compile this to a
- * far-future constant (see tests/fixtures/wrangler.vitest.jsonc) so Durable Object
- * alarms fire only when a test drives them explicitly; production keeps the
- * one-second drain.
+ * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
+ * but alarm() can re-arm lifecycle/retry deadlines; tests driving due non-terminal
+ * alarms must use far-future fixtures or state.storage.deleteAlarm() afterwards.
  */
 const configuredDrainGraceMs = (globalThis as Record<string, unknown>).POOL_OUTBOX_DRAIN_GRACE_MS;
 const outboxDrainGraceMs = typeof configuredDrainGraceMs === "number" && Number.isInteger(configuredDrainGraceMs) && Number.isFinite(configuredDrainGraceMs) && configuredDrainGraceMs >= 1_000 && configuredDrainGraceMs <= 31_536_000_000 ? configuredDrainGraceMs : 1_000;

@@ -1,10 +1,7 @@
 /**
- * Vitest-only Worker entry. Every worker test talks to the PoolDO binding or
- * imports application modules directly; none fetch SELF. Re-exporting only the
- * Durable Object keeps better-auth/drizzle/hono out of each test isolate's
- * main-worker import, which the vitest-pool-workers runner re-evaluates for
- * every test file. The vitest wrangler config declares no queue consumers or
- * cron triggers, so nothing ever dispatches into the stub default entrypoint.
+ * Vitest-only PoolDO Worker: tests use bindings/modules directly, so it omits fetch
+ * dependencies, queue consumers, and crons. Its far-future grace covers only
+ * post-command scheduling; driven due non-terminal alarms need future fixtures or deleteAlarm().
  */
 export { PoolDO } from "../../src/durable/pool-do";
 
