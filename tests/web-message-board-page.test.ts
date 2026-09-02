@@ -147,6 +147,8 @@ describe("Message board presentation and nav state", () => {
     expect(css()).toContain(".message-board-thread-alt");
     expect(css()).toContain(".message-board-replies");
     expect(css()).toContain(".message-board-page textarea");
+    expect(css()).toMatch(/\.message-board-announcement-option\s*\{[^}]*flex-direction:\s*row[^}]*justify-self:\s*start[^}]*font-size:\s*0\.85rem/s);
+    expect(css()).toMatch(/\.message-board-announcement-icon svg\s*\{[^}]*fill:\s*none[^}]*stroke:\s*currentColor[^}]*stroke-linecap:\s*round/s);
     expect(css()).toMatch(/@media \(max-width: 600px\)[\s\S]*\.message-board-page button[\s\S]*min-height:\s*44px/);
   });
 });
