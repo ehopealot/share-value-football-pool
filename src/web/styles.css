@@ -72,7 +72,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 /* Bet slip pinned to the viewport bottom with column-aligned risk inputs. */
 .selection-tray { position: sticky; bottom: 0; z-index: 2; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
 .selection-tray-list li { flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
-.tray-item-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.tray-item-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 0.85rem; }
 .selection-tray-list li > label { flex: 0 0 auto; width: 10rem; justify-content: flex-end; flex-direction: row; align-items: center; gap: 0.4rem; }
 .selection-tray-list li > label input { width: 4.5rem; text-align: right; }
 .selection-tray-remove { padding: 0.2rem 0; border: 0; background: transparent; color: #003f7d; font-weight: 400; text-decoration: underline; }

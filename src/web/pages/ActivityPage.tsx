@@ -3,11 +3,11 @@ import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatActivityLeg, formatWeeklyPerformance, groupActivityMembersForWeek } from "../activity-presentation";
+import { weekNumberLabel } from "../../domain/betting-week";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
 
-const weekLabel = (weekStart: string) => new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" }).format(new Date(weekStart));
 const wagerResult = (wager: Wager) => wager.outcome ?? (wager.status === "open" ? "Open" : wager.status);
 
 function WagerLines({ legs }: { legs: Leg[] | undefined }) {
@@ -32,7 +32,7 @@ export function ActivityPage() {
   const week = weeks.includes(selectedWeek) ? selectedWeek : weeks[0];
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
   return <Layout signedIn><div className="activity-page"><h1>Activity</h1>
-    <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>Week of {weekLabel(start)}</option>)}</select></label>
+    <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
       <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Wager</th><th>Result</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}<small>{formatWeeklyPerformance(member.performanceMicros)}</small></th>}<td><WagerLines legs={wager.legs}/></td><td>{wagerResult(wager)}</td><td>{formatWeeklyPerformance(wager.performanceMicros)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;

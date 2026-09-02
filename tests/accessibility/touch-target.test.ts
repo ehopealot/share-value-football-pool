@@ -9,6 +9,11 @@ describe("narrow-screen touch targets", () => {
     expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.nav-bar a, \.nav-button, button, \.primary-action, \.secondary-action\s*\{[\s\S]*min-height:\s*44px/);
   });
 
+  it("uses smaller selected-pick text without shrinking the bet-slip remove target", () => {
+    expect(css).toMatch(/\.tray-item-label\s*\{[^}]*font-size:\s*0\.85rem/);
+    expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.selection-tray-remove\s*\{[^}]*min-height:\s*44px/);
+  });
+
   it("keeps the compact bet-slip Remove text control touch-sized on mobile", () => {
     expect(css).toMatch(/\.selection-tray-remove\s*\{[\s\S]*background:\s*transparent[\s\S]*text-decoration:\s*underline/);
     expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.selection-tray-remove\s*\{[\s\S]*min-height:\s*44px/);
