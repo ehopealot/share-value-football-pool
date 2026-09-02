@@ -13,7 +13,7 @@ describe("guarded production deployment", () => {
     const spawnSync: SpawnSync = vi.fn(() => ({ status: 0 }));
     const buildProduction = vi.fn();
 
-    deployProduction!({ cwd: root, environment: { VITE_TURNSTILE_SITE_KEY: "public-key", CLOUDFLARE_API_TOKEN: "token", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" }, spawnSync, buildProduction });
+    deployProduction!({ cwd: root, environment: { VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", CLOUDFLARE_API_TOKEN: "token", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" }, spawnSync, buildProduction });
 
     expect(buildProduction).toHaveBeenCalledOnce();
     expect(spawnSync).toHaveBeenNthCalledWith(1, expect.stringMatching(/node_modules[/\\]\.bin[/\\]wrangler$/), ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], expect.objectContaining({ cwd: root }));

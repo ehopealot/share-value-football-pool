@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
+const turnstileSiteKey = /^0x[A-Za-z0-9_-]{20,128}$/;
 const workerSecretNames = [
   "BACKUP_ENCRYPTION_KEY",
   "BETTER_AUTH_SECRET",
@@ -33,10 +34,21 @@ export function createIsolatedProductionWorkerConfig(projectRoot = process.cwd()
   return { configPath, dispose: () => rmSync(directory, { recursive: true, force: true }) };
 }
 
+/** Reads only the public browser key from an ignored operator-local production env file. */
+export function localProductionBuildEnvironment(cwd = process.cwd(), environment = process.env) {
+  if (environment.VITE_TURNSTILE_SITE_KEY?.trim()) return environment;
+  const path = join(cwd, ".env.production.local");
+  if (!existsSync(path)) return environment;
+  const entry = readFileSync(path, "utf8").match(/^\s*VITE_TURNSTILE_SITE_KEY\s*=\s*(.*?)\s*$/m)?.[1];
+  const siteKey = entry?.replace(/^(['"])(.*)\1$/, "$2").trim();
+  return siteKey ? { ...environment, VITE_TURNSTILE_SITE_KEY: siteKey } : environment;
+}
+
 /** Prepares a Vite environment that contains only the public browser key. */
 export function productionBuildEnvironment(environment = process.env, workerConfigPath) {
   const siteKey = environment.VITE_TURNSTILE_SITE_KEY?.trim();
   if (!siteKey) throw new Error("VITE_TURNSTILE_SITE_KEY is required for a production build");
+  if (!turnstileSiteKey.test(siteKey)) throw new Error("VITE_TURNSTILE_SITE_KEY is invalid for a production build");
   const result = {
     ...environment,
     VITE_TURNSTILE_SITE_KEY: siteKey,
@@ -52,12 +64,13 @@ export function productionBuildEnvironment(environment = process.env, workerConf
 
 export function buildProduction(options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const environment = localProductionBuildEnvironment(cwd, options.environment ?? process.env);
   const isolated = createIsolatedProductionWorkerConfig(cwd);
   try {
     const viteBin = join(dirname(require.resolve("vite/package.json")), "bin", "vite.js");
     const result = (options.spawnSync ?? spawnSync)(process.execPath, [viteBin, "build"], {
       cwd,
-      env: productionBuildEnvironment(options.environment, isolated.configPath),
+      env: productionBuildEnvironment(environment, isolated.configPath),
       stdio: "inherit"
     });
     if (result.error) throw result.error;

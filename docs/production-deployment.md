@@ -47,14 +47,24 @@ Confirm only the binding names afterward:
 
 ## Build, migrate, and deploy
 
-Deploy through the guarded production command with the public Turnstile site key. Never run `vite build` or `wrangler deploy` directly for production.
+Deploy through the guarded production command. Never run `vite build` or `wrangler deploy` directly for production.
+
+Create the ignored local public-build file once (it must contain no Worker secrets):
+
+```sh
+cat > .env.production.local <<'EOF'
+VITE_TURNSTILE_SITE_KEY=public-site-key-from-turnstile
+EOF
+```
+
+Then use the routine deployment command:
 
 ```sh
 ./node_modules/.bin/wrangler d1 migrations apply DB --remote --config wrangler.jsonc
-VITE_TURNSTILE_SITE_KEY='public-site-key-from-turnstile' npm run deploy:production
+npm run deploy:production
 ```
 
-`npm run deploy:production` requires the public site key, performs the isolated production build, creates a local dry-run artifact, verifies that no public placeholder remains, and only then publishes the verified generated Worker configuration with `wrangler deploy --keep-vars`. It excludes Worker-secret environment variables from the build and removes API-token, global-key, and email credential environment variables before Wrangler runs so deployment uses OAuth credentials. `--keep-vars` protects any non-secret dashboard variable intentionally not declared in the repository; Worker secrets are never deleted by deploy.
+`npm run deploy:production` reads only `VITE_TURNSTILE_SITE_KEY` from `.env.production.local`; an explicitly exported shell value takes precedence. It requires a valid Turnstile site-key format, performs the isolated production build, creates a local dry-run artifact, verifies that no public placeholder remains, and only then publishes the verified generated Worker configuration with `wrangler deploy --keep-vars`. It excludes Worker-secret environment variables from the build and removes API-token, global-key, and email credential environment variables before Wrangler runs so deployment uses OAuth credentials. `--keep-vars` protects any non-secret dashboard variable intentionally not declared in the repository; Worker secrets are never deleted by deploy.
 
 ## Post-deploy checks
 

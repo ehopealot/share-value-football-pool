@@ -19,7 +19,7 @@
     "verify:direction-contract": "node scripts/verify-direction-contract.mjs",
     "verify:wrangler-parity": "node scripts/verify-wrangler-parity.mjs",
     "verify:production-artifact": "node scripts/verify-production-artifact.mjs",
-    "start:production-probe": "VITE_TURNSTILE_SITE_KEY=production-probe-turnstile-site-key npm run build:production && PRODUCTION_PROBE_BUILD=dist/office_pool_reborn PRODUCTION_PROBE_CONFIG=dist/office_pool_reborn/wrangler.json tsx scripts/production-route-probe.ts",
+    "start:production-probe": "VITE_TURNSTILE_SITE_KEY=0x4AAAAAAAbbbbbbbbbbbbbbb npm run build:production && PRODUCTION_PROBE_BUILD=dist/office_pool_reborn PRODUCTION_PROBE_CONFIG=dist/office_pool_reborn/wrangler.json tsx scripts/production-route-probe.ts",
     "verify:production-route-probe": "npm run start:production-probe",
     "verify:owned-resource-cleanup": "node scripts/verify-owned-resource-cleanup.mjs",
     "test:local-smoke": "tsx scripts/local-smoke.ts",
