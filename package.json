@@ -9,6 +9,7 @@
     "build": "vite build",
     "build:production": "node scripts/build-production.mjs",
     "build:local": "wrangler deploy --dry-run --outdir dist-local --config wrangler.local.jsonc",
+    "deploy:production": "node scripts/deploy-production.mjs",
     "typecheck": "tsc --noEmit --incremental",
     "test": "vitest run --project=node --project=workers",
     "test:structure": "vitest run --project=structure",

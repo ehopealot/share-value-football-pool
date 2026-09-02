@@ -47,17 +47,14 @@ Confirm only the binding names afterward:
 
 ## Build, migrate, and deploy
 
-Build the browser bundle with the public Turnstile site key. The key is deliberately supplied only for this build; never substitute the Turnstile secret.
+Deploy through the guarded production command with the public Turnstile site key. Never run `vite build` or `wrangler deploy` directly for production.
 
 ```sh
-VITE_TURNSTILE_SITE_KEY='public-site-key-from-turnstile' npm run build:production
 ./node_modules/.bin/wrangler d1 migrations apply DB --remote --config wrangler.jsonc
-./node_modules/.bin/wrangler deploy --dry-run --config wrangler.jsonc
-npm run verify:production-artifact
-./node_modules/.bin/wrangler deploy --keep-vars --config wrangler.jsonc
+VITE_TURNSTILE_SITE_KEY='public-site-key-from-turnstile' npm run deploy:production
 ```
 
-`npm run build:production` requires the public site key, excludes Worker-secret environment variables, and must happen before either deploy command because Wrangler uploads static assets from `dist/client`. The dry run validates the generated Worker and custom-domain configuration without publishing it. `--keep-vars` protects any non-secret dashboard variable that is intentionally not declared in the repository; Worker secrets are never deleted by deploy.
+`npm run deploy:production` requires the public site key, performs the isolated production build, creates a local dry-run artifact, verifies that no public placeholder remains, and only then publishes the verified generated Worker configuration with `wrangler deploy --keep-vars`. It excludes Worker-secret environment variables from the build and removes API-token, global-key, and email credential environment variables before Wrangler runs so deployment uses OAuth credentials. `--keep-vars` protects any non-secret dashboard variable intentionally not declared in the repository; Worker secrets are never deleted by deploy.
 
 ## Post-deploy checks
 
