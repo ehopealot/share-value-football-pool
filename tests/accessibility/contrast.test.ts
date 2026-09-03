@@ -17,7 +17,7 @@ const contrast = (first: string, second: string) => {
 
 describe("WCAG AA interface colors", () => {
   it("keeps primary text, navigation, buttons, links, and errors at AA contrast", () => {
-    const colors = Object.fromEntries(["navy", "blue", "paper", "ink", "orange"].map((name) => [name, token(name)]));
+    const colors = Object.fromEntries(["navy", "blue", "paper", "ink", "orange", "notice-background", "notice-ink"].map((name) => [name, token(name)]));
     expect(Object.values(colors)).not.toContain(undefined);
     expect(contrast(colors.ink!, colors.paper!)).toBeGreaterThanOrEqual(4.5);
     expect(contrast("#ffffff", colors.navy!)).toBeGreaterThanOrEqual(4.5);
@@ -25,5 +25,6 @@ describe("WCAG AA interface colors", () => {
     expect(contrast("#ffffff", colors.orange!)).toBeGreaterThanOrEqual(4.5);
     expect(contrast("#003f7d", colors.paper!)).toBeGreaterThanOrEqual(4.5);
     expect(contrast("#551010", "#fff2f2")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(colors["notice-ink"]!, colors["notice-background"]!)).toBeGreaterThanOrEqual(4.5);
   });
 });
