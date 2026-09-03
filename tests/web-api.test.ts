@@ -53,11 +53,18 @@ describe("wager recovery messages", () => {
     } finally { fetchMock.mockRestore(); }
   });
 
-  it("rejects malformed owner wager settlement odds at the browser boundary", async () => {
-    const malformed = { commandVersion: "1", wagers: [{ wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", outcome: "won", returnMicros: "3500000", profitMicros: "2500000", settledOdds: "250", settledAt: "2026-01-02T00:00:00.000Z" }] };
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(malformed), { status: 200, headers: { "content-type": "application/json" } }));
-    try { await expect(api.wagers("pool")).rejects.toThrow(); }
-    finally { fetchMock.mockRestore(); }
+  it("requires complete owner wager terms at the browser boundary", async () => {
+    const leg = { eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "home", originalLine: "-3", originalOdds: 100, eventStartsAt: "2026-01-02T00:00:00.000Z" };
+    const open = { wagerId: "open", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", legs: [leg] };
+    const historical = { ...open, wagerId: "historic", status: "won", outcome: "won", returnMicros: "2000000", profitMicros: "1000000", settledOdds: null, settledAt: "2026-01-02T00:00:00.000Z" };
+    const { returnMicros: _missing, ...incomplete } = historical;
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ commandVersion: "1", wagers: [open, historical] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ commandVersion: "1", wagers: [incomplete] }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await expect(api.wagers("pool")).resolves.toMatchObject({ wagers: [expect.objectContaining({ status: "open" }), expect.objectContaining({ settledOdds: null })] });
+      await expect(api.wagers("pool")).rejects.toThrow();
+    } finally { fetchMock.mockRestore(); }
   });
 
   it("notifies mounted layouts after local board activity", () => {

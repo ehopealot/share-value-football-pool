@@ -34,12 +34,18 @@ describe("member export and encrypted infrastructure backup", () => {
     expect(await response.json()).not.toMatchObject({ offers: expect.anything() });
   });
 
-  it("rejects malformed owner wager settlement odds at the Worker response boundary", async () => {
+  it("accepts complete owner tickets and rejects missing rendered terms at the Worker response boundary", async () => {
     const poolId = `invalid-my-wagers-${crypto.randomUUID()}`;
     await bindings.DB.prepare("INSERT INTO pool_registry (pool_id, normalized_slug, do_name, creator_id, status, command_id, created_at) VALUES (?, ?, ?, 'owner', 'ready', ?, ?)").bind(poolId, "invalid-my-wagers-pool", poolId, `create-${poolId}`, new Date().toISOString()).run();
-    const malformed = { commandVersion: "1", wagers: [{ wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", outcome: "won", returnMicros: "3500000", profitMicros: "2500000", settledOdds: "250", settledAt: "2026-01-02T00:00:00.000Z" }] };
-    const pools = { idFromName: (name: string) => name, get: () => ({ fetch: async () => Response.json(malformed) }) } as unknown as DurableObjectNamespace;
+    const leg = { eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "home", originalLine: "-3", originalOdds: 100, eventStartsAt: "2026-01-02T00:00:00.000Z" };
+    const open = { wagerId: "open", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", legs: [leg] };
+    const historical = { ...open, wagerId: "historic", status: "won", outcome: "won", returnMicros: "2000000", profitMicros: "1000000", settledOdds: null, settledAt: "2026-01-02T00:00:00.000Z" };
+    let body: Record<string, unknown> = { commandVersion: "1", wagers: [open, historical] };
+    const pools = { idFromName: (name: string) => name, get: () => ({ fetch: async () => Response.json(body) }) } as unknown as DurableObjectNamespace;
     const app = createWorkerApp({ db: bindings.DB, pools, currentUser: async () => ({ id: "member", name: "Member" }) });
+    expect((await app.fetch(new Request("https://pool.example.test/api/p/invalid-my-wagers-pool/wagers"))).status).toBe(200);
+    const { profitMicros: _missing, ...incomplete } = historical;
+    body = { commandVersion: "1", wagers: [incomplete] };
     const response = await app.fetch(new Request("https://pool.example.test/api/p/invalid-my-wagers-pool/wagers"));
     expect(response.status).toBe(400);
     expect(await response.json()).toHaveProperty("code");

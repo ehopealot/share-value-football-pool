@@ -66,8 +66,22 @@ describe("T11 member read contracts", () => {
     expect(auditSettlement.parse(refund).settledOdds).toBeNull();
     expect(() => auditSettlement.parse({ ...refund, settledOdds: undefined })).toThrow();
     expect(() => auditSettlement.parse({ ...refund, settledOdds: 250 })).toThrow();
-    expect(ReadMyWagers.parse({ commandVersion: "1", wagers: [parlay] }).wagers[0]).toMatchObject({ type: "parlay", settledOdds: 250 });
-    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...parlay, settledOdds: "250" }] })).toThrow();
+    const ownerLeg = { eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "home", originalLine: "-3", originalOdds: 100, eventStartsAt: "2026-01-02T00:00:00.000Z" };
+    const openOwner = { ...wager, status: "open", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", legs: [ownerLeg] };
+    const historicalOwner = { ...openOwner, status: "won", outcome: "won", returnMicros: "2000000", profitMicros: "1000000", settledAt: "2026-01-02T00:00:00.000Z", settledOdds: null };
+    expect(ReadMyWagers.parse({ commandVersion: "1", wagers: [openOwner, historicalOwner] }).wagers.map((ticket) => ticket.status)).toEqual(["open", "won"]);
+    for (const field of ["riskMicros", "acceptedOdds", "rulesetVersion", "legs"] as const) {
+      const { [field]: _missing, ...incomplete } = openOwner;
+      expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [incomplete] })).toThrow();
+    }
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...openOwner, riskMicros: "0" }] })).toThrow();
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...openOwner, acceptedOdds: 0 }] })).toThrow();
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...openOwner, legs: [] }] })).toThrow();
+    for (const field of ["outcome", "returnMicros", "profitMicros", "settledAt", "settledOdds"] as const) {
+      const { [field]: _missing, ...incomplete } = historicalOwner;
+      expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [incomplete] })).toThrow();
+    }
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...historicalOwner, settledOdds: "250" }] })).toThrow();
     expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [], unexpected: true })).toThrow();
   });
 
