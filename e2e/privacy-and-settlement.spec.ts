@@ -434,10 +434,11 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(teaserFrom(hiddenViewer).legs).toBeUndefined();
     for (const protectedText of [...forbiddenFutureFields, "local-nfl-upcoming", "local-nfl-super-bowl", "Local Home", "Local Away", "T11 Super Home", "T11 Super Away", "riskMicros"]) expect(hiddenViewer).not.toContain(protectedText);
     const teaserRow = (actor: Page) => actor.locator(".activity-table tbody tr").filter({ hasText: ticketOwnerName });
+    const teaserPAndL = (actor: Page) => teaserRow(actor).locator("td").last();
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRow(viewer)).toContainText("Selection hidden until the game starts.");
     await expect(teaserRow(viewer)).toContainText("Open");
-    await expect(teaserRow(viewer)).toContainText("0.00 shares");
+    await expect(teaserPAndL(viewer)).toHaveText("");
     await expect(teaserRow(viewer)).not.toContainText(commissionerName);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRow(page)).toContainText("Selection hidden until the game starts.");
@@ -572,6 +573,7 @@ test("activity stays immutable and presents only the current settlement without 
     const wagerId = await lastWagerId(page, slug);
     await settleFixtureResult(page, slug, 17, 24);
     const activityRow = (actor: Page) => actor.locator(".activity-table tbody tr").filter({ hasText: commissionerName });
+    const activityPAndL = (actor: Page) => activityRow(actor).locator("td").last();
     // Both viewers receive the same safe settlement performance, while only the owner receives protected terms.
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(activityRow(page)).toContainText("won");
@@ -594,10 +596,10 @@ test("activity stays immutable and presents only the current settlement without 
     expect(await correctWager(page, slug, wagerId, "refunded", "Settled ticket voided", "official-void-v3")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(activityRow(page)).toContainText("refunded");
-    await expect(activityRow(page)).toContainText("0.00 shares");
+    await expect(activityPAndL(page)).toHaveText("0.00 shares");
     await member.reload();
     await expect(activityRow(member)).toContainText("refunded");
-    await expect(activityRow(member)).toContainText("0.00 shares");
+    await expect(activityPAndL(member)).toHaveText("");
     expect(await activityRow(page).count()).toBe(1);
     expect(await activityRow(member).count()).toBe(1);
   } finally { await memberContext.close(); }

@@ -25,6 +25,11 @@ export function formatWeeklyPerformance(profitMicros: string): string {
   return `${value > 0n ? "+" : ""}${formatMicros(value, 2)} shares`;
 }
 
+/** A redacted wager has no public amount, so its zero P&L stays blank rather than misleading. */
+export function formatActivityWagerPerformance(wager: Pick<Wager, "riskMicros" | "performanceMicros">): string {
+  return wager.riskMicros === undefined && wager.performanceMicros === "0" ? "" : formatWeeklyPerformance(wager.performanceMicros);
+}
+
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";
 const teams = (leg: Leg) => ({ away: leg.awayTeam ?? "Away", home: leg.homeTeam ?? "Home" });
 
