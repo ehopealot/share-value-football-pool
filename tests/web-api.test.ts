@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { api, ApiError, commandOutcome, errorMessage, invalidatePoolView, invalidatePoolViewForBoardRead, onPoolBoardRead, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
+import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, invalidatePoolViewForBoardRead, onPoolBoardRead, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
 import { FrozenAdminCommand } from "../src/web/admin-command";
 import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
@@ -53,6 +53,20 @@ describe("wager recovery messages", () => {
     } finally { fetchMock.mockRestore(); }
   });
 
+  it("requires complete owner wager terms at the browser boundary", async () => {
+    const leg = { eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "home", originalLine: "-3", originalOdds: 100, eventStartsAt: "2026-01-02T00:00:00.000Z" };
+    const open = { wagerId: "open", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", legs: [leg] };
+    const historical = { ...open, wagerId: "historic", status: "won", outcome: "won", returnMicros: "2000000", profitMicros: "1000000", settledOdds: null, settledAt: "2026-01-02T00:00:00.000Z" };
+    const { returnMicros: _missing, ...incomplete } = historical;
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ commandVersion: "1", wagers: [open, historical] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ commandVersion: "1", wagers: [incomplete] }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await expect(api.wagers("pool")).resolves.toMatchObject({ wagers: [expect.objectContaining({ status: "open" }), expect.objectContaining({ settledOdds: null })] });
+      await expect(api.wagers("pool")).rejects.toThrow();
+    } finally { fetchMock.mockRestore(); }
+  });
+
   it("separates generic pool-view refresh from board-read invalidation", () => {
     vi.stubGlobal("window", new EventTarget());
     try {
@@ -96,9 +110,9 @@ describe("wager recovery messages", () => {
       format: "share-value-pool-audit-v1", commandVersion: "3", pool: { id: "p", slug: "pool", name: "Pool", commissionerId: "c", signupsOpen: true, commandVersion: "3" },
       seasons: [], seasonProviderResults: [], accounts: [], orders: [], ledger: [],
       settlements: [
-        { id: "automatic", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" },
-        { id: "reversal", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "reversal", returnMicros: "-2000000", profitMicros: "-1000000", sourceResult: providerResults, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" },
-        { id: "manual", wagerId: "w", resultVersion: 'commissioner:correction-command:[["event-1","official-2"]]', outcome: "loss", returnMicros: "0", profitMicros: "0", sourceResult: replacementResult, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" }
+        { id: "automatic", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", settledOdds: 100, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "reversal", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "reversal", returnMicros: "-2000000", profitMicros: "-1000000", settledOdds: null, sourceResult: providerResults, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "manual", wagerId: "w", resultVersion: 'commissioner:correction-command:[["event-1","official-2"]]', outcome: "loss", returnMicros: "0", profitMicros: "0", settledOdds: null, sourceResult: replacementResult, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" }
       ],
       wagerCorrections: [{ id: "correction", wagerId: "w", actorId: "c", reason: "Official correction", sourceResult: providerResults, replacementResult, commandId: "correction-command", createdAt: "2026-01-01T00:00:00.000Z" }],
       administrationAudit: [], seasonAnnotations: [], wagers: []
@@ -175,5 +189,48 @@ describe("frozen administration command identity", () => {
       { resultVersion: "result-1", idempotencyKey: "key-1" },
       { resultVersion: "result-3", idempotencyKey: "key-3" }
     ]);
+  });
+});
+
+describe("parlay browser boundary", () => {
+  const time = "2030-09-01T12:00:00.000Z";
+  const moneyline = {
+    eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: time, policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "offer-1",
+    canonicalOfferProof: { offerId: "event-1:moneyline:home", eventId: "event-1", offerVersion: "offer-1", canonicalBook: "DraftKings", market: "moneyline", selection: "home", odds: -110, line: null },
+    market: "moneyline", selection: "home", originalLine: null, adjustedLine: null, originalOdds: -105,
+    eventStartsAt: "2030-09-02T12:00:00.000Z", homeTeam: "Home", awayTeam: "Away"
+  } as const;
+  const total = {
+    ...moneyline,
+    canonicalOfferProof: { offerId: "event-1:total:over", eventId: "event-1", offerVersion: "offer-1", canonicalBook: "DraftKings", market: "total", selection: "over", odds: -110, line: 47.5 },
+    market: "total", selection: "over", originalLine: 47.5, adjustedLine: 47.5, originalOdds: -110
+  } as const;
+  const request = {
+    wagerId: "parlay-wager", quoteKey: "parlay-quote", commandId: "parlay-quote", seasonId: "season-1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1" as const,
+    legs: [
+      { eventId: moneyline.eventId, canonicalBook: moneyline.canonicalBook, market: moneyline.market, selection: moneyline.selection, offerId: moneyline.canonicalOfferProof.offerId, offerVersion: moneyline.offerVersion },
+      { eventId: total.eventId, canonicalBook: total.canonicalBook, market: total.market, selection: total.selection, offerId: total.canonicalOfferProof.offerId, offerVersion: total.offerVersion }
+    ]
+  };
+  const quote = { quoteKey: request.quoteKey, seasonId: request.seasonId, ownerMemberId: "member-1", riskMicros: request.riskMicros, acceptedOdds: 191, rulesetVersion: request.rulesetVersion, commandVersion: "12", legs: [moneyline, total] };
+
+  it("parses parlay snapshots, builds fixed placements, and uses the dedicated quote transport", async () => {
+    expect(parseParlayQuoteSuccess(request, quote)).toEqual(quote);
+    expect(() => parseParlayQuoteSuccess(request, { ...quote, legs: [...quote.legs].reverse() })).toThrow();
+    expect(buildParlayPlacement(quote, "placed-parlay", "parlay-place")).toMatchObject({
+      wagerId: "placed-parlay",
+      quoteKey: quote.quoteKey,
+      quotedCommandVersion: quote.commandVersion,
+      commandId: "parlay-place",
+      mutationKey: "parlay-place",
+      acceptedOdds: 191,
+      legs: quote.legs
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(quote), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await expect(api.quoteParlay("pool/one", request)).resolves.toEqual(quote);
+      expect(fetchMock).toHaveBeenCalledWith("/api/p/pool%2Fone/wagers/parlays/quote", expect.objectContaining({ method: "POST", body: JSON.stringify(request), signal: expect.any(AbortSignal) }));
+    } finally { fetchMock.mockRestore(); }
   });
 });

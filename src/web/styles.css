@@ -96,8 +96,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .join-pool-controls button { margin: 0; }
 .main-content:has(.my-wagers-page) { max-width: none; }
 .my-wagers-page table { min-width: 58rem; }
-.teaser-risk-actions { display: flex; align-items: flex-end; justify-content: flex-start; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
-.teaser-risk-actions label, .teaser-review-action { margin: 0; }
+.teaser-risk-actions, .parlay-risk-actions { display: flex; align-items: flex-end; justify-content: flex-start; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+.teaser-risk-actions label, .teaser-review-action, .parlay-risk-actions label, .parlay-review-action { margin: 0; }
+.parlay-advisory { margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--line); background: #edf1f4; }
 .bet-slip-error { min-height: 1.45rem; margin: var(--space-1) 0 0; color: #9b1c1c; font-weight: 700; }
 .main-content:has(.standings-page) { max-width: none; }
 .secondary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--blue); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #003f7d; }

@@ -108,6 +108,25 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect((await app({ id: "stranger", name: "Stranger" }).fetch(request(`/api/p/${slug}/standings`, undefined, "GET"))).status).toBe(403);
   }, 120_000);
 
+  it("keeps legacy winning settlements without recorded odds available in export and history", async () => {
+    const poolId = `t11-legacy-settled-odds-${crypto.randomUUID()}`; const slug = "t11-legacy-settled-odds-pool";
+    await setupPool(poolId, slug);
+    await fund(poolId);
+    await placeWager(poolId, "member", "legacy-win");
+    await storage(poolId, (state) => state.storage.sql.exec(`
+      UPDATE wager SET status = 'won', settled_result_version = '[["legacy-win","legacy-final"]]' WHERE id = 'legacy-win';
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('legacy-win-settlement', 'legacy-win', '[["legacy-win","legacy-final"]]', 'win', '2000000', '1000000', NULL, '[{"eventId":"legacy-win","league":"nfl","status":"final","homeScore":24,"awayScore":17,"correctionVersion":"legacy-final"}]', NULL, 'system', NULL, '2026-01-02T00:00:00.000Z');
+    `));
+    const member = app({ id: "member", name: "Member" });
+    const exported = await member.fetch(request(`/api/p/${slug}/export`, undefined, "GET"));
+    expect(exported.status).toBe(200);
+    expect((await exported.json() as any).settlements).toEqual([expect.objectContaining({ wagerId: "legacy-win", outcome: "win", settledOdds: null })]);
+    await command(poolId, { type: "CloseSeason", commandId: "close-legacy-win", actorId: "owner", seasonId: "s1", reason: "archived" });
+    const history = await member.fetch(request(`/api/p/${slug}/history/s1`, undefined, "GET"));
+    expect(history.status).toBe(200);
+    expect((await history.json() as any).settlements).toEqual([expect.objectContaining({ wagerId: "legacy-win", outcome: "win", settledOdds: null })]);
+  }, 120_000);
+
   it("carries a binding-valid same-game teaser through Worker quote, settlement, export, manual regrade, and provider correction", async () => {
     const poolId = `t11-same-game-${crypto.randomUUID()}`; const slug = "t11-same-game-pool";
     await setupPool(poolId, slug);
@@ -156,7 +175,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     const automatic = await authenticatedExport(member);
     expect(automatic).toMatchObject({
       accounts: expect.arrayContaining([{ seasonId: "s1", memberId: "member", availableMicros: "2833333", lockedMicros: "0", rowVersion: expect.any(String) }]),
-      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
+      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", settledOdds: -120, sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
       wagerCorrections: [], administrationAudit: [],
       wagers: [expect.objectContaining({ wagerId: "same-game-wager", status: "won", riskMicros: "1000000", acceptedOdds: -120, outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ eventId, market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ eventId, market: "total", grade: "win", resultVersion: "provider-1" })] })]
     });

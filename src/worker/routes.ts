@@ -6,8 +6,8 @@ import { freeSeasonEntitlement, type SeasonEntitlementService } from "../service
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
 import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest, messageBoardPostRequest } from "../contracts/http";
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot } from "../contracts/http";
-import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateWagerOffers } from "./offer-quotes";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
+import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
 import { offerIsStale } from "../odds/ingestion";
@@ -116,7 +116,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       return c.json(ReadSeasonHistory.parse(await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id, seasonId })));
     }
     const result = await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id });
-    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : undefined;
+    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : type === "ReadMyWagers" ? ReadMyWagers : undefined;
     return c.json(schema ? schema.parse(result) : result);
   });
   app.get("/api/p/:slug/view", read("ReadPoolView"));
@@ -190,51 +190,55 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     return c.json(OddsBoardResponse.parse({ offers: rows, feed: { status, message, lastPolledAt: ingestion?.last_polled_at ?? null, lastSuccessAt: ingestion?.last_success_at ?? null } }));
   }));
 
-  const wager = (kind: "straight" | "teasers", quote: boolean) => (c: Context) => mutation(c, async (user) => {
-    const parsed = (quote ? (kind === "straight" ? straightWagerQuoteRequest : teaserWagerQuoteRequest) : (kind === "straight" ? straightWagerPlacementRequest : teaserWagerPlacementRequest)).safeParse(await c.req.json());
+  const wager = (kind: "straight" | "teasers" | "parlays", quote: boolean) => (c: Context) => mutation(c, async (user) => {
+    const quoteSchema = kind === "straight" ? straightWagerQuoteRequest : kind === "teasers" ? teaserWagerQuoteRequest : parlayWagerQuoteRequest;
+    const placementSchema = kind === "straight" ? straightWagerPlacementRequest : kind === "teasers" ? teaserWagerPlacementRequest : parlayWagerPlacementRequest;
+    const parsed = (quote ? quoteSchema : placementSchema).safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const slug = c.req.param("slug"); if (!slug) return jsonError(c, "INVALID_REQUEST");
-    ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
+    const data = parsed.data as any;
     if (!quote) {
-      const data = parsed.data as any;
-      // mutationKey is an HTTP idempotency assertion, not a PoolDO command field.
       const command = kind === "straight"
         ? { type: "PlaceStraightWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, rulesetVersion: data.rulesetVersion, leg: data.leg }
-        : { type: "PlaceTeaserWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, teaserPoints: data.teaserPoints, rulesetVersion: data.rulesetVersion, legs: data.legs };
-      // Exact mutation replay is deliberately before D1 freshness/revalidation.
+        : kind === "teasers"
+          ? { type: "PlaceTeaserWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, teaserPoints: data.teaserPoints, rulesetVersion: data.rulesetVersion, legs: data.legs }
+          : { type: "PlaceParlayWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, rulesetVersion: data.rulesetVersion, legs: data.legs };
       const replay = await router.send(slug, { type: "ProbePlacementReplay", commandId: crypto.randomUUID(), actorId: user.id, placement: command });
       if (replay.replayed === true) return c.json(replay.response);
-      await revalidateWagerOffers(dependencies.db, command as any);
+      if (kind === "teasers" && data.legs.length > 6) return jsonError(c, "INVALID_REQUEST");
       return c.json(await router.send(slug, command));
     }
-    const data = parsed.data as any;
-    // The fingerprint is only semantic quote input plus identity; no accepted terms
-    // or envelope fields can influence quote authority.
-    const fingerprint = kind === "straight"
-      ? quoteRequestFingerprint({ wagerId: data.wagerId, seasonId: data.seasonId, riskMicros: data.riskMicros, rulesetVersion: data.rulesetVersion, leg: data.leg, actorId: user.id })
-      : quoteRequestFingerprint({ wagerId: data.wagerId, seasonId: data.seasonId, riskMicros: data.riskMicros, teaserPoints: data.teaserPoints, rulesetVersion: data.rulesetVersion, legs: data.legs, actorId: user.id });
+    const semantic = kind === "straight"
+      ? { wagerId: data.wagerId, seasonId: data.seasonId, riskMicros: data.riskMicros, rulesetVersion: data.rulesetVersion, leg: data.leg, actorId: user.id }
+      : kind === "teasers"
+        ? { wagerId: data.wagerId, seasonId: data.seasonId, riskMicros: data.riskMicros, teaserPoints: data.teaserPoints, rulesetVersion: data.rulesetVersion, legs: data.legs, actorId: user.id }
+        : { wagerId: data.wagerId, seasonId: data.seasonId, riskMicros: data.riskMicros, rulesetVersion: data.rulesetVersion, legs: data.legs, actorId: user.id };
+    const fingerprint = quoteRequestFingerprint(semantic);
     try { return c.json(await router.send(slug, { type: "ReplayWagerQuote", commandId: data.quoteKey, actorId: user.id, identity: { actorId: user.id, quoteKey: data.quoteKey, fingerprint } })); }
     catch (error) { if (!(error instanceof Error) || error.message !== "QUOTE_NOT_FOUND") throw error; }
-    // D1 contributes canonical public offers only after exact durable replay missed.
-    const seed: any = kind === "straight" ? { type: "PlaceStraightWager", commandId: "quote-seed", actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: "0", seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: 100, rulesetVersion: data.rulesetVersion, leg: data.leg } : { type: "PlaceTeaserWager", commandId: "quote-seed", actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: "0", seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: 100, teaserPoints: data.teaserPoints, rulesetVersion: data.rulesetVersion, legs: data.legs };
+    if (kind === "teasers" && data.legs.length > 6) return jsonError(c, "INVALID_REQUEST");
+    const common = { commandId: "quote-seed", actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: "0", seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: 100, rulesetVersion: data.rulesetVersion };
+    const seed = kind === "straight" ? { ...common, type: "PlaceStraightWager" as const, leg: data.leg }
+      : kind === "teasers" ? { ...common, type: "PlaceTeaserWager" as const, teaserPoints: data.teaserPoints, legs: data.legs }
+      : { ...common, type: "PlaceParlayWager" as const, legs: data.legs };
     const canonical: any = await canonicalizeWagerQuote(dependencies.db, seed);
-    // A quote request is a semantic identity assertion. Never bind current D1 terms
-    // to an older browser fingerprint/key when the board turned over mid-quote.
     if (!quoteRequestMatchesCanonical(data, canonical)) throw new QuoteLineChangedError();
     const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
-    const snapshot: any = kind === "straight"
+    const snapshot = kind === "straight"
       ? { quoteKey: data.quoteKey, seasonId: canonical.seasonId, ownerMemberId: user.id, riskMicros: canonical.riskMicros, acceptedOdds: canonical.acceptedOdds, rulesetVersion: canonical.rulesetVersion, leg: canonical.leg, commandVersion: view.commandVersion }
-      : { quoteKey: data.quoteKey, seasonId: canonical.seasonId, ownerMemberId: user.id, riskMicros: canonical.riskMicros, acceptedOdds: canonical.acceptedOdds, teaserPoints: canonical.teaserPoints, rulesetVersion: canonical.rulesetVersion, legs: canonical.legs, commandVersion: view.commandVersion };
-    const projectionParsed: any = (kind === "straight" ? straightWagerQuoteSnapshot : teaserWagerQuoteSnapshot).parse(snapshot);
-    const projection: any = kind === "straight"
-      ? { quoteKey: projectionParsed.quoteKey, seasonId: projectionParsed.seasonId, ownerMemberId: projectionParsed.ownerMemberId, riskMicros: projectionParsed.riskMicros, acceptedOdds: projectionParsed.acceptedOdds, rulesetVersion: projectionParsed.rulesetVersion, leg: projectionParsed.leg, commandVersion: projectionParsed.commandVersion, wagerId: data.wagerId, actorId: user.id, fingerprint }
-      : { quoteKey: projectionParsed.quoteKey, seasonId: projectionParsed.seasonId, ownerMemberId: projectionParsed.ownerMemberId, riskMicros: projectionParsed.riskMicros, acceptedOdds: projectionParsed.acceptedOdds, teaserPoints: projectionParsed.teaserPoints, rulesetVersion: projectionParsed.rulesetVersion, legs: projectionParsed.legs, commandVersion: projectionParsed.commandVersion, wagerId: data.wagerId, actorId: user.id, fingerprint };
-    return c.json(await router.send(slug, { type: kind === "straight" ? "QuoteStraightWager" : "QuoteTeaserWager", commandId: data.quoteKey, actorId: user.id, projection, identity: { actorId: user.id, quoteKey: data.quoteKey, fingerprint } } as any));
+      : { quoteKey: data.quoteKey, seasonId: canonical.seasonId, ownerMemberId: user.id, riskMicros: canonical.riskMicros, acceptedOdds: canonical.acceptedOdds, ...(kind === "teasers" ? { teaserPoints: canonical.teaserPoints } : {}), rulesetVersion: canonical.rulesetVersion, legs: canonical.legs, commandVersion: view.commandVersion };
+    const snapshotSchema = kind === "straight" ? straightWagerQuoteSnapshot : kind === "teasers" ? teaserWagerQuoteSnapshot : parlayWagerQuoteSnapshot;
+    const projectionParsed: any = snapshotSchema.parse(snapshot);
+    const projection = { ...projectionParsed, wagerId: data.wagerId, actorId: user.id, fingerprint };
+    const type = kind === "straight" ? "QuoteStraightWager" : kind === "teasers" ? "QuoteTeaserWager" : "QuoteParlayWager";
+    return c.json(await router.send(slug, { type, commandId: data.quoteKey, actorId: user.id, projection, identity: { actorId: user.id, quoteKey: data.quoteKey, fingerprint } } as any));
   });
   app.post("/api/p/:slug/wagers/straight/quote", wager("straight", true));
   app.post("/api/p/:slug/wagers/straight/place", wager("straight", false));
   app.post("/api/p/:slug/wagers/teasers/quote", wager("teasers", true));
   app.post("/api/p/:slug/wagers/teasers/place", wager("teasers", false));
+  app.post("/api/p/:slug/wagers/parlays/quote", wager("parlays", true));
+  app.post("/api/p/:slug/wagers/parlays/place", wager("parlays", false));
 
   app.post("/api/pools",  (c) => mutation(c, async (user) => {
     const parsed = createPoolSchema.safeParse(await c.req.json());

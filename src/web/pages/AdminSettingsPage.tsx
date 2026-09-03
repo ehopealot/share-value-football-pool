@@ -60,6 +60,7 @@ export function AdminSettingsPage() {
         <input className="pool-settings-control" aria-labelledby="max-bet-settings-heading" disabled={settings.pending} type="number" min="1" step="1" value={maxSideBet} onChange={(e) => { edit(); setMaxSideBet(e.target.value); }} />
         <button disabled={!/^\d+$/.test(maxSideBet) || BigInt(maxSideBet || "0") < 1n || settings.pending} onClick={() => void save(`max-side-bet:${maxSideBet}`, () => ({ maxSideBet }))}>Save max bet</button>
       </div>
+      <p className="pool-settings-help">Teaser and parlay risk is split evenly across their original legs for this limit.</p>
     </section>
     <section className="pool-settings-section" aria-labelledby="signups-settings-heading">
       <h2 id="signups-settings-heading">Signups</h2>

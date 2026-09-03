@@ -12,9 +12,11 @@ export class PoolCommandRouter {
   constructor(private readonly registry: PoolRegistry, private readonly pools: DurableObjectNamespace, private readonly db?: D1Database) {}
 
   async send(slug: string, command: PoolCommand): Promise<Record<string, unknown>> {
-    const record = await this.registry.getBySlug(slug);
+    let record: Awaited<ReturnType<PoolRegistry["getBySlug"]>>;
+    try { record = await this.registry.getBySlug(slug); }
+    catch { throw new Error("POOL_UNAVAILABLE"); }
     if (!record || record.status !== "ready") throw new Error("POOL_NOT_AVAILABLE");
-    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager") {
+    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager" || command.type === "PlaceParlayWager") {
       if (!this.db) throw new Error("MARKET_UNAVAILABLE");
       await revalidateWagerOffers(this.db, command);
     }

@@ -1,4 +1,4 @@
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, parlayWagerQuoteRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadMyWagers as ReadMyWagersType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
 import type { z } from "zod";
 
 export class ApiError extends Error {
@@ -23,6 +23,7 @@ export const errorMessage = (error: unknown) => {
 
 type StraightQuoteRequest = { wagerId: string; quoteKey: string; commandId: string; seasonId: string; riskMicros: string; rulesetVersion: string; leg: { eventId: string; canonicalBook: string; market: string; selection: string; offerId: string; offerVersion: string } };
 type TeaserQuoteRequest = { wagerId: string; quoteKey: string; commandId: string; seasonId: string; riskMicros: string; teaserPoints: number; rulesetVersion: string; legs: Array<{ eventId: string; canonicalBook: string; market: string; selection: string; offerId: string; offerVersion: string }> };
+type ParlayQuoteRequest = z.infer<typeof parlayWagerQuoteRequest>;
 type OrderQuoteRequest = { seasonId: string; memberId: string; mode: string; amountMicros: string; idempotencyKey: string };
 const responseMismatch = () => { throw new ApiError("QUOTE_RESPONSE_MISMATCH", 502); };
 export const parseStraightQuoteSuccess = (request: StraightQuoteRequest, value: unknown) => {
@@ -36,6 +37,12 @@ export const parseTeaserQuoteSuccess = (request: TeaserQuoteRequest, value: unkn
   quote.legs.forEach((leg, index) => { const expected = request.legs[index]; if (!expected || leg.eventId !== expected.eventId || leg.canonicalBook !== expected.canonicalBook || leg.market !== expected.market || leg.selection !== expected.selection || leg.canonicalOfferProof.offerId !== expected.offerId || leg.offerVersion !== expected.offerVersion) responseMismatch(); });
   return quote;
 };
+export const parseParlayQuoteSuccess = (request: ParlayQuoteRequest, value: unknown) => {
+  const quote = parlayWagerQuoteSnapshot.parse(value);
+  if (quote.quoteKey !== request.quoteKey || quote.seasonId !== request.seasonId || quote.riskMicros !== request.riskMicros || quote.rulesetVersion !== request.rulesetVersion || quote.legs.length !== request.legs.length) responseMismatch();
+  quote.legs.forEach((leg, index) => { const expected = request.legs[index]; if (!expected || leg.eventId !== expected.eventId || leg.canonicalBook !== expected.canonicalBook || leg.market !== expected.market || leg.selection !== expected.selection || leg.canonicalOfferProof.offerId !== expected.offerId || leg.offerVersion !== expected.offerVersion) responseMismatch(); });
+  return quote;
+};
 export const parseShareOrderQuoteSuccess = (request: OrderQuoteRequest, value: unknown, expectedMemberId = request.memberId) => {
   const quote = shareOrderQuoteSnapshot.parse(value);
   if (quote.seasonId !== request.seasonId || quote.memberId !== request.memberId || quote.memberId !== expectedMemberId || quote.mode !== request.mode || quote.amountMicros !== request.amountMicros) responseMismatch();
@@ -44,9 +51,11 @@ export const parseShareOrderQuoteSuccess = (request: OrderQuoteRequest, value: u
 /** Placement builders deliberately select only authority fields, never response ownership/display fields. */
 export const buildStraightPlacement = (quote: z.infer<typeof straightWagerQuoteSnapshot>, wagerId: string, mutationKey: string) => straightWagerPlacementRequest.parse({ wagerId, quoteKey: quote.quoteKey, quotedCommandVersion: quote.commandVersion, mutationKey, commandId: mutationKey, seasonId: quote.seasonId, riskMicros: quote.riskMicros, acceptedOdds: quote.acceptedOdds, rulesetVersion: quote.rulesetVersion, leg: quote.leg });
 export const buildTeaserPlacement = (quote: z.infer<typeof teaserWagerQuoteSnapshot>, wagerId: string, mutationKey: string) => teaserWagerPlacementRequest.parse({ wagerId, quoteKey: quote.quoteKey, quotedCommandVersion: quote.commandVersion, mutationKey, commandId: mutationKey, seasonId: quote.seasonId, riskMicros: quote.riskMicros, acceptedOdds: quote.acceptedOdds, teaserPoints: quote.teaserPoints, rulesetVersion: quote.rulesetVersion, legs: quote.legs });
+export const buildParlayPlacement = (quote: z.infer<typeof parlayWagerQuoteSnapshot>, wagerId: string, mutationKey: string) => parlayWagerPlacementRequest.parse({ wagerId, quoteKey: quote.quoteKey, quotedCommandVersion: quote.commandVersion, mutationKey, commandId: mutationKey, seasonId: quote.seasonId, riskMicros: quote.riskMicros, acceptedOdds: quote.acceptedOdds, rulesetVersion: quote.rulesetVersion, legs: quote.legs });
 export const buildShareOrderExecution = (quote: z.infer<typeof shareOrderQuoteSnapshot>, mutationKey: string, reason: string) => executeShareOrderRequest.parse({ seasonId: quote.seasonId, memberId: quote.memberId, mode: quote.mode, amountMicros: quote.amountMicros, quote: { priceMicros: quote.priceMicros, commandVersion: quote.commandVersion }, reason, idempotencyKey: mutationKey });
 export const parseAuditExportSuccess = (value: unknown): AuditExportResponse => auditExportResponse.parse(value);
 export const parseOddsBoardSuccess = (value: unknown): OddsBoardResponseType => OddsBoardResponse.parse(value);
+export const parseReadMyWagersSuccess = (value: unknown): ReadMyWagersType => ReadMyWagers.parse(value);
 export const parseReadMessageBoardSuccess = (value: unknown) => ReadMessageBoardResponse.parse(value);
 export const parseMessageBoardMutationSuccess = (value: unknown) => MessageBoardMutationResponse.parse(value);
 export const parseMessageBoardPostSuccess = (value: unknown) => MessageBoardPostResponse.parse(value);
@@ -166,13 +175,14 @@ export const api = {
   activity: async (slug: string): Promise<ReadActivityType> => ReadActivity.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/activity`, { method: "GET", headers: {} })),
   history: async (slug: string, seasonId: string): Promise<ReadSeasonHistoryType> => ReadSeasonHistory.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/history/${encodeURIComponent(seasonId)}`, { method: "GET", headers: {} })),
   auditExport: async (slug: string): Promise<AuditExportResponse> => parseAuditExportSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/export`, { method: "GET", headers: {} })),
-  wagers: (slug: string) => json<any>(`/api/p/${encodeURIComponent(slug)}/wagers`, { method: "GET", headers: {} }),
+  wagers: async (slug: string): Promise<ReadMyWagersType> => parseReadMyWagersSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers`, { method: "GET", headers: {} })),
   /** Administration retries need a bounded lost-response path so the frozen command can be replayed. */
   command: (slug: string, path: string, body: unknown) => boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}${path}`, { method: "POST", body: JSON.stringify(body) }),
   /** Only durable placement/execution retries need bounded response recovery. */
   placeCommand: (slug: string, path: string, body: unknown) => boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}${path}`, { method: "POST", body: JSON.stringify(body) }),
   quoteStraight: async (slug: string, body: StraightQuoteRequest) => parseStraightQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers/straight/quote`, { method: "POST", body: JSON.stringify(body) })),
   quoteTeaser: async (slug: string, body: TeaserQuoteRequest) => parseTeaserQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers/teasers/quote`, { method: "POST", body: JSON.stringify(body) })),
+  quoteParlay: async (slug: string, body: ParlayQuoteRequest) => parseParlayQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers/parlays/quote`, { method: "POST", body: JSON.stringify(body) })),
   quoteOrder: async (slug: string, body: OrderQuoteRequest, expectedMemberId = body.memberId) => parseShareOrderQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/admin/orders/quote`, { method: "POST", body: JSON.stringify(body) }), expectedMemberId),
   reverseOrder: (slug: string, orderId: string, body: { reason: string; idempotencyKey: string }) => json<unknown>(`/api/p/${encodeURIComponent(slug)}/admin/orders/${encodeURIComponent(orderId)}/reverse`, { method: "POST", body: JSON.stringify(body) }),
   confirmSuperBowl: (slug: string, seasonId: string, eventId: string, idempotencyKey: string) => api.command(slug, `/admin/seasons/${encodeURIComponent(seasonId)}/super-bowl/confirm`, { eventId, idempotencyKey })

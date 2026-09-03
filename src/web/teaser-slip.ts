@@ -12,9 +12,9 @@ export const teaserLegForOutcome = (offer: Offer, outcome: Outcome, selection: T
  market: offer.market, selection, originalLine: outcome.point, originalOdds: outcome.price, eventStartsAt: offer.startsAt, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam
 });
 
-/** Adds one eligible semantic leg without allowing a duplicate, an opposite, or more than seven legs. */
+/** Adds one eligible semantic leg without allowing a duplicate, an opposite, or more than six new legs. */
 export const addTeaserLeg = (legs: TeaserLeg[], leg: TeaserLeg): { legs: TeaserLeg[]; error: string } => {
- if (legs.length >= 7) return { legs, error: "Choose no more than seven legs." };
+ if (legs.length >= 6) return { legs, error: "Choose no more than six legs." };
  const identity = `${leg.eventId}:${leg.market}:${leg.selection}`;
  const opposite = `${leg.eventId}:${leg.market}:${leg.market === "spread" ? leg.selection === "home" ? "away" : "home" : leg.selection === "over" ? "under" : "over"}`;
  if (legs.some((candidate) => `${candidate.eventId}:${candidate.market}:${candidate.selection}` === identity)) return { legs, error: "Duplicate selections are not allowed." };
@@ -25,7 +25,7 @@ export const readTeaserSlip = (slug:string): TeaserLeg[] => { try { return JSON.
 export const writeTeaserSlip = (slug:string, legs:TeaserLeg[]) => sessionStorage.setItem(key(slug), JSON.stringify(legs));
 export const adjustedLine = (leg:TeaserLeg, points:number) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as DomainTeaserLeg, points as 6 | 6.5 | 7 | 7.5 | 10);
 export const validateTeaser = (legs:TeaserLeg[], points:number) => {
- if (legs.length < 2 || legs.length > 7 || (points === 10 && legs.length !== 3)) return points === 10 ? "A 10-point teaser requires exactly three legs." : "Choose two to seven legs.";
+ if (legs.length < 2 || legs.length > 6 || (points === 10 && legs.length !== 3)) return points === 10 ? "A 10-point teaser requires exactly three legs." : "Choose two to six legs.";
  const ids = new Set<string>(); for (const leg of legs) { const id=`${leg.eventId}:${leg.market}:${leg.selection}`; if(ids.has(id)) return "Duplicate selections are not allowed."; ids.add(id); const opposite=leg.market === "spread" ? `${leg.eventId}:spread:${leg.selection === "home" ? "away" : "home"}` : `${leg.eventId}:total:${leg.selection === "over" ? "under" : "over"}`; if(ids.has(opposite)) return "Opposing selections are not allowed."; }
  return "";
 };
