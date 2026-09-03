@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-22
 
-**Status:** Approved by the operator on 2026-08-22
+**Status:** Approved by the operator on 2026-08-22; parlay scope is superseded by [`2026-09-02-parlays-six-leg-cap-design.md`](../../plans/2026-09-02-parlays-six-leg-cap-design.md).
 **Product record:** [`PRODUCT.md`](../../../PRODUCT.md)
 
 ## 1. Objective
