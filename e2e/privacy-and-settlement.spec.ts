@@ -832,7 +832,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     await joinPool(memberA, worker.baseURL, slug, firstPassword);
     // Renaming is an ordinary commissioner setting and is visible everywhere the pool name renders.
     await page.goto(`${worker.baseURL}/p/${slug}/admin/settings`);
-    await page.getByLabel("Pool name").fill("T11R4C Renamed");
+    await page.getByRole("textbox", { name: "Pool name" }).fill("T11R4C Renamed");
     await page.getByRole("button", { name: "Rename pool" }).click();
     await page.goto(`${worker.baseURL}/p/${slug}/overview`);
     await expect(page.getByRole("heading", { name: "T11R4C Renamed" })).toBeVisible();
@@ -841,7 +841,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     expect(await expireRecentAuth(page, commissionerUserId)).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/admin/settings`);
     await expect(page.getByText("Signups are open.")).toBeVisible();
-    await page.getByLabel("New join password").fill(rotatedPassword);
+    await page.getByRole("textbox", { name: "Change join password" }).fill(rotatedPassword);
     await page.getByRole("button", { name: "Rotate password" }).click();
     await expect(page.getByRole("alert")).toHaveText("Sign in again.");
     // The denied command leaves the page on its terminal error summary; a reload restores the form.
@@ -861,9 +861,9 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     await worker.resetAuthLimiter();
     await logInAgain(page, worker.baseURL, commissionerEmail);
     await page.goto(`${worker.baseURL}/p/${slug}/admin/settings`);
-    await page.getByLabel("New join password").fill(rotatedPassword);
+    await page.getByRole("textbox", { name: "Change join password" }).fill(rotatedPassword);
     await page.getByRole("button", { name: "Rotate password" }).click();
-    await expect(page.getByLabel("New join password")).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Change join password" })).toHaveValue("");
     // The old password no longer admits anyone; the rotated password does.
     await worker.resetAuthLimiter();
     await signInAccount(memberB, worker.baseURL, worker.mailbox, "T11R4C Member B", "t11r4c-member-b@example.test");
