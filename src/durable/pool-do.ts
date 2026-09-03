@@ -180,7 +180,7 @@ export class PoolDO {
   }
 
   private authorized(sql: SqlStorage, command: Exclude<PoolCommand, { type: "InitializePool" }>): PoolCommandResult {
-    const pool = first(sql, "SELECT commissioner_id, password_hash, signups_open, max_side_bet_micros, command_version, active_season_id FROM pool LIMIT 1");
+    const pool = first(sql, "SELECT commissioner_id, password_hash, signups_open, max_side_bet_micros, commissioner_notice, command_version, active_season_id FROM pool LIMIT 1");
     if (!pool) throw new Error("POOL_NOT_INITIALIZED");
     const member = first(sql, "SELECT role, status FROM member WHERE user_id = ?", command.actorId);
     if (member?.status === "suspended") throw new Error("SUSPENDED");
@@ -324,7 +324,7 @@ export class PoolDO {
     if (command.type === "UpdatePoolSettings") {
       if (command.poolName !== undefined && command.poolName.trim().length === 0) throw new Error("INVALID_POOL_NAME");
       const passwordHash = command.password === undefined ? pool.password_hash : hashPoolPassword(command.password);
-      sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?, max_side_bet_micros = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0, command.maxSideBetMicros ?? String(pool.max_side_bet_micros));
+      sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?, max_side_bet_micros = ?, commissioner_notice = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0, command.maxSideBetMicros ?? String(pool.max_side_bet_micros), command.commissionerNotice === undefined ? pool.commissioner_notice ?? null : command.commissionerNotice);
       return { commandVersion: this.bumpVersion(sql) };
     }
     if (command.type === "CreateSeason") {
@@ -506,7 +506,7 @@ export class PoolDO {
   }
 
   private readPool(sql: SqlStorage, actorId: string, commandVersion: string, activeSeasonId: SqlStorageValue | undefined): PoolCommandResult {
-    const pool = first(sql, "SELECT id, slug, name, commissioner_id, signups_open, max_side_bet_micros FROM pool LIMIT 1")!;
+    const pool = first(sql, "SELECT id, slug, name, commissioner_id, signups_open, max_side_bet_micros, commissioner_notice FROM pool LIMIT 1")!;
     const currentRole = String(first(sql, "SELECT role FROM member WHERE user_id = ?", actorId)!.role) as "commissioner" | "member";
     const summary = (season: Row | undefined) => !season ? null : ({ id: String(season.id), label: String(season.label), rulesetVersion: String(season.ruleset_version), state: String(season.state), createdAt: String(season.created_at), openedAt: season.opened_at === null ? null : String(season.opened_at), closedAt: season.closed_at === null ? null : String(season.closed_at), defaultOrderMode: season.default_mode === null ? null : String(season.default_mode), defaultOrderAmountMicros: season.default_amount_micros === null ? null : String(season.default_amount_micros), floatMicros: String(season.float_micros), notionalValueMicros: String(season.notional_micros), superBowlCandidate: (() => { const candidate = first(sql, "SELECT event_id, provider_event_name, confirmed_at FROM season_super_bowl WHERE season_id = ?", season.id); return candidate ? { eventId: String(candidate.event_id), providerEventName: String(candidate.provider_event_name), confirmedAt: candidate.confirmed_at === null ? null : String(candidate.confirmed_at) } : null; })(), ...(String(season.state) === "closed" ? { closeReason: season.close_reason === null ? null : String(season.close_reason) } : {}) });
     const active = activeSeasonId === null || activeSeasonId === undefined ? undefined : first(sql, "SELECT * FROM season WHERE id = ? AND state = 'active'", activeSeasonId);
@@ -523,6 +523,6 @@ export class PoolDO {
     const boardRead = first(sql, "SELECT last_read_at FROM message_board_read WHERE member_id = ?", actorId);
     const hasUnreadBoard = latestBoardActivity?.activity_at !== null && latestBoardActivity?.activity_at !== undefined
       && (boardRead?.last_read_at === null || boardRead?.last_read_at === undefined || String(latestBoardActivity.activity_at) > String(boardRead.last_read_at));
-    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances, hasUnreadBoard }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
+    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros), commissionerNotice: pool.commissioner_notice === null || pool.commissioner_notice === undefined ? null : String(pool.commissioner_notice) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances, hasUnreadBoard }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
   }
 }
