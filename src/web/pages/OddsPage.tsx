@@ -113,7 +113,9 @@ const placeEntries = async (slug: string, entries: ReviewEntry[], maxSideBetMicr
   return { placed, failed, retry };
 };
 const displayedBoardValue = (offer: any, outcome: any) => offer.market === "total" ? `${outcome.point}` : offer.market === "moneyline" ? formatAmericanOdds(outcome.price) : formatSignedLine(outcome.point ?? outcome.price);
-const trayLabel = (board: any, item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : `${item.market} ${item.selection} (no longer available)`;
+const trayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : `${item.market} ${item.selection} (no longer available)`;
+/** Market type is implicit in a live pick's team, total, or price display. */
+export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : trayLabel(item, resolved);
 
 export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
@@ -164,7 +166,7 @@ export function OddsPage() {
     const entries: ReviewEntry[] = []; const failures: FailedEntry[] = []; let nextTray = [...tray];
     for (const item of tray) {
       const resolved = resolveTrayItem(current, item);
-      const label = trayLabel(current, item, resolved);
+      const label = trayLabel(item, resolved);
       if (!resolved) { failures.push({ label, reason: "This selection is no longer available on the board." }); nextTray = removeItem(nextTray, item); continue; }
       try {
         const quote = await api.quoteStraight(slug, straightQuoteRequest({ pick: resolved, risk: item.risk, wagerId: item.wagerId, quoteKey: crypto.randomUUID() }, view.activeSeason.id));
@@ -236,7 +238,7 @@ export function OddsPage() {
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} onToggle={toggle}/>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board, item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{label}</span> : <em className="tray-item-label">{label}</em>}<span className="selection-tray-amount"><input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></span><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
+      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></span><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button className="primary-action" disabled={!view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
         <p className="bet-slip-error" aria-live="polite">{riskError}</p></>}
