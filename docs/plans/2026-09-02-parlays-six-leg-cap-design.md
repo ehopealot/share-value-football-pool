@@ -25,7 +25,7 @@ Pricing uses reduced `BigInt` fractions—never floating-point arithmetic. An Am
 - when `D < N < 2D`, lock `-ceil(100 × D / (N - D))`;
 - exact even money is canonical `+100`.
 
-Every input and output American price must be a safe nonzero JavaScript integer. A result outside that range fails the quote with `PARLAY_ODDS_OUT_OF_RANGE` before durable mutation. This is more conservative than the exact return and preserves the requested `+250` example.
+Every input and output American price must be a safe nonzero JavaScript integer. Before acceptance, the server exhaustively prices every nonempty push/void surviving-leg subset (at most 63 subsets for six legs), recomputing same-game adjustments each time; if the initial price or any reachable effective settlement price is unsafe, the quote fails with `PARLAY_ODDS_OUT_OF_RANGE` before durable mutation. This guarantees an accepted ticket remains settleable while preserving valid one-leg repricing. This is more conservative than the exact return and preserves the requested `+250` example.
 
 Once all legs are final, any loss loses the parlay; `gradeParlay` loss precedence applies only after that all-final lifecycle eligibility check. Until then, even a known losing leg leaves the ticket open and its risk locked. Pushes and voids are then removed; surviving legs are repriced with their immutable snapshots and the same versioned rules. If no legs survive, risk is refunded. If a pushed/voided leg breaks a same-game pair, the surviving total reverts to its ordinary `+100` price. Settlement persists nullable `settledOdds` for the effective win price, so owner/audit/history views never display the original quote as the price actually paid after repricing.
 

@@ -135,6 +135,13 @@ export const buildTeaserTransfer = (items: TrayItem[], board: { offers?: any[] }
   return { slip, remaining: items.filter((item) => !addedIds.has(pickId(item))), error: errors[0] ?? "" };
 };
 
+/** Resolves cross-filter tray selections against one fresh, unfiltered board snapshot. */
+export const buildCurrentParlayTransfer = async (
+  slug: string,
+  items: TrayItem[],
+  load: (slug: string, query?: string) => Promise<{ offers?: any[] }> = api.odds
+) => buildParlaySlip(items, await load(slug));
+
 export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
   const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState("");
@@ -225,9 +232,11 @@ export function OddsPage() {
     setNotice("");
   };
 
-  const addToParlay = () => {
-    // Validate every selected board identity before moving any one of them into the dedicated slip.
-    const next = buildParlaySlip(tray, board ?? {});
+  const addToParlay = async () => {
+    // The tray can span league filters; resolve every identity against one fresh unfiltered snapshot.
+    let next: ReturnType<typeof buildParlaySlip>;
+    try { next = await buildCurrentParlayTransfer(slug, tray); }
+    catch { return setError("Current odds are unavailable; your parlay selections were not moved."); }
     if (next.error) return setError(next.error);
     writeParlaySlip(slug, next.legs);
     persist([]);

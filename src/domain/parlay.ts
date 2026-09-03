@@ -121,10 +121,16 @@ function priceLegs(legs: readonly ParlayLeg[]): number {
   return conservativeAmericanOdds(multiplier);
 }
 
-/** Returns the authoritative accepted odds for a valid new parlay. */
+/** Returns odds only when every reachable push/void survivor set remains settleable. */
 export function parlayOdds(legs: readonly ParlayLeg[]): number {
   validateParlay(legs);
-  return priceLegs(legs);
+  const acceptedOdds = priceLegs(legs);
+  const fullSet = (1 << legs.length) - 1;
+  // Six legs bound this exhaustive liveness check to 62 proper nonempty subsets.
+  for (let mask = 1; mask < fullSet; mask++) {
+    priceLegs(legs.filter((_, index) => (mask & (1 << index)) !== 0));
+  }
+  return acceptedOdds;
 }
 
 /** Grades immutable legs after final results, removing pushes and voids before repricing. */

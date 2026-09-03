@@ -88,6 +88,17 @@ describe("PARLAY_2026_V1 pricing and validation", () => {
     }
   });
 
+  it("rejects a safe complete price when a reachable void subset would overflow", () => {
+    const legs = [
+      leg("paired", "moneyline", "home", -Number.MAX_SAFE_INTEGER),
+      leg("paired", "total", "over"),
+      leg("other", "moneyline", "away", 5_000_000_000_000_000)
+    ];
+    expect(gradeParlay(grades("win", "win", "win"), legs)).toEqual({ outcome: "win", odds: 8_759_398_496_240_773, winningLegs: 3 });
+    expect(() => gradeParlay(grades("void", "win", "win"), legs)).toThrow(PARLAY_ODDS_OUT_OF_RANGE);
+    expect(() => parlayOdds(legs)).toThrow(PARLAY_ODDS_OUT_OF_RANGE);
+  });
+
   it("rejects zero, fractional, unsafe input, and unsafe output odds with the canonical error", () => {
     for (const odds of [0, 100.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1]) {
       expect(() => parlayOdds([

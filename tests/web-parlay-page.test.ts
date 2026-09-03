@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/web/api";
 import { addParlayLeg, buildParlaySlip, parlayLegForOutcome, readParlaySlip, writeParlaySlip } from "../src/web/parlay-slip";
 import { editParlaySemantic, ParlayPageGeneration, parlayAdvisoryOdds, parlayLegTableColumns, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnknownPlacementMessage, parlayUnresolvedPlacementTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
+import { buildCurrentParlayTransfer } from "../src/web/pages/OddsPage";
 import type { TrayItem } from "../src/web/selection-tray";
 
 const offer = (eventId: string, market: "spread" | "total" | "moneyline", outcome: { name: string; price: number; point?: number }) => ({
@@ -22,6 +23,19 @@ describe("parlay slip and page semantics", () => {
     expect(invalid).toEqual({ legs: [], error: "Only one directional market is allowed per event." });
 
     const unavailable = buildParlaySlip([item("game-1", "spread", "home"), item("game-2", "total", "over")], board([spread]));
+    expect(unavailable).toEqual({ legs: [], error: "A selected parlay leg is no longer available on the board." });
+  });
+
+  it("resolves an NFL-plus-NCAA tray against a fresh unfiltered board after filter transitions", async () => {
+    const nfl = offer("nfl-game", "spread", { name: "Home", price: -110, point: -3.5 });
+    const ncaaf = { ...offer("ncaaf-game", "total", { name: "Over", price: -110, point: 55.5 }), league: "ncaaf" as const };
+    const load = vi.fn(async () => ({ offers: [nfl, ncaaf], feed: { status: "current", message: "Current", lastPolledAt: nfl.retrievedAt, lastSuccessAt: nfl.retrievedAt } } as any));
+    const tray = [item("nfl-game", "spread", "home"), item("ncaaf-game", "total", "over")];
+    const transferred = await buildCurrentParlayTransfer("pool", tray, load);
+    expect(load).toHaveBeenCalledWith("pool");
+    expect(transferred).toMatchObject({ error: "", legs: [{ eventId: "nfl-game", league: "nfl" }, { eventId: "ncaaf-game", league: "ncaaf" }] });
+
+    const unavailable = await buildCurrentParlayTransfer("pool", tray, async () => ({ offers: [ncaaf] } as any));
     expect(unavailable).toEqual({ legs: [], error: "A selected parlay leg is no longer available on the board." });
   });
 

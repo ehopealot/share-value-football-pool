@@ -669,6 +669,28 @@ describe("later wager and member HTTP API", () => {
     expect(after).toBe(before);
   }, 90_000);
 
+  it("rejects a safe initial parlay whose reachable void reprice would overflow without mutation", async () => {
+    const poolId = `reprice-overflow-${crypto.randomUUID()}`; const slug = `reprice-overflow-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const retrievedAt = new Date().toISOString(); const startsAt = "2099-09-10T20:00:00.000Z";
+    for (const eventId of ["paired-reprice", "other-reprice"]) await bindings.DB.prepare("INSERT INTO sports_event (id,provider_event_id,league,home_team,away_team,starts_at,status,correction_version) VALUES (?,?,'nfl','Home','Away',?,'scheduled','1')").bind(eventId, eventId, startsAt).run();
+    await bindings.DB.prepare("INSERT INTO market_offer (event_id,market,canonical_book,retrieved_at,offer_version,payload_json) VALUES ('paired-reprice','moneyline','DraftKings',?,'v1',?),('paired-reprice','total','DraftKings',?,'v1',?),('other-reprice','moneyline','DraftKings',?,'v1',?)")
+      .bind(
+        retrievedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -Number.MAX_SAFE_INTEGER }, { name: "Away", price: 5_000_000_000_000_000 }] }),
+        retrievedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Over", price: -110, point: 47 }, { name: "Under", price: -110, point: 47 }] }),
+        retrievedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: Number.MAX_SAFE_INTEGER }, { name: "Away", price: -100 }] })
+      ).run();
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    const semantic = (eventId: string, market: string, selection: string) => ({ eventId, canonicalBook: "DraftKings", market, selection, offerId: `${eventId}:${market}:${selection}`, offerVersion: "v1" });
+    const body = { quoteKey: "reprice-overflow", commandId: "reprice-overflow", wagerId: "reprice-overflow", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: [semantic("paired-reprice", "moneyline", "home"), semantic("paired-reprice", "total", "over"), semantic("other-reprice", "moneyline", "home")] };
+    const durableSnapshot = () => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote")], command: [...state.storage.sql.exec("SELECT * FROM processed_command")], wager: [...state.storage.sql.exec("SELECT * FROM wager")], account: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")] }));
+    const before = await durableSnapshot();
+    const response = await app.fetch(request(`/api/p/${slug}/wagers/parlays/quote`, body));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "PARLAY_ODDS_OUT_OF_RANGE" });
+    expect(await durableSnapshot()).toBe(before);
+  }, 90_000);
+
   it("replays an exact quote-first placement before later D1 locking", async () => {
     const poolId = `api-replay-${crypto.randomUUID()}`; const slug = "api-replay";
     await setupPool(poolId, slug);
