@@ -1,10 +1,5 @@
 # AGENTS.md
 
-## Guiding philosophy
-- We build quickly and correctly
-- No overengineering
-- Lean with documented residuals is preferred over gold-plated and overengineered. YAGNI
-
 ## Development
 - work on feature branches in worktrees
 - make pull requests when you are ready
