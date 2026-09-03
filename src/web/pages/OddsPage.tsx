@@ -5,7 +5,7 @@ import { Layout } from "../components/Layout";
 import { selectableOutcomes, selectionForOutcome } from "../selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, writeTeaserSlip } from "../teaser-slip";
 import { buildParlaySlip, writeParlaySlip } from "../parlay-slip";
-import { resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketExclusive, type TrayItem } from "../selection-tray";
+import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketExclusive, writeSelectionTray, type TrayItem } from "../selection-tray";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatAmericanOdds, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
@@ -119,6 +119,20 @@ const displayedBoardValue = (offer: any, outcome: any) => offer.market === "tota
 const trayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : `${item.market} ${item.selection} (no longer available)`;
 /** Market type is implicit in a live pick's team, total, or price display. */
 export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : trayLabel(item, resolved);
+/** Transfers the first six eligible legs and returns every untransferred tray item for persistence. */
+export const buildTeaserTransfer = (items: TrayItem[], board: { offers?: any[] }) => {
+  let slip: ReturnType<typeof teaserLegForOutcome>[] = []; const errors: string[] = []; const added: TrayItem[] = [];
+  for (const item of items) {
+    if (!teaserEligible(item)) continue;
+    const resolved = resolveTrayItem(board, item);
+    if (!resolved || typeof resolved.outcome.point !== "number") continue;
+    const next = addTeaserLeg(slip, teaserLegForOutcome(resolved.offer, resolved.outcome, item.selection));
+    if (next.error) { if (!errors.includes(next.error)) errors.push(next.error); continue; }
+    slip = next.legs; added.push(item);
+  }
+  const addedIds = new Set(added.map(pickId));
+  return { slip, remaining: items.filter((item) => !addedIds.has(pickId(item))), error: errors[0] ?? "" };
+};
 
 export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
@@ -129,8 +143,8 @@ export function OddsPage() {
   const query = `?${new URLSearchParams(Object.fromEntries([["league", league]].filter(([, value]) => value)))}`;
   useEffect(() => { let active = true; void api.odds(slug, query).then((fresh) => { if (active) setBoard(fresh); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [slug, query]);
   useEffect(() => { void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
-  useEffect(() => { setTray([]); }, [slug]);
-  const persist = (next: TrayItem[]) => setTray(next);
+  useEffect(() => { setTray(readSelectionTray(slug)); }, [slug]);
+  const persist = (next: TrayItem[]) => { writeSelectionTray(slug, next); setTray(next); };
   useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
   const pending = batch?.tag === "quoting" || batch?.tag === "placing";
@@ -146,8 +160,12 @@ export function OddsPage() {
   const games = useMemo(() => groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week))), [board, week]);
   const selectedPickIds = tray.map(pickId);
   const toggle = useCallback((cell: MarketCell) => {
-    setTray((current) => toggleMarketExclusive(current, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem));
-  }, []);
+    setTray((current) => {
+      const next = toggleMarketExclusive(current, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem);
+      writeSelectionTray(slug, next);
+      return next;
+    });
+  }, [slug]);
   // Teasers need at least two legs, so the builder stays disabled for single-game slips.
   const teaserEligibleCount = tray.filter((item) => teaserEligible(item) && resolveTrayItem(board ?? {}, item) && typeof resolveTrayItem(board ?? {}, item)!.outcome.point === "number").length;
   const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
@@ -198,20 +216,12 @@ export function OddsPage() {
 
   const addEligibleToTeaser = () => {
     // Build a fresh teaser from this slip; a prior draft must never affect these selections.
-    let slip: ReturnType<typeof teaserLegForOutcome>[] = []; let added = 0; const errors: string[] = []; const addedItems: TrayItem[] = [];
-    for (const item of tray) {
-      if (!teaserEligible(item)) continue;
-      const resolved = resolveTrayItem(board, item);
-      if (!resolved || typeof resolved.outcome.point !== "number") continue;
-      const merged = addTeaserLeg(slip, teaserLegForOutcome(resolved.offer, resolved.outcome, item.selection));
-      if (merged.error) { if (!errors.includes(merged.error)) errors.push(merged.error); continue; }
-      slip = merged.legs; added++; addedItems.push(item);
-    }
-    writeTeaserSlip(slug, slip);
-    persist(tray.filter((item) => !addedItems.some((added) => added.eventId === item.eventId && added.market === item.market && added.selection === item.selection)));
-    setError(errors[0] ?? "");
-    if (added > 0) return nav(`/p/${slug}/teaser`);
-    setNotice(added ? `${added} selection${added === 1 ? "" : "s"} added to the teaser slip.` : "");
+    const transfer = buildTeaserTransfer(tray, board ?? {});
+    writeTeaserSlip(slug, transfer.slip);
+    persist(transfer.remaining);
+    setError(transfer.error);
+    if (transfer.slip.length > 0) return nav(`/p/${slug}/teaser`);
+    setNotice("");
   };
 
   const addToParlay = () => {

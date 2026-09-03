@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/web/api";
 import { addParlayLeg, buildParlaySlip, parlayLegForOutcome, readParlaySlip, writeParlaySlip } from "../src/web/parlay-slip";
-import { editParlaySemantic, parlayAdvisoryOdds, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
+import { editParlaySemantic, ParlayPageGeneration, parlayAdvisoryOdds, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnresolvedPlacementTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
 import type { TrayItem } from "../src/web/selection-tray";
 
 const offer = (eventId: string, market: "spread" | "total" | "moneyline", outcome: { name: string; price: number; point?: number }) => ({
@@ -14,7 +14,7 @@ describe("parlay slip and page semantics", () => {
   it("transfers a complete valid tray all at once, permits a paired total, and never partially transfers an invalid directional pair", () => {
     const spread = offer("game-1", "spread", { name: "Home", price: -110, point: -3.5 });
     const total = offer("game-1", "total", { name: "Over", price: -110, point: 44.5 });
-    const moneyline = offer("game-1", "moneyline", { name: "Away", price: 125 });
+    const moneyline = { ...offer("game-1", "moneyline", { name: "Away", price: 125 }), outcomes: [{ name: "Away", price: 125 }, { name: "Home", price: -145 }] };
     const paired = buildParlaySlip([item("game-1", "spread", "home"), item("game-1", "total", "over")], board([spread, total]));
     expect(paired).toMatchObject({ error: "", legs: [{ market: "spread", selection: "home" }, { market: "total", selection: "over" }] });
 
@@ -55,6 +55,37 @@ describe("parlay slip and page semantics", () => {
       expect(parlayRecoveryTransition(recovered, request)).toMatchObject({ state: { tag: "editing", editor: { wagerId: "wager-1" } }, slip: recovered.editor.legs });
     }
     odds.mockRestore();
+  });
+
+  it("uses a vig-free moneyline strike for advisory pricing while retaining the raw book proof", () => {
+    const moneyline = { ...offer("game-1", "moneyline", { name: "Home", price: -135 }), outcomes: [{ name: "Home", price: -135 }, { name: "Away", price: 115 }] };
+    const totalOffer = offer("game-1", "total", { name: "Over", price: -110, point: 44.5 });
+    const moneylineLeg = parlayLegForOutcome(moneyline, moneyline.outcomes[0]!, "home");
+    const totalLeg = parlayLegForOutcome(totalOffer, totalOffer.outcomes[0]!, "over");
+    expect(moneylineLeg).toMatchObject({ originalOdds: -124, canonicalOfferProof: { odds: -135 } });
+    expect(parlayAdvisoryOdds([moneylineLeg, totalLeg])).toBe(216);
+  });
+
+  it("keeps an unknown placement frozen and clears stale errors before its exact retry", () => {
+    const request = { wagerId: "wager-1", quoteKey: "quote-1", risk: "2", legs: [] } as any;
+    const quote = { quoteKey: "quote-1" };
+    expect(parlayQuoteAttemptTransition(request)).toEqual({ state: { tag: "quoting", request }, error: "" });
+    const reviewing = { tag: "reviewing" as const, request, quote, mutationKey: "place-1" };
+    const unresolved = parlayUnresolvedPlacementTransition(reviewing);
+    expect(unresolved).toEqual({ tag: "placement-unknown", request, quote, mutationKey: "place-1" });
+    expect(unresolved.request).toBe(request);
+    expect(unresolved.quote).toBe(quote);
+    expect(parlayPlacementAttemptTransition(unresolved)).toEqual({ state: { ...unresolved, tag: "submitting" }, error: "" });
+  });
+
+  it("rejects stale parlay async completions after a slug transition", () => {
+    const page = new ParlayPageGeneration();
+    const first = page.start("pool-a");
+    const second = page.start("pool-b");
+    expect(page.current(first)).toBe(false);
+    expect(page.current(second)).toBe(true);
+    page.invalidate(second);
+    expect(page.current(second)).toBe(false);
   });
 
   it("keeps editor odds advisory while quote and retry semantics remain authoritative and frozen", () => {

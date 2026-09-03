@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parlayRiskError, readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, teaserRiskError, toggleMarketExclusive, toggleTrayItem, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
+import { buildTeaserTransfer } from "../src/web/pages/OddsPage";
 
 vi.stubGlobal("sessionStorage", (() => { let store: Record<string, string> = {}; return { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = String(v); }, removeItem: (k: string) => { delete store[k]; }, clear: () => { store = {}; } }; })());
 
@@ -78,5 +79,15 @@ describe("selection tray", () => {
     expect(parlayRiskError("801", { maxSideBetMicros: "800000000", availableMicros: "3000000000" })).toBe("Max bet per side: 800 shares.");
     expect(parlayRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "799000000" })).toBe("Parlay risk 800 shares; only 799 shares are available.");
     expect(parlayRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "800000000" })).toBe("");
+  });
+
+  it("persists the seventh teaser selection retained across builder navigation", () => {
+    const items = Array.from({ length: 7 }, (_, index) => item({ eventId: `e${index}`, wagerId: `w${index}` }));
+    const offers = items.map((candidate) => ({ eventId: candidate.eventId, market: "spread" as const, homeTeam: "Home", awayTeam: "Away", canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: `v-${candidate.eventId}`, startsAt: "2030-09-01T12:00:00.000Z", outcomes: [{ name: "Home", price: -110, point: -3.5 }] }));
+    const transfer = buildTeaserTransfer(items, board(offers));
+    expect(transfer.slip).toHaveLength(6);
+    expect(transfer.remaining).toEqual([items[6]]);
+    writeSelectionTray(slug, transfer.remaining);
+    expect(readSelectionTray(slug)).toEqual([items[6]]);
   });
 });

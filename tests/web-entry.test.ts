@@ -5,7 +5,7 @@ import { destination } from "../src/web/pages/AuthPages";
 import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
-import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserRecoveryTransition, teaserTerminalTransition } from "../src/web/pages/TeaserPage";
+import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
 
@@ -106,6 +106,10 @@ describe("entry redirects", () => {
     expect(terminalTeaser.editor.wagerId).not.toBe(teaser.wagerId); expect(terminalTeaser.editor.quoteKey).not.toBe(teaser.quoteKey);
     const editedTeaser = editTeaserSemantic(teaser);
     expect(editedTeaser.wagerId).not.toBe(teaser.wagerId); expect(editedTeaser.quoteKey).not.toBe(teaser.quoteKey);
+    const teaserQuote = { quoteKey: teaser.quoteKey };
+    const unresolvedTeaser = teaserUnresolvedPlacementTransition({ tag: "reviewing", request: teaser, quote: teaserQuote, mutationKey: "teaser-place" });
+    expect(unresolvedTeaser).toEqual({ tag: "placement-unknown", request: teaser, quote: teaserQuote, mutationKey: "teaser-place" });
+    expect(teaserPlacementAttemptTransition(unresolvedTeaser)).toEqual({ state: { ...unresolvedTeaser, tag: "submitting" }, error: "" });
 
     const order = { seasonId: "s", memberId: "m", mode: "shares" as const, amount: "1", quoteKey: "order-quote" };
     const recoveredOrder = recoverStaleOrderEditor(order);

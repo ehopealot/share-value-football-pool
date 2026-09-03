@@ -1,4 +1,5 @@
 import { validateParlay } from "../domain/parlay";
+import { vigFreeMoneylinePrice } from "../odds/market-semantics";
 import { outcomeForSelection, type CanonicalSelection } from "./selection-matcher";
 import { resolveTrayItem, type TrayItem } from "./selection-tray";
 
@@ -28,8 +29,9 @@ type Offer = {
   offerVersion: string;
   startsAt: string;
   market: ParlayLeg["market"];
-  homeTeam?: string;
-  awayTeam?: string;
+  homeTeam: string;
+  awayTeam: string;
+  outcomes: Array<{ name?: string; price: number; point?: number }>;
 };
 type Outcome = { price: number; point?: number };
 const key = (slug: string) => `share-pool:parlay:${slug}`;
@@ -37,10 +39,15 @@ const key = (slug: string) => `share-pool:parlay:${slug}`;
 /** Builds complete unadjusted parlay semantics only from a canonical board offer. */
 export const parlayLegForOutcome = (offer: Offer, outcome: Outcome, selection: ParlayLeg["selection"]): ParlayLeg => {
   const originalLine = offer.market === "moneyline" ? null : outcome.point ?? null;
+  const originalOdds = offer.market === "moneyline" && (selection === "home" || selection === "away")
+    ? vigFreeMoneylinePrice({ homeTeam: offer.homeTeam, awayTeam: offer.awayTeam }, offer.outcomes, selection)
+    : outcome.price;
+  // Parsed board offers always contain both moneyline outcomes. Refuse malformed direct callers rather than estimating from vigged terms.
+  if (originalOdds === undefined) throw new Error("CURRENT_OFFER_UNAVAILABLE");
   return {
     eventId: offer.eventId, league: offer.league, canonicalBook: offer.canonicalBook, retrievedAt: offer.retrievedAt, policyVersion: offer.policyVersion, offerVersion: offer.offerVersion,
     canonicalOfferProof: { offerId: `${offer.eventId}:${offer.market}:${selection}`, eventId: offer.eventId, offerVersion: offer.offerVersion, canonicalBook: offer.canonicalBook, market: offer.market, selection, odds: outcome.price, line: originalLine },
-    market: offer.market, selection, originalLine, originalOdds: outcome.price, adjustedLine: null, eventStartsAt: offer.startsAt, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam
+    market: offer.market, selection, originalLine, originalOdds, adjustedLine: null, eventStartsAt: offer.startsAt, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam
   };
 };
 
@@ -68,9 +75,11 @@ export const buildParlaySlip = (items: TrayItem[], board: { offers?: any[] }): {
     const selection = item.selection as CanonicalSelection;
     // resolveTrayItem establishes this selection against the offer; retain this explicit guard for untyped callers.
     if (!outcomeForSelection(resolved.offer, selection)) return { legs: [], error: "A selected parlay leg is no longer available on the board." };
-    const next = addParlayLeg(legs, parlayLegForOutcome(resolved.offer, resolved.outcome, selection as ParlayLeg["selection"]));
-    if (next.error) return { legs: [], error: next.error };
-    legs = next.legs;
+    try {
+      const next = addParlayLeg(legs, parlayLegForOutcome(resolved.offer, resolved.outcome, selection as ParlayLeg["selection"]));
+      if (next.error) return { legs: [], error: next.error };
+      legs = next.legs;
+    } catch { return { legs: [], error: "A selected parlay leg is no longer available on the board." }; }
   }
   try {
     validateParlay(legs);
