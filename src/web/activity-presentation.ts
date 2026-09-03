@@ -33,13 +33,14 @@ export function formatActivityPerformance(performanceMicros: string): string {
 }
 
 type WagerOutcome = { status: string; outcome?: "won" | "lost" | "refunded" };
+const terminalOutcome = (wager: WagerOutcome) => wager.outcome ?? (wager.status === "won" || wager.status === "lost" || wager.status === "refunded" ? wager.status : undefined);
 
 export function formatActivityWagerPerformance(wager: WagerOutcome & Pick<Wager, "performanceMicros">): string {
-  return wager.performanceMicros === "0" && wager.outcome === "refunded" ? "0.00 shares" : formatActivityPerformance(wager.performanceMicros);
+  return wager.performanceMicros === "0" && terminalOutcome(wager) === "refunded" ? "0.00 shares" : formatActivityPerformance(wager.performanceMicros);
 }
 
 export function activityWagerPerformanceClass(wager: WagerOutcome): string {
-  return wager.outcome === "won" ? "activity-performance-won" : wager.outcome === "lost" ? "activity-performance-lost" : "";
+  return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : "";
 }
 
 /** Public Activity terms are optional when a ticket must be redacted. */
@@ -50,7 +51,7 @@ export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedO
 
 /** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
 export function activitySelectedOutcomeClass(wager: WagerOutcome): string {
-  return wager.outcome === "won" ? "activity-picked-won" : wager.outcome === "lost" ? "activity-picked-lost" : "";
+  return terminalOutcome(wager) === "won" ? "activity-picked-won" : terminalOutcome(wager) === "lost" ? "activity-picked-lost" : "";
 }
 
 /** The available feed has kickoff, but no live/finished game-state signal. */

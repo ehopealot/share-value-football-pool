@@ -23,6 +23,6 @@ describe("My wagers page", () => {
   });
 
   it("keeps each wager leg on its own line without splitting selected and unselected fragments", () => {
-    expect(styles).toContain('.wager-legs > span { display: block; }');
+    expect(styles).toContain('.wager-legs > span { display: block; white-space: nowrap; }');
   });
 });

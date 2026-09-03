@@ -26,12 +26,12 @@ describe("activity presentation", () => {
   it("shows a black zero P&L for pushes while keeping the weekly zero summary blank", () => {
     expect(formatActivityPerformance("0")).toBe("");
     expect(formatActivityPerformance("500000000")).toBe("+500.00 shares");
-    expect(formatActivityWagerPerformance(wager({ status: "refunded", outcome: "refunded", riskMicros: "1000000", performanceMicros: "0" }))).toBe("0.00 shares");
+    expect(formatActivityWagerPerformance(wager({ status: "refunded", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("0.00 shares");
     expect(formatActivityWagerPerformance(wager({ status: "open", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("");
     expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "500000000" }))).toBe("+500.00 shares");
-    expect(activityWagerPerformanceClass(wager({ outcome: "won" }))).toBe("activity-performance-won");
-    expect(activityWagerPerformanceClass(wager({ outcome: "lost" }))).toBe("activity-performance-lost");
-    expect(activityWagerPerformanceClass(wager({ outcome: "refunded" }))).toBe("");
+    expect(activityWagerPerformanceClass(wager({ status: "won", outcome: undefined }))).toBe("activity-performance-won");
+    expect(activityWagerPerformanceClass(wager({ status: "lost", outcome: undefined }))).toBe("activity-performance-lost");
+    expect(activityWagerPerformanceClass(wager({ status: "refunded", outcome: undefined }))).toBe("");
   });
 
   it("formats the stake as whole shares and accepted odds", () => {
@@ -46,9 +46,9 @@ describe("activity presentation", () => {
   });
 
   it("maps only wins and losses to selected-pick outcome classes", () => {
-    expect(activitySelectedOutcomeClass(wager({ outcome: "won" }))).toBe("activity-picked-won");
-    expect(activitySelectedOutcomeClass(wager({ outcome: "lost" }))).toBe("activity-picked-lost");
-    expect(activitySelectedOutcomeClass(wager({ outcome: "refunded" }))).toBe("");
+    expect(activitySelectedOutcomeClass(wager({ status: "won", outcome: undefined }))).toBe("activity-picked-won");
+    expect(activitySelectedOutcomeClass(wager({ status: "lost", outcome: undefined }))).toBe("activity-picked-lost");
+    expect(activitySelectedOutcomeClass(wager({ status: "refunded", outcome: undefined }))).toBe("");
     expect(activitySelectedOutcomeClass(wager({ status: "open", outcome: undefined }))).toBe("");
   });
 

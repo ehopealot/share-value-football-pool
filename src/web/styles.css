@@ -128,7 +128,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .reversal-form input, .reversal-form button { box-sizing: border-box; height: 2.5rem; }
 .reversal-actions { display: flex; gap: var(--space-2); }
 .reversal-actions button { margin: 0; }
-.wager-legs > span { display: block; }
+.wager-legs > span { display: block; white-space: nowrap; }
 /* Activity keeps week/member performance scanable without repeating one table per member. */
 .main-content:has(.activity-page) { max-width: none; }
 .activity-page > section > label { margin: 0 0 var(--space-1); }
@@ -136,7 +136,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-table th, .activity-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
 .activity-table th[scope="rowgroup"] { min-width: 10rem; background: #edf1f4; }
 .activity-table th[scope="rowgroup"] small { display: block; font-weight: 700; white-space: nowrap; }
-.activity-wager-lines > span { display: block; }
+.activity-wager-lines > span { display: block; white-space: nowrap; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
 .activity-wager-not-started { color: #6e7780; }
 .activity-picked-won, .activity-performance-won { color: #137333; }
