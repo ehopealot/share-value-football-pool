@@ -1,5 +1,6 @@
 import type { ReadActivity } from "../contracts/http";
 import { formatMicros, parseIntegerText } from "../domain/fixed-point";
+import { formatAmericanOdds } from "./odds-format";
 import { sortWagersByStartTime } from "./wager-presentation";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
@@ -33,6 +34,17 @@ export function formatActivityPerformance(performanceMicros: string): string {
 
 export function formatActivityWagerPerformance(wager: Pick<Wager, "performanceMicros">): string {
   return formatActivityPerformance(wager.performanceMicros);
+}
+
+/** Public Activity terms are optional when a ticket must be redacted. */
+export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): string {
+  if (wager.riskMicros === undefined || wager.acceptedOdds === undefined) return "";
+  return `${parseIntegerText(wager.riskMicros) / 1_000_000n} ${formatAmericanOdds(wager.acceptedOdds)}`;
+}
+
+/** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
+export function activitySelectedOutcomeClass(wager: Pick<Wager, "outcome">): string {
+  return wager.outcome === "won" ? "activity-picked-won" : wager.outcome === "lost" ? "activity-picked-lost" : "";
 }
 
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";

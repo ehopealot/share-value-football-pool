@@ -138,6 +138,8 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-table th[scope="rowgroup"] small { display: block; font-weight: 700; white-space: nowrap; }
 .activity-wager-lines > span { display: block; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
+.activity-picked-won { color: #137333; }
+.activity-picked-lost { color: #b42318; }
 @media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } }
 @media (max-width: 600px) { .tray-actions button, .tray-actions .primary-action { min-height: 44px; } }
 @media (max-width: 600px) { .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }

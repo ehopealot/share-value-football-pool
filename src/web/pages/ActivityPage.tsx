@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { formatActivityLeg, formatActivityPerformance, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
+import { activitySelectedOutcomeClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
 import { displayWagerStartTime } from "../wager-presentation";
 
@@ -11,11 +11,11 @@ type Leg = NonNullable<Wager["legs"]>[number];
 
 const wagerResult = (wager: Wager) => wager.outcome ?? (wager.status === "open" ? "Open" : wager.status);
 
-function WagerLines({ legs }: { legs: Leg[] | undefined }) {
-  if (!legs?.length) return <>Selection hidden until the game starts.</>;
-  return <div className="activity-wager-lines">{legs.map((leg) => {
+function WagerLines({ wager }: { wager: Wager }) {
+  if (!wager.legs?.length) return <>Selection hidden until the game starts.</>;
+  return <div className="activity-wager-lines">{wager.legs.map((leg) => {
     const line = formatActivityLeg(leg);
-    return <span key={`${leg.eventId}:${leg.market}:${leg.selection}`}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
+    return <span key={`${leg.eventId}:${leg.market}:${leg.selection}`}>{line.segments.map((segment, index) => segment.selected ? <strong key={index} className={activitySelectedOutcomeClass(wager)}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
   })}</div>;
 }
 
@@ -34,7 +34,7 @@ export function ActivityPage() {
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
   return <Layout signedIn><div className="activity-page"><h1>Activity</h1>
     <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
-      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Result</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td>{displayWagerStartTime(wager)}</td><td><WagerLines legs={wager.legs}/></td><td>{wagerResult(wager)}</td><td>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
+      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>Result</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td>{displayWagerStartTime(wager)}</td><td><WagerLines wager={wager}/></td><td>{formatActivityStake(wager)}</td><td>{wagerResult(wager)}</td><td>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }

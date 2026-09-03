@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatActivityLeg, formatActivityPerformance, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
+import { activitySelectedOutcomeClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
 type Wager = Parameters<typeof groupActivityMembersForWeek>[0][number];
 const leg = (overrides: Record<string, unknown> = {}) => ({ eventId: "game", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalLine: "-7.5", originalOdds: -110, eventStartsAt: "2026-09-06T20:00:00.000Z", awayTeam: "UCLA", homeTeam: "Arizona", ...overrides });
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", seasonId: "s", memberId: "ucla", memberDisplayName: "Bruin", type: "straight", status: "won", confirmedAt: "2026-09-01T00:00:00.000Z", weekStart: "2026-09-01T04:00:00.000Z", performanceMicros: "500000000", profitMicros: "500000000", legs: [leg()], ...overrides }) as Wager;
@@ -29,6 +29,19 @@ describe("activity presentation", () => {
     expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "0" }))).toBe("");
     expect(formatActivityWagerPerformance(wager({ riskMicros: "1000000", performanceMicros: "0" }))).toBe("");
     expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "500000000" }))).toBe("+500.00 shares");
+  });
+
+  it("formats the stake as whole shares and accepted odds", () => {
+    expect(formatActivityStake(wager({ riskMicros: "100000000", acceptedOdds: 150 }))).toBe("100 +150");
+    expect(formatActivityStake(wager({ riskMicros: "25000000", acceptedOdds: -110 }))).toBe("25 -110");
+    expect(formatActivityStake(wager({ riskMicros: undefined, acceptedOdds: undefined }))).toBe("");
+  });
+
+  it("maps only wins and losses to selected-pick outcome classes", () => {
+    expect(activitySelectedOutcomeClass(wager({ outcome: "won" }))).toBe("activity-picked-won");
+    expect(activitySelectedOutcomeClass(wager({ outcome: "lost" }))).toBe("activity-picked-lost");
+    expect(activitySelectedOutcomeClass(wager({ outcome: "refunded" }))).toBe("");
+    expect(activitySelectedOutcomeClass(wager({ status: "open", outcome: undefined }))).toBe("");
   });
 
   it("bolds only the selected side or total in readable activity matchup lines", () => {
