@@ -130,6 +130,59 @@ describe("PoolDO authority", () => {
     expect(migrated.secondPass).toEqual(migrated.firstPass);
   }, 90_000);
 
+  it("upgrades legacy pools with a null commissioner notice", async () => {
+    const slug = `notice-schema-${crypto.randomUUID()}`;
+    const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Notice schema", creatorId: "owner", creatorName: "Owner", password: "correct-password" };
+    await send(slug, initialize);
+    const migrated = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("ALTER TABLE pool RENAME TO legacy_pool");
+      sql.exec("CREATE TABLE pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', active_season_id TEXT, command_version TEXT NOT NULL)");
+      sql.exec("INSERT INTO pool (id, slug, name, commissioner_id, password_hash, password_version, signups_open, max_side_bet_micros, active_season_id, command_version) SELECT id, slug, name, commissioner_id, password_hash, password_version, signups_open, max_side_bet_micros, active_season_id, command_version FROM legacy_pool");
+      sql.exec("DROP TABLE legacy_pool");
+      migrateSeasonCreatedAt(sql);
+      const firstPass = [...sql.exec<{ commissioner_notice: string | null }>("SELECT commissioner_notice FROM pool")];
+      migrateSeasonCreatedAt(sql);
+      return { columns: [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")], firstPass, secondPass: [...sql.exec<{ commissioner_notice: string | null }>("SELECT commissioner_notice FROM pool")] };
+    });
+    expect(migrated.columns).toContainEqual(expect.objectContaining({ name: "commissioner_notice" }));
+    expect(migrated.firstPass).toEqual([{ commissioner_notice: null }]);
+    expect(migrated.secondPass).toEqual(migrated.firstPass);
+    const rejectsMalformedNotice = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      try {
+        state.storage.sql.exec("UPDATE pool SET commissioner_notice = '   '");
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(rejectsMalformedNotice).toBe(true);
+    expect((await send(slug, { type: "ReadPoolView", commandId: "read", actorId: "owner" })).body).toMatchObject({ pool: { commissionerNotice: null } });
+  }, 90_000);
+
+  it("authorizes, replays, replaces, and clears commissioner notices", async () => {
+    const slug = `notice-authority-${crypto.randomUUID()}`;
+    await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Notice authority", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
+    await send(slug, { type: "JoinPool", commandId: "join", actorId: "member", displayName: "Member", password: "correct-password" });
+
+    const set = { type: "UpdatePoolSettings" as const, commandId: "set-notice", actorId: "owner", commissionerNotice: "Draft starts at noon." };
+    const first = await send(slug, set);
+    expect(first.body).toMatchObject({ commandVersion: expect.any(String) });
+    expect((await send(slug, set)).body).toEqual(first.body);
+    expect((await send(slug, { ...set, commissionerNotice: "Changed with the same key." })).body).toEqual({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "member-notice", actorId: "member", commissionerNotice: "Forged" })).body).toEqual({ code: "FORBIDDEN" });
+    for (const [commissionerNotice, commandId] of [["", "blank-notice"], ["   ", "whitespace-notice"], ["x".repeat(501), "overlong-notice"]] as const) {
+      expect((await send(slug, { type: "UpdatePoolSettings", commandId, actorId: "owner", commissionerNotice })).body).toEqual({ code: "INVALID_COMMAND" });
+    }
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "unknown-notice", actorId: "owner", commissionerNotice: "Notice", unexpected: true } as PoolCommand)).body).toEqual({ code: "INVALID_COMMAND" });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-set", actorId: "member" })).body).toMatchObject({ pool: { commissionerNotice: "Draft starts at noon." } });
+
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "replace-notice", actorId: "owner", commissionerNotice: "Kickoff moved to one." })).body).toMatchObject({ commandVersion: expect.any(String) });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-replaced", actorId: "member" })).body).toMatchObject({ pool: { commissionerNotice: "Kickoff moved to one." } });
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "clear-notice", actorId: "owner", commissionerNotice: null })).body).toMatchObject({ commandVersion: expect.any(String) });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-cleared", actorId: "member" })).body).toMatchObject({ pool: { commissionerNotice: null } });
+  }, 90_000);
+
   it("serializes membership, seasons, idempotency, and suspension authorization", async () => {
     const slug = `pool-${crypto.randomUUID()}`;
     const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Friday Pool", creatorId: "owner", creatorName: "Owner", password: "correct-password" };

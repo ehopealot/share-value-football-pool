@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
+import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, invalidatePoolViewForBoardRead, onPoolBoardRead, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
 import { FrozenAdminCommand } from "../src/web/admin-command";
 import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
@@ -67,16 +67,25 @@ describe("wager recovery messages", () => {
     } finally { fetchMock.mockRestore(); }
   });
 
-  it("notifies mounted layouts after local board activity", () => {
+  it("separates generic pool-view refresh from board-read invalidation", () => {
     vi.stubGlobal("window", new EventTarget());
     try {
-      const listener = vi.fn();
-      const unsubscribe = onPoolViewInvalidated(listener);
+      const generic = vi.fn();
+      const boardRead = vi.fn();
+      const unsubscribeGeneric = onPoolViewInvalidated(generic);
+      const unsubscribeBoardRead = onPoolBoardRead(boardRead);
       invalidatePoolView();
-      expect(listener).toHaveBeenCalledOnce();
-      unsubscribe();
+      expect(generic).toHaveBeenCalledOnce();
+      expect(boardRead).not.toHaveBeenCalled();
+      invalidatePoolViewForBoardRead();
+      expect(generic).toHaveBeenCalledOnce();
+      expect(boardRead).toHaveBeenCalledOnce();
+      unsubscribeGeneric();
+      unsubscribeBoardRead();
       invalidatePoolView();
-      expect(listener).toHaveBeenCalledOnce();
+      invalidatePoolViewForBoardRead();
+      expect(generic).toHaveBeenCalledOnce();
+      expect(boardRead).toHaveBeenCalledOnce();
     } finally { vi.unstubAllGlobals(); }
   });
 

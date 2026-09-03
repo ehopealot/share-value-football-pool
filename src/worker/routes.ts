@@ -277,7 +277,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const parsed = updateSettingsSchema.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     if (parsed.data.password !== undefined && !(await dependencies.recentlyAuthenticated?.(c.req.raw, user))) return jsonError(c, "RECENT_AUTH_REQUIRED", 403);
-    return c.json(await router.send(c.req.param("slug"), { type: "UpdatePoolSettings", commandId: parsed.data.idempotencyKey, actorId: user.id, ...(parsed.data.poolName === undefined ? {} : { poolName: parsed.data.poolName }), ...(parsed.data.password === undefined ? {} : { password: parsed.data.password }), ...(parsed.data.signupsOpen === undefined ? {} : { signupsOpen: parsed.data.signupsOpen }), ...(parsed.data.maxSideBet === undefined ? {} : { maxSideBetMicros: (BigInt(parsed.data.maxSideBet) * 1000000n).toString() }) }));
+    return c.json(await router.send(c.req.param("slug"), { type: "UpdatePoolSettings", commandId: parsed.data.idempotencyKey, actorId: user.id, ...(parsed.data.poolName === undefined ? {} : { poolName: parsed.data.poolName }), ...(parsed.data.password === undefined ? {} : { password: parsed.data.password }), ...(parsed.data.signupsOpen === undefined ? {} : { signupsOpen: parsed.data.signupsOpen }), ...(parsed.data.maxSideBet === undefined ? {} : { maxSideBetMicros: (BigInt(parsed.data.maxSideBet) * 1000000n).toString() }), ...(parsed.data.commissionerNotice === undefined ? {} : { commissionerNotice: parsed.data.commissionerNotice }) }));
   }));
 
   app.post("/api/p/:slug/admin/orders/quote", (c) => mutation(c, async (user) => {

@@ -292,15 +292,29 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     const poolId = `t11-settings-${crypto.randomUUID()}`; const slug = "t11-settings-pool";
     await setupPool(poolId, slug);
     expect((await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/admin/settings`, { poolName: "Nope", idempotencyKey: "member" })))).toMatchObject({ status: 403 });
+    expect((await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Forged", idempotencyKey: "member-notice" })))).toMatchObject({ status: 403 });
     const owner = app({ id: "owner", name: "Owner" });
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "  Draft starts at noon.  ", idempotencyKey: "notice" })))).toMatchObject({ status: 200 });
+    const noticedView = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
+    expect(noticedView.pool.commissionerNotice).toBe("Draft starts at noon.");
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Kickoff moved to one.", idempotencyKey: "replace-notice" })))).toMatchObject({ status: 200 });
+    expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerNotice).toBe("Kickoff moved to one.");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { poolName: "Renamed Pool", idempotencyKey: "rename" })))).toMatchObject({ status: 200 });
     const view = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
     expect(view.pool.name).toBe("Renamed Pool");
+    expect(view.pool.commissionerNotice).toBe("Kickoff moved to one.");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { maxSideBet: "900", idempotencyKey: "max-side-bet" })))).toMatchObject({ status: 200 });
     const updatedView = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
     expect(updatedView.pool.maxSideBetMicros).toBe("900000000");
+    expect(updatedView.pool.commissionerNotice).toBe("Kickoff moved to one.");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { signupsOpen: false, idempotencyKey: "close-signups" })))).toMatchObject({ status: 200 });
     expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.signupsOpen).toBe(false);
+    for (const [commissionerNotice, idempotencyKey] of [["", "blank-notice"], ["   ", "whitespace-notice"], ["x".repeat(501), "overlong-notice"]] as const) {
+      expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice, idempotencyKey })))).toMatchObject({ status: 400 });
+    }
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Unexpected", idempotencyKey: "unknown-notice", unexpected: true })))).toMatchObject({ status: 400 });
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: null, idempotencyKey: "clear-notice" })))).toMatchObject({ status: 200 });
+    expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerNotice).toBeNull();
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate" })))).toMatchObject({ status: 403 });
     expect((await app({ id: "owner", name: "Owner" }, async () => true).fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate-recent" })))).toMatchObject({ status: 200 });
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { idempotencyKey: "empty" })))).toMatchObject({ status: 400 });

@@ -7,6 +7,8 @@
   --orange: #c75000;
   --focus: #7a2d00;
   --focus-on-dark: #ffdf7e;
+  --notice-background: #ffdf7e;
+  --notice-ink: #4a2100;
   --line: #6e7780;
   --space-1: 0.4rem;
   --space-2: 0.75rem;
@@ -23,6 +25,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .masthead { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--navy); color: #fff; }
 .site-name, .site-note { margin: 0; }
 .site-name { font-size: 1.25rem; font-weight: 700; }
+.commissioner-notice { display: grid; gap: 0.15rem; padding: var(--space-2) var(--space-3); border-block: 1px solid #7a2d00; background: var(--notice-background); color: var(--notice-ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.commissioner-notice strong { font-size: 0.9rem; }
+.commissioner-notice-input { display: block; width: min(100%, 65ch); min-height: 5rem; padding: var(--space-2); border: 1px solid var(--line); border-radius: 0; font: inherit; resize: vertical; }
 .nav-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
 .nav-bar a { color: #fff; }
 .nav-bar a.active { font-weight: 700; }
@@ -101,6 +106,21 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .share-order-form label { justify-content: flex-end; margin: 0; }
 .share-order-form input, .share-order-form select, .share-order-form button { box-sizing: border-box; height: 2.5rem; }
 .share-order-form button { margin: 0; }
+/* Settings use the same aligned control/action pattern as order administration. */
+.pool-settings { display: grid; gap: var(--space-3); }
+.pool-settings > h1, .pool-settings > .error-summary, .pool-settings-return { margin: 0; }
+.pool-settings-section { display: grid; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); background: #f6f8fa; }
+.pool-settings-section h2 { margin: 0; font-size: 1.1rem; }
+.pool-settings .share-order-form { margin: 0; }
+.pool-settings-control { flex: 1 1 16rem; min-width: 0; }
+.pool-settings-notice-controls { align-items: flex-end; }
+.pool-settings-notice-field { flex: 1 1 min(100%, 65ch); min-width: 0; display: grid; gap: var(--space-1); }
+.pool-settings-notice-field label, .pool-settings-help, .pool-settings-signups p { margin: 0; }
+.pool-settings-notice-field .commissioner-notice-input { width: 100%; }
+.pool-settings-help { color: #3b4046; }
+.pool-settings-signups { align-items: center; }
+.pool-settings-signups p { flex: 1 1 16rem; }
+@media (max-width: 600px) { .pool-settings-section { padding: var(--space-2); } .pool-settings-control, .pool-settings-notice-field { flex-basis: 100%; } .pool-settings .share-order-form input, .pool-settings .share-order-form button { height: 44px; min-height: 44px; } }
 .confirmation-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .confirmation-actions button { margin: 0; }
 .reversal-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
