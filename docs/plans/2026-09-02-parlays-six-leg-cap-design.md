@@ -27,13 +27,13 @@ Pricing uses reduced `BigInt` fractions—never floating-point arithmetic. An Am
 
 Every input and output American price must be a safe nonzero JavaScript integer. A result outside that range fails the quote with `PARLAY_ODDS_OUT_OF_RANGE` before durable mutation. This is more conservative than the exact return and preserves the requested `+250` example.
 
-Any loss loses the parlay. Once all legs are final, pushes and voids are removed; surviving legs are repriced with their immutable snapshots and the same versioned rules. If no legs survive, risk is refunded. If a pushed/voided leg breaks a same-game pair, the surviving total reverts to its ordinary `+100` price. Settlement persists nullable `settledOdds` for the effective win price, so owner/audit/history views never display the original quote as the price actually paid after repricing.
+Once all legs are final, any loss loses the parlay; `gradeParlay` loss precedence applies only after that all-final lifecycle eligibility check. Until then, even a known losing leg leaves the ticket open and its risk locked. Pushes and voids are then removed; surviving legs are repriced with their immutable snapshots and the same versioned rules. If no legs survive, risk is refunded. If a pushed/voided leg breaks a same-game pair, the surviving total reverts to its ordinary `+100` price. Settlement persists nullable `settledOdds` for the effective win price, so owner/audit/history views never display the original quote as the price actually paid after repricing.
 
 ### Teaser cap and legacy compatibility
 
 - New teaser quotes and fresh placements permit **2–6 legs**; ten-point teasers remain exactly three legs.
 - The legacy seven-leg teaser table remains available for settlement, regrade, and historical views.
-- Parsing stays compatible with a seven-leg legacy quote/placement envelope long enough to find an exact stored replay. After replay misses, HTTP and PoolDO paths reject fresh seven-leg quote/placement attempts before any mutation. This preserves a previously successful seven-leg placement whose response was lost while preventing new seven-leg tickets.
+- Parsing stays compatible with a seven-leg legacy quote/placement envelope long enough to find an exact stored replay. Worker replay deliberately requires a successful D1 registry resolution from slug to PoolDO; after that resolution, the stored replay runs before PoolDO view work, mutable offer lookup, or placement revalidation. A registry outage remains a retryable pool-availability failure rather than introducing a second durable directory or naming migration. After replay misses, HTTP and PoolDO paths reject fresh seven-leg quote/placement attempts before any mutation. This preserves a previously successful seven-leg placement whose response was lost while preventing new seven-leg tickets.
 
 ## Architecture
 

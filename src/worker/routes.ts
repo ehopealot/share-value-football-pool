@@ -7,7 +7,7 @@ import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
 import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest, messageBoardPostRequest } from "../contracts/http";
 import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
-import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateWagerOffers } from "./offer-quotes";
+import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
 import { offerIsStale } from "../odds/ingestion";
@@ -196,7 +196,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const parsed = (quote ? quoteSchema : placementSchema).safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const slug = c.req.param("slug"); if (!slug) return jsonError(c, "INVALID_REQUEST");
-    ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
     const data = parsed.data as any;
     if (!quote) {
       const command = kind === "straight"
@@ -207,7 +206,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       const replay = await router.send(slug, { type: "ProbePlacementReplay", commandId: crypto.randomUUID(), actorId: user.id, placement: command });
       if (replay.replayed === true) return c.json(replay.response);
       if (kind === "teasers" && data.legs.length > 6) return jsonError(c, "INVALID_REQUEST");
-      await revalidateWagerOffers(dependencies.db, command);
       return c.json(await router.send(slug, command));
     }
     const semantic = kind === "straight"

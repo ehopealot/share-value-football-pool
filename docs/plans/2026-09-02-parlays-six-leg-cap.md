@@ -152,7 +152,7 @@ Request an `expert-code-reviewer` review focused on safe schema boundaries, mone
 
 **Step 1: Write failing end-to-end Worker/PoolDO tests**
 
-Add a populated legacy `wager` table fixture with straight/teaser rows (including a historical seven-leg teaser), dependent legs, settlements, quotes, and processed commands. Test that startup migration:
+Recreate populated legacy `wager` and `settlement` tables without the new variants, with straight/teaser rows (including a historical seven-leg teaser and noncontiguous wager rowids), dependent legs, settlements, quotes, and processed commands. Exercise PoolDO constructor startup twice and test that migration:
 
 - preserves all rows and their `rowid` ordering on first and second pass;
 - adds nullable `settled_odds` without changing historical rows;
@@ -161,7 +161,7 @@ Add a populated legacy `wager` table fixture with straight/teaser rows (includin
 
 Add real HTTP quote/place tests after migration proving a parlay locks shares, snapshots legs, stores type/ruleset/price, applies shared side exposure, rejects malformed or forged placements without mutation, replays exactly, settles `+250`, reprices after a push, persists effective `settledOdds`, refunds all-push tickets, and regrades from immutable terms. Include real moneyline proof-vs-vig-free-strike placement coverage. Assert a committed `PlaceParlayWager` outbox row parses and drains successfully with only pool/actor/command/season/member/wager identities—never legs, terms, or financial values.
 
-Seed a seven-leg legacy `wager_quote` and a successful seven-leg `processed_command`; with stale or unavailable D1, require byte-equivalent quote/placement replay responses and no new mutation. With fresh keys, require the same envelopes to fail after replay miss. Add a six-safe-leg overflow quote fixture that returns `PARLAY_ODDS_OUT_OF_RANGE` and leaves no durable quote, processed command, account, or ledger mutation.
+Seed a seven-leg legacy `wager_quote` and a successful seven-leg `processed_command`; after successful D1 registry resolution, make mutable market-offer access unavailable and require byte-equivalent quote/placement replay responses and no new mutation or offer query. With fresh keys, require the same envelopes to fail after replay miss. Add a six-safe-leg overflow quote fixture that returns `PARLAY_ODDS_OUT_OF_RANGE` and leaves no durable quote, processed command, account, or ledger mutation.
 
 **Step 2: Verify RED**
 
@@ -182,11 +182,11 @@ Update the new-database `wager` CHECK to include `parlay` and `settlement` to in
 
 Extend the PoolDO command union, request fingerprinting, quote kind, replay probe, outbox, and `placementTerms` for `parlay`. Extend the `CommandApplied` contract with `PlaceParlayWager` using the same least-data identity as other wager placement events. Extend Worker canonicalization/revalidation to derive and verify `PARLAY_2026_V1`, then register `/wagers/parlays/quote` and `/wagers/parlays/place` with the same replay-first ordering as teasers.
 
-Keep seven-leg teaser envelope parsing at the outer boundaries. After `ReplayWagerQuote` or `ProbePlacementReplay` misses, reject a fresh seven-leg quote/placement in both Worker and PoolDO before mutable canonicalization/placement. Exact stored legacy quote/placement responses must return before those checks and before D1 reads.
+Keep seven-leg teaser envelope parsing at the outer boundaries. D1 registry resolution from slug to PoolDO remains a deliberate prerequisite; normalize thrown registry lookup failures as retryable pool availability, without adding a durable directory, client-held pool identity, cache, or deterministic naming migration. After registry resolution, attempt `ReplayWagerQuote` or `ProbePlacementReplay` before PoolDO view work, mutable market-offer reads, or placement revalidation. After a replay miss, reject a fresh seven-leg quote/placement in both Worker and PoolDO before mutable canonicalization/placement. Exact stored legacy responses must return before those checks. The residual behavior is that a registry outage prevents replay until registry availability recovers.
 
 In `placeWager`, centralize canonical-leg validation so moneyline proof odds may differ from the vig-free `originalOdds`; validate parlay ruleset and exact derived price before account mutation. Insert `parlay` and its normal unadjusted leg snapshots.
 
-In settlement, dispatch by wager type and ruleset. Pass full stored legs to `gradeParlay`, preserve loss precedence, and write `settled_odds` for winning effective prices. Keep reversal accounting based on recorded return/profit; Task 4 exposes effective settlement terms at read/audit/UI boundaries.
+In settlement, retain all-final lifecycle eligibility, then dispatch by wager type and ruleset. A final losing leg plus a missing/pending leg remains open with risk locked; once all legs are final, pass full stored legs to `gradeParlay`, apply loss precedence, and write `settled_odds` for winning effective prices. Keep reversal accounting based on recorded return/profit; Task 4 exposes effective settlement terms at read/audit/UI boundaries.
 
 **Step 5: Verify GREEN**
 

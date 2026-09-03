@@ -93,6 +93,14 @@ describe("PoolDO wagers and settlement", () => {
     await advancePastWagerStart(slug, "parlay-win");
     expect(await send(slug, { type: "RegradeWager", commandId: "parlay-regrade", actorId: "owner", wagerId: "parlay-win", reason: "official tie", correctedResults: [correctionEvidence("parlay-game", "v2", 20, 20)] })).toMatchObject({ commandVersion: expect.any(String) });
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT outcome,settled_odds,profit_micros FROM settlement WHERE wager_id='parlay-win' AND outcome <> 'reversal' ORDER BY rowid DESC LIMIT 1")][0])).toEqual({ outcome: "win", settled_odds: 100, profit_micros: "1000000" });
+
+    await send(slug, { type: "PlaceParlayWager", commandId: "parlay-pending", actorId: "member", wagerId: "parlay-pending", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("known-loss", "spread", 0, "home"), parlayLeg("missing-result", "spread", 0, "home")] });
+    const lifecycleSnapshot = () => storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='parlay-pending'")][0], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros,row_version FROM share_account WHERE season_id='s1' AND member_id='member'")][0], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")], outbox: [...state.storage.sql.exec("SELECT * FROM outbox ORDER BY rowid")], season: [...state.storage.sql.exec("SELECT state,float_micros,command_version FROM season WHERE id='s1'")][0] }));
+    const beforePartial = await lifecycleSnapshot();
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("known-loss", "partial", 10, 17)]));
+    expect(await lifecycleSnapshot()).toEqual(beforePartial);
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("known-loss", "complete", 10, 17), final("missing-result", "complete", 24, 17)]));
+    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='parlay-pending'")][0], settlementCount: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement WHERE wager_id='parlay-pending' AND outcome <> 'reversal'")][0], account: [...state.storage.sql.exec("SELECT locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }))).toEqual({ wager: { status: "lost" }, settlementCount: { count: 1 }, account: { locked_micros: "0" } });
   }, 90_000);
 
   it("locks whole-share risk, stores immutable accepted snapshots, and replays placement", async () => {

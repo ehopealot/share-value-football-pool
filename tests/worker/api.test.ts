@@ -581,7 +581,14 @@ describe("later wager and member HTTP API", () => {
     const semantic = (eventId: string, market: string, selection: string) => ({ eventId, canonicalBook: "DraftKings", market, selection, offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:${market}:${selection}` } });
     const same = await quoteAndPlace(app, slug, "parlays", { wagerId: "same-parlay", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: [semantic("same", "spread", "home"), semantic("same", "total", "over")] }, "place-same-parlay");
     expect(same.quote).toMatchObject({ acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1" });
-    expect((await same.place()).status).toBe(200);
+    let placementBatches = 0;
+    const countingDb = {
+      prepare: bindings.DB.prepare.bind(bindings.DB),
+      batch: async (statements: D1PreparedStatement[]) => { placementBatches++; return bindings.DB.batch(statements); }
+    } as unknown as D1Database;
+    const placementApp = createWorkerApp({ db: countingDb, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    expect((await placementApp.fetch(request(`/api/p/${slug}/wagers/parlays/place`, same.placement))).status).toBe(200);
+    expect(placementBatches).toBe(1);
     expect(await (await same.place()).json()).toMatchObject({ wagerId: "same-parlay" });
     const money = await quoteAndPlace(app, slug, "parlays", { wagerId: "money-parlay", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: [semantic("money", "moneyline", "home"), semantic("money", "total", "over")] }, "place-money-parlay");
     expect(money.quote).toMatchObject({ acceptedOdds: 216, legs: [{ originalOdds: -124, canonicalOfferProof: { odds: -135 } }, { originalOdds: -110 }] });
@@ -589,6 +596,16 @@ describe("later wager and member HTTP API", () => {
     const durable = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => ({ wagers: [...state.storage.sql.exec("SELECT id,type,accepted_odds,ruleset_version FROM wager WHERE type='parlay' ORDER BY id")], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }));
     expect(durable).toEqual({ wagers: [{ id: "money-parlay", type: "parlay", accepted_odds: 216, ruleset_version: "PARLAY_2026_V1" }, { id: "same-parlay", type: "parlay", accepted_odds: 250, ruleset_version: "PARLAY_2026_V1" }], account: { available_micros: "0", locked_micros: "2000000" } });
   }, 90_000);
+
+  it("normalizes registry lookup failures as retryable pool availability", async () => {
+    const failedRegistry = {
+      prepare: () => { throw new Error("registry offline"); }
+    } as unknown as D1Database;
+    const app = createWorkerApp({ db: failedRegistry, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    const quote = await app.fetch(request("/api/p/registry-offline/wagers/parlays/quote", { quoteKey: "registry", commandId: "registry", wagerId: "registry", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: [{ eventId: "one", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "one:spread:home", offerVersion: "v1" }, { eventId: "two", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "two:spread:home", offerVersion: "v1" }] }));
+    expect(quote.status).toBe(503);
+    expect(await quote.json()).toEqual({ code: "POOL_UNAVAILABLE" });
+  });
 
   it("replays stored seven-leg teaser bytes before offer reads and rejects fresh seven-leg keys without mutation", async () => {
     const poolId = `legacy-seven-${crypto.randomUUID()}`; const slug = `legacy-seven-${crypto.randomUUID()}`;
@@ -607,9 +624,25 @@ describe("later wager and member HTTP API", () => {
       state.storage.sql.exec("INSERT INTO processed_command (id,type,actor_id,request_json,response_json,expires_at) VALUES (?,?,?,?,?,'2099-01-01T00:00:00.000Z')", placementBody.commandId, "PlaceTeaserWager", "member", JSON.stringify(poolCommandSchema.parse(placementCommand)), JSON.stringify(placementResponse));
     });
     await bindings.DB.exec("DELETE FROM odds_ingestion; DELETE FROM market_offer; DELETE FROM sports_event;");
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    const replayCommands: string[] = [];
+    const replayPools = {
+      idFromName: (name: string) => bindings.POOL_DO.idFromName(name),
+      get: (id: DurableObjectId) => {
+        const stub = bindings.POOL_DO.get(id);
+        return { fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body) replayCommands.push((JSON.parse(String(init.body)) as { type: string }).type);
+          return stub.fetch(input, init);
+        } };
+      }
+    } as unknown as DurableObjectNamespace;
+    const replayDb = {
+      prepare: bindings.DB.prepare.bind(bindings.DB),
+      batch: async () => { throw new Error("MUTABLE_OFFER_QUERY_ATTEMPTED"); }
+    } as unknown as D1Database;
+    const app = createWorkerApp({ db: replayDb, pools: replayPools, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
     expect(await (await app.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, quoteBody))).text()).toBe(JSON.stringify(snapshot));
     expect(await (await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, placementBody))).text()).toBe(JSON.stringify(placementResponse));
+    expect(replayCommands).toEqual(["ReplayWagerQuote", "ProbePlacementReplay"]);
     const durableSnapshot = () => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote ORDER BY rowid")], commands: [...state.storage.sql.exec("SELECT * FROM processed_command ORDER BY rowid")], wagers: [...state.storage.sql.exec("SELECT * FROM wager ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")], accounts: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")] }));
     const before = await durableSnapshot();
     expect((await app.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, { ...quoteBody, quoteKey: "fresh-seven", commandId: "fresh-seven" }))).status).toBe(400);
