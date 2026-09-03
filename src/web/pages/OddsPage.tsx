@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage } from "../api";
+import { vigFreeMoneylinePrice } from "../../odds/market-semantics";
 import { Layout } from "../components/Layout";
 import { selectableOutcomes, selectionForOutcome } from "../selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, writeTeaserSlip } from "../teaser-slip";
@@ -66,11 +67,12 @@ export function groupBoardByEvent(offers: any[]): GameRow[] {
     }
   }
   for (const game of rows.values()) {
-    // The moneyline column displays vig-free fair prices; tickets still settle on canonical book prices.
+    // The moneyline column displays the shared vig-free strike; tickets still retain raw source proof separately.
     const away = game.markets.moneyline.away; const home = game.markets.moneyline.home;
-    const fair = away && home ? noVigAmerican(away.outcome.price, home.outcome.price) : undefined;
-    if (away && fair) game.markets.moneyline.away = { ...away, odds: formatAmericanOdds(fair.a), label: `${away.outcome.name} ${formatAmericanOdds(fair.a)}` };
-    if (home && fair) game.markets.moneyline.home = { ...home, odds: formatAmericanOdds(fair.b), label: `${home.outcome.name} ${formatAmericanOdds(fair.b)}` };
+    const awayPrice = away && vigFreeMoneylinePrice({ homeTeam: game.homeTeam, awayTeam: game.awayTeam }, away.offer.outcomes, "away");
+    const homePrice = home && vigFreeMoneylinePrice({ homeTeam: game.homeTeam, awayTeam: game.awayTeam }, home.offer.outcomes, "home");
+    if (away && awayPrice !== undefined) game.markets.moneyline.away = { ...away, odds: formatAmericanOdds(awayPrice), label: `${away.outcome.name} ${formatAmericanOdds(awayPrice)}` };
+    if (home && homePrice !== undefined) game.markets.moneyline.home = { ...home, odds: formatAmericanOdds(homePrice), label: `${home.outcome.name} ${formatAmericanOdds(homePrice)}` };
   }
   return [...rows.values()];
 }
@@ -115,10 +117,18 @@ const placeEntries = async (slug: string, entries: ReviewEntry[], maxSideBetMicr
   }
   return { placed, failed, retry };
 };
-const displayedBoardValue = (offer: any, outcome: any) => offer.market === "total" ? `${outcome.point}` : offer.market === "moneyline" ? formatAmericanOdds(outcome.price) : formatSignedLine(outcome.point ?? outcome.price);
-const trayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : `${item.market} ${item.selection} (no longer available)`;
+const displayedBoardValue = (offer: any, outcome: any, selection: TrayItem["selection"]) => {
+  if (offer.market === "total") return `${outcome.point}`;
+  if (offer.market === "moneyline") {
+    const price = (selection === "home" || selection === "away") ? vigFreeMoneylinePrice({ homeTeam: offer.homeTeam, awayTeam: offer.awayTeam }, offer.outcomes, selection) : undefined;
+    return price === undefined ? "unavailable" : formatAmericanOdds(price);
+  }
+  return formatSignedLine(outcome.point ?? outcome.price);
+};
+/** Tray labels mirror the board's current selected price; raw source values remain immutable quote proof only. */
+const trayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : `${item.market} ${item.selection} (no longer available)`;
 /** Market type is implicit in a live pick's team, total, or price display. */
-export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome)}` : trayLabel(item, resolved);
+export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : trayLabel(item, resolved);
 /** Transfers the first six eligible legs and returns every untransferred tray item for persistence. */
 export const buildTeaserTransfer = (items: TrayItem[], board: { offers?: any[] }) => {
   let slip: ReturnType<typeof teaserLegForOutcome>[] = []; const errors: string[] = []; const added: TrayItem[] = [];

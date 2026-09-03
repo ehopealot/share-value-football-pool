@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/web/api";
 import { addParlayLeg, buildParlaySlip, parlayLegForOutcome, readParlaySlip, writeParlaySlip } from "../src/web/parlay-slip";
-import { editParlaySemantic, ParlayPageGeneration, parlayAdvisoryOdds, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnresolvedPlacementTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
+import { editParlaySemantic, ParlayPageGeneration, parlayAdvisoryOdds, parlayLegTableColumns, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnknownPlacementMessage, parlayUnresolvedPlacementTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
 import type { TrayItem } from "../src/web/selection-tray";
 
 const offer = (eventId: string, market: "spread" | "total" | "moneyline", outcome: { name: string; price: number; point?: number }) => ({
@@ -76,6 +76,12 @@ describe("parlay slip and page semantics", () => {
     expect(unresolved.request).toBe(request);
     expect(unresolved.quote).toBe(quote);
     expect(parlayPlacementAttemptTransition(unresolved)).toEqual({ state: { ...unresolved, tag: "submitting" }, error: "" });
+    expect(parlayUnknownPlacementMessage).toBe("Placement result unknown. Retry this exact placement to check its result.");
+  });
+
+  it("keeps the lean builder table free of per-leg price claims", () => {
+    expect(parlayLegTableColumns).toEqual(["Matchup", "Market", "Pick", "Action"]);
+    expect(parlayLegTableColumns).not.toContain("Advisory leg price");
   });
 
   it("rejects stale parlay async completions after a slug transition", () => {

@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "../src/web/api";
 import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
-import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
+import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
-import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
+import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
 
@@ -110,6 +110,7 @@ describe("entry redirects", () => {
     const unresolvedTeaser = teaserUnresolvedPlacementTransition({ tag: "reviewing", request: teaser, quote: teaserQuote, mutationKey: "teaser-place" });
     expect(unresolvedTeaser).toEqual({ tag: "placement-unknown", request: teaser, quote: teaserQuote, mutationKey: "teaser-place" });
     expect(teaserPlacementAttemptTransition(unresolvedTeaser)).toEqual({ state: { ...unresolvedTeaser, tag: "submitting" }, error: "" });
+    expect(teaserUnknownPlacementMessage).toBe("Placement result unknown. Retry this exact placement to check its result.");
 
     const order = { seasonId: "s", memberId: "m", mode: "shares" as const, amount: "1", quoteKey: "order-quote" };
     const recoveredOrder = recoverStaleOrderEditor(order);
@@ -132,6 +133,9 @@ describe("entry redirects", () => {
     expect(noVigAmerican(-150, 130)).toEqual({ a: -138, b: 138 });
     expect(noVigAmerican(-110, -110)).toEqual({ a: 100, b: 100 });
     expect(noVigAmerican(0, 100)).toBeUndefined();
+    const trayMoneyline = { ...moneyline, outcomes: [{ name: "Home", price: -135 }, { name: "Away", price: 115 }] };
+    const trayItem = { eventId: "event-3", market: "moneyline" as const, selection: "home" as const, wagerId: "tray-moneyline", risk: "" };
+    expect(trayLabel({ offers: [trayMoneyline] }, trayItem, { offer: trayMoneyline, outcome: trayMoneyline.outcomes[0] })).toBe("Away at Home: moneyline — Home -124");
 
     const asApi = (code: string, status: number) => new ApiError(code, status);
     expect(failureReason(asApi("LINE_CHANGED", 400), "quote")).toBe("Line changed.");
