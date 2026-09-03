@@ -57,6 +57,47 @@ describe("parlay slip and page semantics", () => {
     expect(parlayTrayChangedMessage).toBe("Your parlay selections changed while current odds loaded. Review and retry Build parlay.");
   });
 
+  it("cancels an unmounted deferred transfer before any parlay commit side effect", async () => {
+    const nfl = offer("nfl-game", "spread", { name: "Home", price: -110, point: -3.5 });
+    const ncaaf = { ...offer("ncaaf-game", "total", { name: "Over", price: -110, point: 55.5 }), league: "ncaaf" as const };
+    const original = [item("nfl-game", "spread", "home"), item("ncaaf-game", "total", "over")];
+    let mounted = true;
+    let resolve!: (board: any) => void;
+    const load = vi.fn(() => new Promise<any>((done) => { resolve = done; }));
+    const commit = { writeSlip: vi.fn(), clearTray: vi.fn(), setError: vi.fn(), navigate: vi.fn() };
+    const gate = new ParlayTrayTransferGate();
+    const transfer = runParlayTrayTransfer({ gate, slug: "pool", items: original, load, currentItems: () => original, currentSlug: () => "pool", isCurrent: () => mounted, onReady: () => { commit.writeSlip(); commit.clearTray(); commit.setError(); commit.navigate(); } });
+    mounted = false;
+    gate.cancel();
+    resolve({ offers: [nfl, ncaaf] });
+    await expect(transfer).resolves.toEqual({ tag: "cancelled" });
+    expect(commit.writeSlip).not.toHaveBeenCalled();
+    expect(commit.clearTray).not.toHaveBeenCalled();
+    expect(commit.setError).not.toHaveBeenCalled();
+    expect(commit.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not let a cancelled transfer clear a newer pending transfer", async () => {
+    const nfl = offer("nfl-game", "spread", { name: "Home", price: -110, point: -3.5 });
+    const ncaaf = { ...offer("ncaaf-game", "total", { name: "Over", price: -110, point: 55.5 }), league: "ncaaf" as const };
+    const original = [item("nfl-game", "spread", "home"), item("ncaaf-game", "total", "over")];
+    let oldMounted = true;
+    let resolveOld!: (board: any) => void;
+    let resolveNew!: (board: any) => void;
+    const pending: boolean[] = [];
+    const gate = new ParlayTrayTransferGate();
+    const oldTransfer = runParlayTrayTransfer({ gate, slug: "pool", items: original, load: () => new Promise<any>((done) => { resolveOld = done; }), currentItems: () => original, currentSlug: () => "pool", isCurrent: () => oldMounted, onPending: (value) => pending.push(value) });
+    oldMounted = false;
+    gate.cancel();
+    const newTransfer = runParlayTrayTransfer({ gate, slug: "pool", items: original, load: () => new Promise<any>((done) => { resolveNew = done; }), currentItems: () => original, currentSlug: () => "pool", onPending: (value) => pending.push(value) });
+    resolveOld({ offers: [nfl, ncaaf] });
+    await expect(oldTransfer).resolves.toEqual({ tag: "cancelled" });
+    expect(pending).toEqual([true, true]);
+    resolveNew({ offers: [nfl, ncaaf] });
+    await expect(newTransfer).resolves.toMatchObject({ tag: "ready" });
+    expect(pending).toEqual([true, true, false]);
+  });
+
   it("constructs complete immutable client leg semantics from the current board", () => {
     const source = offer("game-1", "spread", { name: "Home", price: -110, point: -3.5 });
     const leg = parlayLegForOutcome(source, source.outcomes[0]!, "home");

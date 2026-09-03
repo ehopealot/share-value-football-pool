@@ -158,7 +158,11 @@ export class ParlayTrayTransferGate {
   matches(ticket: ParlayTrayTransferTicket, slug: string, items: TrayItem[]): boolean {
     return this.active?.id === ticket.id && ticket.slug === slug && sameTrayIdentities(ticket.identities, items);
   }
-  finish(ticket: ParlayTrayTransferTicket): void { if (this.active?.id === ticket.id) this.active = undefined; }
+  finish(ticket: ParlayTrayTransferTicket): boolean {
+    if (this.active?.id !== ticket.id) return false;
+    this.active = undefined;
+    return true;
+  }
   cancel(): void { this.active = undefined; }
 }
 export const parlayTrayChangedMessage = "Your parlay selections changed while current odds loaded. Review and retry Build parlay.";
@@ -167,28 +171,37 @@ type ParlayTrayTransferResult =
   | { tag: "ready"; transfer: Awaited<ReturnType<typeof buildCurrentParlayTransfer>> }
   | { tag: "already-pending" }
   | { tag: "tray-changed" }
-  | { tag: "load-failed" };
+  | { tag: "load-failed" }
+  | { tag: "cancelled" };
 /** Fetches an unfiltered board without permitting a stale tray snapshot to mutate either slip. */
-export const runParlayTrayTransfer = async ({ gate, slug, items, load = api.odds, currentItems, currentSlug, onPending }: {
+export const runParlayTrayTransfer = async ({ gate, slug, items, load = api.odds, currentItems, currentSlug, isCurrent = () => true, onPending, onReady }: {
   gate: ParlayTrayTransferGate;
   slug: string;
   items: TrayItem[];
   load?: (slug: string, query?: string) => Promise<{ offers?: any[] }>;
   currentItems: () => TrayItem[];
   currentSlug: () => string;
-  onPending?: (pending: boolean) => void;
+  isCurrent?: () => boolean;
+  onPending?: (pending: boolean, ticketId: number) => void;
+  onReady?: (transfer: Awaited<ReturnType<typeof buildCurrentParlayTransfer>>) => void;
 }): Promise<ParlayTrayTransferResult> => {
   const ticket = gate.begin(slug, items);
   if (!ticket) return { tag: "already-pending" };
-  onPending?.(true);
+  onPending?.(true, ticket.id);
   try {
-    const transfer = await buildCurrentParlayTransfer(slug, items, load);
-    return gate.matches(ticket, currentSlug(), currentItems()) ? { tag: "ready", transfer } : { tag: "tray-changed" };
-  } catch {
-    return gate.matches(ticket, currentSlug(), currentItems()) ? { tag: "load-failed" } : { tag: "tray-changed" };
+    let transfer: Awaited<ReturnType<typeof buildCurrentParlayTransfer>>;
+    try { transfer = await buildCurrentParlayTransfer(slug, items, load); }
+    catch {
+      if (!isCurrent()) return { tag: "cancelled" };
+      return gate.matches(ticket, currentSlug(), currentItems()) ? { tag: "load-failed" } : { tag: "tray-changed" };
+    }
+    if (!isCurrent()) return { tag: "cancelled" };
+    if (!gate.matches(ticket, currentSlug(), currentItems())) return { tag: "tray-changed" };
+    onReady?.(transfer);
+    return { tag: "ready", transfer };
   } finally {
-    gate.finish(ticket);
-    onPending?.(false);
+    // Only the ticket that is still active may mark the pending UI idle.
+    if (gate.finish(ticket)) onPending?.(false, ticket.id);
   }
 };
 
@@ -196,12 +209,26 @@ export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
   const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState("");
   const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState(""); const [parlayTransferPending, setParlayTransferPending] = useState(false);
-  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const parlayTransfer = useRef(new ParlayTrayTransferGate()); slugRef.current = slug;
+  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const parlayTransfer = useRef(new ParlayTrayTransferGate()); const parlayTransferGeneration = useRef(0); const parlayTransferPendingTicket = useRef<number | undefined>(undefined); slugRef.current = slug;
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const query = `?${new URLSearchParams(Object.fromEntries([["league", league]].filter(([, value]) => value)))}`;
   useEffect(() => { let active = true; void api.odds(slug, query).then((fresh) => { if (active) setBoard(fresh); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [slug, query]);
   useEffect(() => { void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
-  useEffect(() => { parlayTransfer.current.cancel(); setParlayTransferPending(false); const restored = readSelectionTray(slug); trayRef.current = restored; setTray(restored); }, [slug]);
+  useEffect(() => {
+    const generation = ++parlayTransferGeneration.current;
+    parlayTransfer.current.cancel(); parlayTransferPendingTicket.current = undefined; setParlayTransferPending(false);
+    const restored = readSelectionTray(slug); trayRef.current = restored; setTray(restored);
+    return () => {
+      if (parlayTransferGeneration.current !== generation) return;
+      parlayTransferGeneration.current++;
+      parlayTransfer.current.cancel();
+      parlayTransferPendingTicket.current = undefined;
+    };
+  }, [slug]);
+  const updateParlayTransferPending = (pending: boolean, ticketId: number) => {
+    if (pending) { parlayTransferPendingTicket.current = ticketId; setParlayTransferPending(true); return; }
+    if (parlayTransferPendingTicket.current === ticketId) { parlayTransferPendingTicket.current = undefined; setParlayTransferPending(false); }
+  };
   const persist = (next: TrayItem[]) => { trayRef.current = next; writeSelectionTray(slug, next); setTray(next); };
   useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
@@ -287,17 +314,22 @@ export function OddsPage() {
   };
 
   const addToParlay = async () => {
-    // The tray can span league filters; only this exact captured identity may move after the fresh unfiltered read.
-    const items = [...trayRef.current];
-    const result = await runParlayTrayTransfer({ gate: parlayTransfer.current, slug, items, currentItems: () => trayRef.current, currentSlug: () => slugRef.current, onPending: setParlayTransferPending });
-    if (slugRef.current !== slug || result.tag === "already-pending") return;
+    // The tray can span league filters; only this exact captured identity and mounted page generation may commit.
+    const items = [...trayRef.current]; const generation = parlayTransferGeneration.current;
+    const isCurrent = () => parlayTransferGeneration.current === generation && slugRef.current === slug;
+    const result = await runParlayTrayTransfer({
+      gate: parlayTransfer.current, slug, items, currentItems: () => trayRef.current, currentSlug: () => slugRef.current, isCurrent, onPending: updateParlayTransferPending,
+      onReady: (transfer) => {
+        if (transfer.error) return setError(transfer.error);
+        writeParlaySlip(slug, transfer.legs);
+        persist([]);
+        setError("");
+        nav(`/p/${slug}/parlay`);
+      }
+    });
+    if (!isCurrent() || result.tag === "already-pending" || result.tag === "cancelled" || result.tag === "ready") return;
     if (result.tag === "tray-changed") return setError(parlayTrayChangedMessage);
-    if (result.tag === "load-failed") return setError(parlayTransferUnavailableMessage);
-    if (result.transfer.error) return setError(result.transfer.error);
-    writeParlaySlip(slug, result.transfer.legs);
-    persist([]);
-    setError("");
-    nav(`/p/${slug}/parlay`);
+    return setError(parlayTransferUnavailableMessage);
   };
 
   const backToBoard = () => window.history.state?.sharePoolBetReview ? window.history.back() : setBatch(undefined);
