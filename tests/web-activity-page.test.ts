@@ -21,8 +21,9 @@ describe("Activity page", () => {
     expect(source).toContain('Selection hidden until the game starts.');
   });
 
-  it("leaves a redacted zero-performance wager P&L blank", () => {
+  it("leaves zero Activity performance blank in both wager and weekly-summary cells", () => {
     expect(source).toContain('formatActivityWagerPerformance');
     expect(source).toContain('<td>{formatActivityWagerPerformance(wager)}</td>');
+    expect(source).toContain('formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>');
   });
 });
