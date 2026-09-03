@@ -62,7 +62,7 @@ export function straightBatchRiskError(items: TrayItem[], limits: { maxSideBetMi
   return "";
 }
 
-/** A teaser has one total-risk cap; the server separately enforces shared per-side exposure. */
+/** A multi-leg ticket has one total-risk cap; the server separately enforces shared per-side exposure. */
 const multiLegRiskError = (kind: "Teaser" | "Parlay", risk: string, limits: { maxSideBetMicros?: string; availableMicros?: string } = {}): string => {
   if (!/^\d+$/.test(risk) || BigInt(risk) <= 0n) return "Whole shares required.";
   const riskMicros = BigInt(risk) * MICROS_PER_UNIT;

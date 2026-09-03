@@ -47,7 +47,7 @@ A `parlay` wager type follows the teaser lifecycle:
 
 The pure pricing/selection module is shared by Worker canonicalization/revalidation, PoolDO placement validation, and settlement. Canonical leg validation is also centralized so proof/strike equality is required for non-moneylines only: moneyline proof retains the bookmaker price while `originalOdds` retains the server-calculated vig-free strike.
 
-Contracts, HTTP endpoints, Durable Object command routing, quote storage, outbox identities, read/export schemas, and presentation types gain the parlay variant. PoolDO startup runs an idempotent `transactionSync` schema migration: inspect `sqlite_master`, rebuild the old `wager` table atomically only when its `CHECK` omits `parlay`, copy explicit columns and original `rowid`, then swap tables; add nullable `settled_odds` to `settlement`. Tests prove a populated legacy pool survives two passes row-for-row, including dependent legs, settlements, quotes, and processed commands.
+Contracts, HTTP endpoints, Durable Object command routing, quote storage, outbox identities, read/export schemas, and presentation types gain the parlay variant. PoolDO startup runs an idempotent `transactionSync` schema migration: inspect `sqlite_master`, rebuild the old `wager` table atomically only when its `CHECK` omits `parlay`, copy explicit columns and original `rowid`, then swap tables; add nullable `settled_odds` to `settlement`. Tests capture deterministic `rowid,*` snapshots before migration and verify the first pass preserves every legacy row and field (apart from the new nullable settlement column), then verify a second pass is idempotent across dependent legs, settlements, quotes, and processed commands.
 
 ## User experience
 

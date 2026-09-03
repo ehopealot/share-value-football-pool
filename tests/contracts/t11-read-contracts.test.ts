@@ -82,6 +82,9 @@ describe("T11 member read contracts", () => {
       expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [incomplete] })).toThrow();
     }
     expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...historicalOwner, settledOdds: "250" }] })).toThrow();
+    const invalidSettledOdds = ReadMyWagers.safeParse({ commandVersion: "1", wagers: [{ ...historicalOwner, settledOdds: 0 }] });
+    expect(invalidSettledOdds.success).toBe(false);
+    if (!invalidSettledOdds.success) expect(invalidSettledOdds.error.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: ["wagers", 0, "settledOdds"], message: "American odds cannot be zero." })]));
     expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [], unexpected: true })).toThrow();
   });
 

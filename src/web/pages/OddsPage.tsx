@@ -128,17 +128,17 @@ export const trayLabel = (board: { offers?: any[] }, item: TrayItem, resolved: {
 export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : trayLabel({}, item, resolved);
 /** Transfers the first six eligible legs and returns every untransferred tray item for persistence. */
 export const buildTeaserTransfer = (items: TrayItem[], board: { offers?: any[] }) => {
-  let slip: ReturnType<typeof teaserLegForOutcome>[] = []; const errors: string[] = []; const added: TrayItem[] = [];
+  let slip: ReturnType<typeof teaserLegForOutcome>[] = []; let error = ""; const added: TrayItem[] = [];
   for (const item of items) {
     if (!teaserEligible(item)) continue;
     const resolved = resolveTrayItem(board, item);
     if (!resolved || typeof resolved.outcome.point !== "number") continue;
     const next = addTeaserLeg(slip, teaserLegForOutcome(resolved.offer, resolved.outcome, item.selection));
-    if (next.error) { if (!errors.includes(next.error)) errors.push(next.error); continue; }
+    if (next.error) { error ||= next.error; continue; }
     slip = next.legs; added.push(item);
   }
   const addedIds = new Set(added.map(pickId));
-  return { slip, remaining: items.filter((item) => !addedIds.has(pickId(item))), error: errors[0] ?? "" };
+  return { slip, remaining: items.filter((item) => !addedIds.has(pickId(item))), error };
 };
 
 /** Resolves cross-filter tray selections against one fresh, unfiltered board snapshot. */
@@ -188,12 +188,12 @@ export const runParlayTrayTransfer = async ({ gate, slug, items, load = api.odds
   currentItems: () => TrayItem[];
   currentSlug: () => string;
   isCurrent?: () => boolean;
-  onPending?: (pending: boolean, ticketId: number) => void;
+  onPending?: (pending: boolean) => void;
   onReady?: (transfer: Awaited<ReturnType<typeof buildCurrentParlayTransfer>>) => void;
 }): Promise<ParlayTrayTransferResult> => {
   const ticket = gate.begin(slug, items);
   if (!ticket) return { tag: "already-pending" };
-  onPending?.(true, ticket.id);
+  onPending?.(true);
   try {
     let transfer: Awaited<ReturnType<typeof buildCurrentParlayTransfer>>;
     try { transfer = await buildCurrentParlayTransfer(slug, items, load); }
@@ -207,7 +207,7 @@ export const runParlayTrayTransfer = async ({ gate, slug, items, load = api.odds
     return { tag: "ready", transfer };
   } finally {
     // Only the ticket that is still active may mark the pending UI idle.
-    if (gate.finish(ticket)) onPending?.(false, ticket.id);
+    if (gate.finish(ticket)) onPending?.(false);
   }
 };
 
@@ -215,26 +215,21 @@ export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
   const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState("");
   const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState(""); const [parlayTransferPending, setParlayTransferPending] = useState(false);
-  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const parlayTransfer = useRef(new ParlayTrayTransferGate()); const parlayTransferGeneration = useRef(0); const parlayTransferPendingTicket = useRef<number | undefined>(undefined); slugRef.current = slug;
+  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const parlayTransfer = useRef(new ParlayTrayTransferGate()); const parlayTransferGeneration = useRef(0); slugRef.current = slug;
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const query = `?${new URLSearchParams(Object.fromEntries([["league", league]].filter(([, value]) => value)))}`;
   useEffect(() => { let active = true; void api.odds(slug, query).then((fresh) => { if (active) setBoard(fresh); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [slug, query]);
   useEffect(() => { void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
   useEffect(() => {
     const generation = ++parlayTransferGeneration.current;
-    parlayTransfer.current.cancel(); parlayTransferPendingTicket.current = undefined; setParlayTransferPending(false);
+    parlayTransfer.current.cancel(); setParlayTransferPending(false);
     const restored = readSelectionTray(slug); trayRef.current = restored; setTray(restored);
     return () => {
       if (parlayTransferGeneration.current !== generation) return;
       parlayTransferGeneration.current++;
       parlayTransfer.current.cancel();
-      parlayTransferPendingTicket.current = undefined;
     };
   }, [slug]);
-  const updateParlayTransferPending = (pending: boolean, ticketId: number) => {
-    if (pending) { parlayTransferPendingTicket.current = ticketId; setParlayTransferPending(true); return; }
-    if (parlayTransferPendingTicket.current === ticketId) { parlayTransferPendingTicket.current = undefined; setParlayTransferPending(false); }
-  };
   const persist = (next: TrayItem[]) => { trayRef.current = next; writeSelectionTray(slug, next); setTray(next); };
   useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
@@ -324,7 +319,7 @@ export function OddsPage() {
     const items = [...trayRef.current]; const generation = parlayTransferGeneration.current;
     const isCurrent = () => parlayTransferGeneration.current === generation && slugRef.current === slug;
     const result = await runParlayTrayTransfer({
-      gate: parlayTransfer.current, slug, items, currentItems: () => trayRef.current, currentSlug: () => slugRef.current, isCurrent, onPending: updateParlayTransferPending,
+      gate: parlayTransfer.current, slug, items, currentItems: () => trayRef.current, currentSlug: () => slugRef.current, isCurrent, onPending: setParlayTransferPending,
       onReady: (transfer) => {
         if (transfer.error) return setError(transfer.error);
         writeParlaySlip(slug, transfer.legs);

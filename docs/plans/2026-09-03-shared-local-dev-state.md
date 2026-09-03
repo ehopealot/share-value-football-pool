@@ -69,7 +69,7 @@ Expected: FAIL because the current configuration uses each worktree's default `.
 
 **Step 3: Write the minimal implementation**
 
-Create a `tsx` launcher that invokes `flock --no-fork` on a root-owned lock around a POSIX runner. Under that lock, the runner links and validates canonical local secrets, applies local D1 migrations with `--persist-to <canonical-state-root>`, and `exec`s Vite, so Vite itself retains the advisory lock until it exits. Forward every direct launcher signal to the detached lock-owning process group. Configure the Cloudflare Vite plugin with `persistState: { path: <canonical-state-root> }` only for supported launcher-backed `serve` commands; retain each worktree's config path so its Durable Object namespace remains stable.
+Create a `tsx` launcher that invokes `flock --no-fork` on a root-owned lock around a POSIX runner. Under that lock, the runner links and validates canonical local secrets, applies local D1 migrations with `--persist-to <canonical-state-root>`, and `exec`s Vite, so Vite itself retains the advisory lock until it exits. Forward SIGINT and SIGTERM from the direct launcher to the detached lock-owning process group. Configure the Cloudflare Vite plugin with `persistState: { path: <canonical-state-root> }` only for supported launcher-backed `serve` commands; retain each worktree's config path so its Durable Object namespace remains stable.
 
 **Step 4: Update operator documentation**
 

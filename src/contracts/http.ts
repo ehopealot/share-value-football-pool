@@ -60,10 +60,9 @@ export const parlayWagerPlacementRequest = placeParlayWagerShape.omit({ actorId:
   const { mutationKey: _mutationKey, ...placement } = value;
   if (!placeParlayWager.safeParse({ ...placement, actorId: "http", type: "PlaceParlayWager" }).success) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["legs"], message: "invalid parlay placement" });
 });
-// Legacy names are deliberately aliases to placement-only parsing for internal callers during the T3 migration.
+/** @deprecated Compatibility aliases; in-repository code should use the placement request names. */
 export const straightWagerRequest = straightWagerPlacementRequest;
 export const teaserWagerRequest = teaserWagerPlacementRequest;
-export const parlayWagerRequest = parlayWagerPlacementRequest;
 
 /** Member-only lifecycle snapshot. Readers must parse this exact shape rather than infer state from legacy fields. */
 export const decimalString = z.string().regex(/^(?:0|-?[1-9]\d*)$/);
@@ -128,13 +127,14 @@ export type OddsBoardResponse = z.infer<typeof OddsBoardResponse>;
 
 const wagerType = z.enum(["straight", "teaser", "parlay"]);
 const wagerStatus = z.enum(["open", "won", "lost", "refunded"]);
+const settledOdds = z.number().int().safe().refine((odds) => odds !== 0);
 const wagerLeg = z.object({ eventId: z.string(), league: z.string(), canonicalBook: z.string(), retrievedAt: z.string().datetime(), policyVersion: z.string(), offerVersion: z.string(), market: z.string(), selection: z.string(), originalLine: z.string().optional(), originalOdds: z.number(), teaserAdjustment: z.string().optional(), adjustedLine: z.string().optional(), eventStartsAt: z.string().datetime(), homeTeam: z.string().optional(), awayTeam: z.string().optional(), grade: z.string().optional(), resultVersion: z.string().optional() });
 const ownerWagerLeg = wagerLeg.strict();
 
 /** Authoritative member reads use canonical accounting text and may omit protected ticket fields. */
 export const memberWager = z.object({
   wagerId: z.string().min(1), seasonId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), type: wagerType, status: wagerStatus, confirmedAt: z.string().datetime(), weekStart: z.string().datetime(), performanceMicros: decimalString,
-  riskMicros: decimalString.optional(), acceptedOdds: z.number().int().optional(), rulesetVersion: z.string().optional(), outcome: z.enum(["won", "lost", "refunded"]).optional(), returnMicros: decimalString.optional(), profitMicros: decimalString.optional(), settledOdds: z.number().int().safe().refine((odds) => odds !== 0).nullable().optional(), settledAt: z.string().datetime().optional(),
+  riskMicros: decimalString.optional(), acceptedOdds: z.number().int().optional(), rulesetVersion: z.string().optional(), outcome: z.enum(["won", "lost", "refunded"]).optional(), returnMicros: decimalString.optional(), profitMicros: decimalString.optional(), settledOdds: settledOdds.nullable().optional(), settledAt: z.string().datetime().optional(),
   legs: z.array(wagerLeg).optional()
 });
 
@@ -183,7 +183,7 @@ const evidenceResultVersion = (evidence: z.infer<typeof settlementResultEvidence
   return `commissioner:${evidence.commandId}:${JSON.stringify(evidence.correctedResults.map((result) => [result.eventId, result.correctionVersion]))}`;
 };
 
-export const auditSettlement = z.object({ id: auditId, wagerId: auditId, resultVersion: auditId, outcome: z.enum(["win", "loss", "refund", "reversal"]), returnMicros: canonicalIntegerText, profitMicros: canonicalIntegerText, settledOdds: z.number().int().safe().refine((odds) => odds !== 0).nullable(), sourceResult: settlementResultEvidence, reversalOf: auditId.nullable(), actorId: auditId, reason: z.string().min(1).nullable(), createdAt: auditTimestamp }).strict().superRefine((settlement, ctx) => {
+export const auditSettlement = z.object({ id: auditId, wagerId: auditId, resultVersion: auditId, outcome: z.enum(["win", "loss", "refund", "reversal"]), returnMicros: canonicalIntegerText, profitMicros: canonicalIntegerText, settledOdds: settledOdds.nullable(), sourceResult: settlementResultEvidence, reversalOf: auditId.nullable(), actorId: auditId, reason: z.string().min(1).nullable(), createdAt: auditTimestamp }).strict().superRefine((settlement, ctx) => {
   if (settlement.resultVersion !== evidenceResultVersion(settlement.sourceResult)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["resultVersion"], message: "Result version must identify the persisted source evidence." });
   if (settlement.outcome !== "win" && settlement.settledOdds !== null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settledOdds"], message: "Only winning settlements may record effective odds." });
   if (settlement.outcome === "reversal" || Array.isArray(settlement.sourceResult)) return;

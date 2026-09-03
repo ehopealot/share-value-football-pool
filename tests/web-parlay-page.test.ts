@@ -1,7 +1,9 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/web/api";
 import { addParlayLeg, buildParlaySlip, parlayLegForOutcome, readParlaySlip, writeParlaySlip } from "../src/web/parlay-slip";
-import { editParlaySemantic, ParlayPageGeneration, parlayAdvisoryOdds, parlayLegTableColumns, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnknownPlacementMessage, parlayUnresolvedPlacementTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
+import { editParlaySemantic, ParlayLegTable, ParlayPageGeneration, parlayAdvisoryOdds, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnknownPlacementMessage, parlayUnresolvedPlacementTransition, recoverParlaySemantic } from "../src/web/pages/ParlayPage";
 import { buildCurrentParlayTransfer, ParlayTrayTransferGate, parlayTrayChangedMessage, runParlayTrayTransfer } from "../src/web/pages/OddsPage";
 import type { TrayItem } from "../src/web/selection-tray";
 
@@ -107,13 +109,36 @@ describe("parlay slip and page semantics", () => {
     expect(addParlayLeg([leg], { ...leg, market: "moneyline", originalLine: null, adjustedLine: null, selection: "away" })).toMatchObject({ error: "Only one directional market is allowed per event." });
   });
 
-  it("keeps its session slip separate from the odds-board tray", () => {
+  it("keeps its session slip separate from the odds-board tray and restores only canonical, compatible legs", () => {
     let stored: Record<string, string> = {};
     vi.stubGlobal("sessionStorage", { getItem: (name: string) => stored[name] ?? null, setItem: (name: string, value: string) => { stored[name] = value; } });
-    const leg = parlayLegForOutcome(offer("game-1", "spread", { name: "Home", price: -110, point: -3.5 }), { price: -110, point: -3.5 }, "home");
-    writeParlaySlip("pool", [leg]);
+    const legs = Array.from({ length: 7 }, (_, index) => parlayLegForOutcome(offer(`game-${index + 1}`, "spread", { name: "Home", price: -110, point: -3.5 }), { price: -110, point: -3.5 }, "home"));
+    const [leg] = legs;
+    writeParlaySlip("pool", [leg!]);
     expect(readParlaySlip("pool")).toEqual([leg]);
     expect(stored["share-pool:tray:pool"]).toBeUndefined();
+
+    for (const malformed of [
+      { eventId: "", canonicalOfferProof: { ...leg!.canonicalOfferProof, eventId: "" } },
+      { retrievedAt: "not-a-date" },
+      { eventStartsAt: "not-a-date" },
+      { canonicalOfferProof: { ...leg!.canonicalOfferProof, offerId: "" } },
+      { canonicalOfferProof: { ...leg!.canonicalOfferProof, line: 0 } }
+    ]) {
+      stored["share-pool:parlay:pool"] = JSON.stringify([{ ...leg, ...malformed }]);
+      expect(readParlaySlip("pool")).toEqual([]);
+    }
+
+    for (let count = 1; count <= 6; count++) {
+      stored["share-pool:parlay:pool"] = JSON.stringify(legs.slice(0, count));
+      expect(readParlaySlip("pool")).toEqual(legs.slice(0, count));
+    }
+    const opposite = { ...leg!, selection: "away" as const, canonicalOfferProof: { ...leg!.canonicalOfferProof, offerId: "game-1:spread:away", selection: "away" as const } };
+    const moneyline = { ...leg!, market: "moneyline" as const, selection: "away" as const, originalLine: null, canonicalOfferProof: { ...leg!.canonicalOfferProof, offerId: "game-1:moneyline:away", market: "moneyline" as const, selection: "away" as const, line: null } };
+    for (const incompatible of [[leg!, leg!], [leg!, opposite], [leg!, moneyline], legs]) {
+      stored["share-pool:parlay:pool"] = JSON.stringify(incompatible);
+      expect(readParlaySlip("pool")).toEqual([]);
+    }
     vi.unstubAllGlobals();
   });
 
@@ -152,9 +177,13 @@ describe("parlay slip and page semantics", () => {
     expect(parlayUnknownPlacementMessage).toBe("Placement result unknown. Retry this exact placement to check its result.");
   });
 
-  it("keeps the lean builder table free of per-leg price claims", () => {
-    expect(parlayLegTableColumns).toEqual(["Matchup", "Market", "Pick", "Action"]);
-    expect(parlayLegTableColumns).not.toContain("Advisory leg price");
+  it("renders selected-leg rows without per-leg price claims", () => {
+    const leg = parlayLegForOutcome(offer("game-1", "spread", { name: "Home", price: -110, point: -3.5 }), { price: -110, point: -3.5 }, "home");
+    const markup = renderToStaticMarkup(createElement(ParlayLegTable, { legs: [leg], onRemove: () => undefined }));
+    expect(markup).toContain("<caption>Selected parlay legs</caption>");
+    expect(markup).toContain("<th>Matchup</th><th>Market</th><th>Pick</th><th>Action</th>");
+    expect(markup).not.toContain("Advisory leg price");
+    expect(markup).not.toContain("-110");
   });
 
   it("rejects stale parlay async completions after a slug transition", () => {
@@ -167,13 +196,12 @@ describe("parlay slip and page semantics", () => {
     expect(page.current(second)).toBe(false);
   });
 
-  it("keeps editor odds advisory while quote and retry semantics remain authoritative and frozen", () => {
+  it("keeps editor odds advisory while quote semantics remain authoritative and frozen", () => {
     const spread = parlayLegForOutcome(offer("game-1", "spread", { name: "Home", price: -110, point: -3.5 }), { price: -110, point: -3.5 }, "home");
     const total = parlayLegForOutcome(offer("game-1", "total", { name: "Over", price: -110, point: 44.5 }), { price: -110, point: 44.5 }, "over");
     const semantic = { wagerId: "wager-1", quoteKey: "quote-1", risk: "2", legs: [spread, total] };
     expect(parlayAdvisoryOdds(semantic.legs)).toBe(250);
     expect(parlayQuoteRequest(semantic, "season-1")).toMatchObject({ wagerId: "wager-1", quoteKey: "quote-1", commandId: "quote-1", seasonId: "season-1", riskMicros: "2000000", rulesetVersion: "PARLAY_2026_V1", legs: [{ offerId: "game-1:spread:home" }, { offerId: "game-1:total:over" }] });
-    expect(retryParlaySemantic(semantic)).toBe(semantic);
     expect(editParlaySemantic(semantic).quoteKey).not.toBe(semantic.quoteKey);
     const terminal = parlayTerminalTransition(semantic);
     expect(terminal.editor.wagerId).not.toBe(semantic.wagerId);

@@ -2,7 +2,7 @@ import { WHOLE_SHARE_MICROS, parseIntegerText } from "../domain/fixed-point";
 import { adjustTeaserLine, validateTeaser } from "../domain/grading";
 import { teaserOdds, TEASER_RULESET_ID } from "../domain/teaser-table";
 import { CANONICAL_BOOK_POLICY_VERSION } from "../odds/types";
-import { PARLAY_RULESET_ID, parlayOdds, validateParlay } from "../domain/parlay";
+import { PARLAY_RULESET_ID, parlayOdds } from "../domain/parlay";
 import type { TeaserLeg } from "../domain/types";
 import type { PoolCommand } from "./pool-commands";
 
@@ -14,7 +14,7 @@ const now = () => new Date().toISOString();
 const gcd = (a: bigint, b: bigint): bigint => b === 0n ? a : gcd(b, a % b);
 const lcm = (a: bigint, b: bigint): bigint => a / gcd(a, b) * b;
 
-/** Enforces the pool-wide limit with exact fractional teaser exposure, never rounded shares. */
+/** Enforces the pool-wide limit with exact fractional multi-leg wager exposure, never rounded shares. */
 function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): void {
   const legCount = BigInt(legs.length);
   for (const leg of legs) {
@@ -48,8 +48,8 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
     validateTeaser(legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg)), command.teaserPoints);
     if (command.rulesetVersion !== TEASER_RULESET_ID || teaserOdds(legs.length, command.teaserPoints) !== command.acceptedOdds || legs.some((leg) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg, command.teaserPoints) !== (leg as Extract<Placement, { type: "PlaceTeaserWager" }>['legs'][number]).adjustedLine)) throw new Error("INVALID_TEASER_TERMS");
   } else {
-    validateParlay(legs);
-    if (command.rulesetVersion !== PARLAY_RULESET_ID || parlayOdds(legs) !== command.acceptedOdds || legs.some((leg) => leg.adjustedLine !== leg.originalLine)) throw new Error("INVALID_PARLAY_TERMS");
+    const derivedOdds = parlayOdds(legs);
+    if (command.rulesetVersion !== PARLAY_RULESET_ID || derivedOdds !== command.acceptedOdds || legs.some((leg) => leg.adjustedLine !== leg.originalLine)) throw new Error("INVALID_PARLAY_TERMS");
   }
   if (legs.some((leg) => new Date(leg.eventStartsAt).getTime() <= Date.now())) throw new Error("MARKET_LOCKED");
   assertSideBetLimit(sql, command, legs, maxSideBetMicros);

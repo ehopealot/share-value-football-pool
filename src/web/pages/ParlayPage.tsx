@@ -19,15 +19,13 @@ type State = ParlayViewState;
 type ParlayPlacementAttempt = ParlayReview | ParlayUnresolvedPlacement;
 const fresh = (legs: ParlayLeg[], risk = ""): ParlaySemantic => ({ legs, risk, quoteKey: crypto.randomUUID(), wagerId: crypto.randomUUID() });
 
-/** Retry resends the exact reviewed semantic request; any edit retires that authority. */
-export const retryParlaySemantic = (request: ParlaySemantic): ParlaySemantic => request;
 export const editParlaySemantic = (editor: ParlaySemantic): ParlaySemantic => fresh(editor.legs, editor.risk);
 /** A lost placement response must retain every idempotency term until its exact replay resolves. */
 export const parlayUnresolvedPlacementTransition = (attempt: ParlayPlacementAttempt): ParlayUnresolvedPlacement => ({ tag: "placement-unknown", request: attempt.request, quote: attempt.quote, mutationKey: attempt.mutationKey });
 /** One focused alert tells the member that only the exact frozen placement may be retried. */
 export const parlayUnknownPlacementMessage = "Placement result unknown. Retry this exact placement to check its result.";
 /** The lean builder intentionally leaves pricing to its aggregate advisory estimate and review snapshot. */
-export const parlayLegTableColumns = ["Matchup", "Market", "Pick", "Action"] as const;
+const parlayLegTableColumns = ["Matchup", "Market", "Pick", "Action"] as const;
 /** Every quote and placement attempt clears earlier errors before awaiting a new authority result. */
 export const parlayQuoteAttemptTransition = (request: ParlaySemantic) => ({ state: { tag: "quoting" as const, request }, error: "" });
 export const parlayPlacementAttemptTransition = (attempt: ParlayPlacementAttempt) => ({ state: { tag: "submitting" as const, request: attempt.request, quote: attempt.quote, mutationKey: attempt.mutationKey }, error: "" });
@@ -78,6 +76,10 @@ const parlayPick = (leg: ParlayLeg) => {
   return leg.market === "moneyline" ? team ?? leg.selection : `${team ?? leg.selection} ${leg.originalLine === null ? "—" : signed(leg.originalLine)}`;
 };
 
+export function ParlayLegTable({ legs, onRemove }: { legs: ParlayLeg[]; onRemove: (index: number) => void }) {
+  return <div className="table-scroll" tabIndex={0}><table><caption>Selected parlay legs</caption><thead><tr>{parlayLegTableColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{legs.map((leg, index) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? `${leg.awayTeam} at ${leg.homeTeam}` : "Game details unavailable"}</td><td>{marketName(leg.market)}</td><td>{parlayPick(leg)}</td><td><button onClick={() => onRemove(index)}>Remove</button></td></tr>)}</tbody></table></div>;
+}
+
 export function ParlayPageRoute() {
   const { slug = "" } = useParams();
   // A route-param change remounts the builder, so an old pool cannot retain its editor or callbacks.
@@ -124,7 +126,7 @@ export function ParlayPage() {
       if (commandOutcome(e) === "stale") {
         try { await recover(request, ticket); }
         catch { if (generations.current.current(ticket)) { setState({ tag: "editing", editor: request }); setError("We could not retrieve current odds. Your quote was not changed; retry this same request."); } }
-      } else { setState({ tag: "editing", editor: retryParlaySemantic(request) }); setError(errorMessage(e)); }
+      } else { setState({ tag: "editing", editor: request }); setError(errorMessage(e)); }
     }
   };
   const reviewed = state.tag === "reviewing" || state.tag === "submitting" || state.tag === "placement-unknown" ? state : undefined;
@@ -155,5 +157,5 @@ export function ParlayPage() {
   const odds = editor && parlayAdvisoryOdds(editor.legs);
   const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * 1000000n).toString(), odds).total : undefined;
   const invalid = !editor || editor.legs.length < 2 || editor.legs.length > 6 ? "Choose two to six legs." : riskError;
-  return <Layout signedIn><h1>Parlay builder</h1><p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<div className="table-scroll" tabIndex={0}><table><caption>Selected parlay legs</caption><thead><tr>{parlayLegTableColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{editor!.legs.map((leg, index) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? `${leg.awayTeam} at ${leg.homeTeam}` : "Game details unavailable"}</td><td>{marketName(leg.market)}</td><td>{parlayPick(leg)}</td><td><button disabled={pending} onClick={() => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }}>Remove</button></td></tr>)}</tbody></table></div>{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" disabled={pending} type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={pending || !!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>{pending ? "Reviewing…" : "Review parlay wager"}</button></div></Layout>;
+  return <Layout signedIn><h1>Parlay builder</h1><p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<ParlayLegTable legs={editor!.legs} onRemove={(index) => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }} />{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={!!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>Review parlay wager</button></div></Layout>;
 }

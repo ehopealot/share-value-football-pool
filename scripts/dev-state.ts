@@ -22,10 +22,10 @@ export const sharedDevRootPath = (cwd = process.cwd()) =>
   sharedDevRootPathFor(cwd, commonGitDirectoryFor(cwd));
 
 export const sharedDevStatePath = (cwd = process.cwd()) =>
-  join(sharedDevRootPath(cwd), ".wrangler", "state");
+  sharedDevStatePathFor(cwd, commonGitDirectoryFor(cwd));
 
 export const sharedDevLockPath = (cwd = process.cwd()) =>
-  join(sharedDevRootPath(cwd), ".wrangler", "dev-server.lock");
+  sharedDevLockPathFor(cwd, commonGitDirectoryFor(cwd));
 
 export const sharedDevVarsPath = (cwd = process.cwd()) =>
   join(sharedDevRootPath(cwd), ".dev.vars");

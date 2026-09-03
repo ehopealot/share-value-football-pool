@@ -13,14 +13,14 @@ export function workerConfigPathFor(input: { command: string; productionWorkerCo
 export const persistenceStateFor = (command: string, stateDirectory?: string) =>
   command === "serve" ? { path: stateDirectory ?? sharedDevStatePath() } : undefined;
 
-export const assertSharedDevLauncher = (input: { command: string; mode: string; environment: Record<string, string | undefined> }) => {
+export const assertSharedDevLauncher = (input: { command: string; environment: Record<string, string | undefined> }) => {
   if (input.command === "serve" && input.environment.VITEST !== "true" && input.environment.OFFICE_POOL_REBORN_SHARED_DEV_LAUNCHER !== "true") {
     throw new Error("Use npm run dev to start a shared local development server.");
   }
 };
 
-export default defineConfig(({ command, mode }) => {
-  assertSharedDevLauncher({ command, mode, environment: process.env });
+export default defineConfig(({ command }) => {
+  assertSharedDevLauncher({ command, environment: process.env });
   const e2eBuild = process.env.OFFICE_POOL_REBORN_E2E_BUILD === "true";
   const productionBuild = process.env.OFFICE_POOL_REBORN_PRODUCTION_BUILD === "true";
   const productionWorkerConfig = process.env.OFFICE_POOL_REBORN_WORKER_CONFIG;

@@ -35,7 +35,6 @@ try {
     env: { ...process.env, OFFICE_POOL_REBORN_SHARED_DEV_LAUNCHER: "true" },
     stdio: "inherit"
   });
-  if (requestedSignal) forwardSignal(requestedSignal);
   const code = await waitForExit(child);
   if (code === lockConflictExitCode) console.error("Shared dev database is already in use by another npm run dev process.");
   process.exitCode = requestedSignal ? 1 : code === lockConflictExitCode ? 1 : code;

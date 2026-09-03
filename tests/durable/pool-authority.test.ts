@@ -30,27 +30,25 @@ describe("PoolDO authority", () => {
       sql.exec("INSERT INTO processed_command (id,type,actor_id,request_json,response_json,expires_at) VALUES ('legacy-command','PlaceTeaserWager','owner','{}','{}','2099-01-01T00:00:00.000Z')");
       const snapshot = () => ({
         wagers: [...sql.exec("SELECT rowid,* FROM wager ORDER BY rowid")],
-        legs: [...sql.exec("SELECT * FROM wager_leg WHERE wager_id='legacy-seven' ORDER BY id")],
-        legSnapshots: [...sql.exec("SELECT * FROM wager_leg_snapshot WHERE wager_leg_id LIKE 'legacy-seven:%' ORDER BY wager_leg_id")],
-        settlement: [...sql.exec("SELECT settled_odds FROM settlement WHERE id='settled'")],
-        quote: [...sql.exec("SELECT * FROM wager_quote WHERE quote_key='legacy-quote'")],
-        command: [...sql.exec("SELECT * FROM processed_command WHERE id='legacy-command'")]
+        legs: [...sql.exec("SELECT rowid,* FROM wager_leg WHERE wager_id='legacy-seven' ORDER BY rowid")],
+        legSnapshots: [...sql.exec("SELECT rowid,* FROM wager_leg_snapshot WHERE wager_leg_id LIKE 'legacy-seven:%' ORDER BY rowid")],
+        settlement: [...sql.exec("SELECT rowid,* FROM settlement ORDER BY rowid")],
+        quote: [...sql.exec("SELECT rowid,* FROM wager_quote WHERE quote_key='legacy-quote' ORDER BY rowid")],
+        command: [...sql.exec("SELECT rowid,* FROM processed_command WHERE id='legacy-command' ORDER BY rowid")]
       });
+      const before = snapshot();
       new PoolDO(state, {});
       const first = snapshot();
       new PoolDO(state, {});
-      return { first, second: snapshot(), ddl: [...sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='wager'")][0]!.sql };
+      return { before, first, second: snapshot(), ddl: [...sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='wager'")][0]!.sql };
     });
+    const withoutNewSettlementColumn = (snapshot: typeof migrated.first) => ({
+      ...snapshot,
+      settlement: snapshot.settlement.map(({ settled_odds: _settledOdds, ...row }) => row)
+    });
+    expect(withoutNewSettlementColumn(migrated.first)).toEqual(migrated.before);
+    expect(migrated.first.settlement.map((row) => row.settled_odds)).toEqual([null]);
     expect(migrated.second).toEqual(migrated.first);
-    expect(migrated.first.wagers).toEqual([
-      expect.objectContaining({ rowid: 3, id: "legacy-straight", type: "straight", status: "open" }),
-      expect.objectContaining({ rowid: 17, id: "legacy-seven", type: "teaser", status: "won" })
-    ]);
-    expect(migrated.first.legs).toHaveLength(7);
-    expect(migrated.first.legSnapshots).toHaveLength(7);
-    expect(migrated.first.settlement).toEqual([{ settled_odds: null }]);
-    expect(migrated.first.quote).toHaveLength(1);
-    expect(migrated.first.command).toHaveLength(1);
     expect(migrated.ddl).toContain("'parlay'");
     await expect(runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
       state.storage.sql.exec("INSERT INTO wager VALUES ('parlay','s1','owner','parlay','1000000',250,'open','PARLAY_2026_V1',NULL,'2026-01-01T00:00:00.000Z')");

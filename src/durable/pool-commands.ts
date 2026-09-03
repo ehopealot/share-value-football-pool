@@ -47,7 +47,7 @@ const poolCommandSchemaBase = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ReadMyWagers"), ...common }),
   z.object({ type: z.literal("ReadAuditExport"), ...common })
 ]);
-/** Keep the discriminated command union while applying the refined teaser contract. */
+/** Keep the discriminated command union while applying refined multi-leg placement contracts. */
 export const poolCommandSchema = poolCommandSchemaBase.superRefine((command, ctx) => {
   if (command.type === "PlaceTeaserWager" && !placeTeaserWager.safeParse(command).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid teaser placement" });
   if (command.type === "PlaceParlayWager" && !placeParlayWager.safeParse(command).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid parlay placement" });
