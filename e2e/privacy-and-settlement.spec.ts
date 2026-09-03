@@ -596,7 +596,8 @@ test("activity stays immutable and presents only the current settlement without 
     expect(await correctWager(page, slug, wagerId, "refunded", "Settled ticket voided", "official-void-v3")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(activityRow(page)).toContainText("refunded");
-    await expect(activityPAndL(page)).toHaveText("0.00 shares");
+    await expect(activityPAndL(page)).toHaveText("");
+    await expect(activityRow(page)).not.toContainText("0.00 shares");
     await member.reload();
     await expect(activityRow(member)).toContainText("refunded");
     await expect(activityPAndL(member)).toHaveText("");
