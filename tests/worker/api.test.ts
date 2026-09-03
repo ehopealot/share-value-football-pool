@@ -3,6 +3,7 @@ import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
 import { selectionForOutcome } from "../../src/web/selection-matcher";
+import { poolCommandSchema } from "../../src/durable/pool-commands";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 let migrated = false;
@@ -423,13 +424,13 @@ describe("later wager and member HTTP API", () => {
     expect(await response.json()).toMatchObject({ offers: [{ eventId: "date-two", startsAt: "2099-09-11T20:00:00.000Z" }] });
   }, 90_000);
 
-  async function quoteAndPlace(app: ReturnType<typeof createWorkerApp>, slug: string, kind: "straight" | "teasers", input: any, mutationKey: string) {
+  async function quoteAndPlace(app: ReturnType<typeof createWorkerApp>, slug: string, kind: "straight" | "teasers" | "parlays", input: any, mutationKey: string) {
     const legs = kind === "straight" ? [input.leg] : input.legs;
     const semanticLeg = (leg: any) => ({ eventId: leg.eventId, canonicalBook: leg.canonicalBook, market: leg.market, selection: leg.selection, offerId: leg.canonicalOfferProof.offerId, offerVersion: leg.offerVersion });
     const quoteKey = `quote:${mutationKey}`;
     const quoteInput = kind === "straight"
       ? { quoteKey, commandId: quoteKey, wagerId: input.wagerId, seasonId: input.seasonId, riskMicros: input.riskMicros, rulesetVersion: input.rulesetVersion, leg: semanticLeg(legs[0]) }
-      : { quoteKey, commandId: quoteKey, wagerId: input.wagerId, seasonId: input.seasonId, riskMicros: input.riskMicros, teaserPoints: input.teaserPoints, rulesetVersion: input.rulesetVersion, legs: legs.map(semanticLeg) };
+      : { quoteKey, commandId: quoteKey, wagerId: input.wagerId, seasonId: input.seasonId, riskMicros: input.riskMicros, ...(kind === "teasers" ? { teaserPoints: input.teaserPoints } : {}), rulesetVersion: input.rulesetVersion, legs: legs.map(semanticLeg) };
     const quotedResponse = await app.fetch(request(`/api/p/${slug}/wagers/${kind}/quote`, quoteInput));
     expect(quotedResponse.status).toBe(200);
     const quote = await quotedResponse.json() as Record<string, any>;
@@ -559,6 +560,80 @@ describe("later wager and member HTTP API", () => {
     expect(await response.json()).toEqual({ code: "LINE_CHANGED", reconfirmationRequired: true });
     const replay = await bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)).fetch("https://pool.internal/command", { method: "POST", body: JSON.stringify({ type: "ReplayWagerQuote", commandId: staleRequest.quoteKey, actorId: "member", identity: { actorId: "member", quoteKey: staleRequest.quoteKey, fingerprint: JSON.stringify({ wagerId: staleRequest.wagerId, seasonId: staleRequest.seasonId, riskMicros: staleRequest.riskMicros, teaserPoints: staleRequest.teaserPoints, rulesetVersion: staleRequest.rulesetVersion, legs: staleRequest.legs, actorId: "member" }) } }) });
     expect(await replay.json()).toEqual({ code: "QUOTE_NOT_FOUND" });
+  }, 90_000);
+
+  it("quotes and places authoritative parlays with exact same-game and vig-free moneyline terms", async () => {
+    const poolId = `api-parlay-${crypto.randomUUID()}`; const slug = `api-parlay-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const fundingQuote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "parlay-fund-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000" })).json() as { priceMicros: string; commandVersion: string };
+    await send(poolId, { type: "ExecuteShareOrder", commandId: "parlay-fund", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000", quote: fundingQuote, reason: "parlay tests" });
+    const retrievedAt = new Date().toISOString(); const startsAt = "2099-09-10T20:00:00.000Z";
+    for (const [eventId, markets] of [["same", ["spread", "total"]], ["money", ["moneyline", "total"]]] as const) {
+      await bindings.DB.prepare("INSERT INTO sports_event (id,provider_event_id,league,home_team,away_team,starts_at,status,correction_version) VALUES (?,?, 'nfl','Home','Away',?,'scheduled','1')").bind(eventId, eventId, startsAt).run();
+      for (const market of markets) {
+        const outcomes = market === "spread" ? [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }]
+          : market === "total" ? [{ name: "Over", price: -110, point: 47 }, { name: "Under", price: -110, point: 47 }]
+          : [{ name: "Home", price: -135 }, { name: "Away", price: 115 }];
+        await bindings.DB.prepare("INSERT INTO market_offer (event_id,market,canonical_book,retrieved_at,offer_version,payload_json) VALUES (?,?,'DraftKings',?,'v1',?)").bind(eventId, market, retrievedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes })).run();
+      }
+    }
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    const semantic = (eventId: string, market: string, selection: string) => ({ eventId, canonicalBook: "DraftKings", market, selection, offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:${market}:${selection}` } });
+    const same = await quoteAndPlace(app, slug, "parlays", { wagerId: "same-parlay", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: [semantic("same", "spread", "home"), semantic("same", "total", "over")] }, "place-same-parlay");
+    expect(same.quote).toMatchObject({ acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1" });
+    expect((await same.place()).status).toBe(200);
+    expect(await (await same.place()).json()).toMatchObject({ wagerId: "same-parlay" });
+    const money = await quoteAndPlace(app, slug, "parlays", { wagerId: "money-parlay", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: [semantic("money", "moneyline", "home"), semantic("money", "total", "over")] }, "place-money-parlay");
+    expect(money.quote).toMatchObject({ acceptedOdds: 216, legs: [{ originalOdds: -124, canonicalOfferProof: { odds: -135 } }, { originalOdds: -110 }] });
+    expect((await money.place()).status).toBe(200);
+    const durable = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => ({ wagers: [...state.storage.sql.exec("SELECT id,type,accepted_odds,ruleset_version FROM wager WHERE type='parlay' ORDER BY id")], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }));
+    expect(durable).toEqual({ wagers: [{ id: "money-parlay", type: "parlay", accepted_odds: 216, ruleset_version: "PARLAY_2026_V1" }, { id: "same-parlay", type: "parlay", accepted_odds: 250, ruleset_version: "PARLAY_2026_V1" }], account: { available_micros: "0", locked_micros: "2000000" } });
+  }, 90_000);
+
+  it("replays stored seven-leg teaser bytes before offer reads and rejects fresh seven-leg keys without mutation", async () => {
+    const poolId = `legacy-seven-${crypto.randomUUID()}`; const slug = `legacy-seven-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const teaserLeg = (index: number) => ({ eventId: `legacy-${index}`, league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: `legacy-${index}:spread:home`, eventId: `legacy-${index}`, offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: 3, originalOdds: -110, eventStartsAt: "2099-01-01T00:00:00.000Z", homeTeam: "Home", awayTeam: "Away" });
+    const legs = Array.from({ length: 7 }, (_, index) => teaserLeg(index));
+    const semanticLegs = legs.map((leg) => ({ eventId: leg.eventId, canonicalBook: leg.canonicalBook, market: leg.market, selection: leg.selection, offerId: leg.canonicalOfferProof.offerId, offerVersion: leg.offerVersion }));
+    const quoteBody = { quoteKey: "legacy-seven-quote", commandId: "legacy-seven-quote", wagerId: "legacy-seven", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: semanticLegs };
+    const fingerprint = JSON.stringify({ wagerId: quoteBody.wagerId, seasonId: quoteBody.seasonId, riskMicros: quoteBody.riskMicros, teaserPoints: quoteBody.teaserPoints, rulesetVersion: quoteBody.rulesetVersion, legs: quoteBody.legs, actorId: "member" });
+    const snapshot = { quoteKey: quoteBody.quoteKey, seasonId: "s1", ownerMemberId: "member", riskMicros: "1000000", acceptedOdds: 700, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs, commandVersion: "5" };
+    const placementBody = { wagerId: "legacy-seven", quoteKey: quoteBody.quoteKey, quotedCommandVersion: "5", mutationKey: "legacy-seven-place", commandId: "legacy-seven-place", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 700, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs };
+    const placementCommand = { type: "PlaceTeaserWager", commandId: placementBody.commandId, actorId: "member", wagerId: placementBody.wagerId, quoteKey: placementBody.quoteKey, quotedCommandVersion: placementBody.quotedCommandVersion, seasonId: placementBody.seasonId, riskMicros: placementBody.riskMicros, acceptedOdds: placementBody.acceptedOdds, teaserPoints: placementBody.teaserPoints, rulesetVersion: placementBody.rulesetVersion, legs: placementBody.legs };
+    const placementResponse = { wagerId: "legacy-seven", commandVersion: "6" };
+    await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => {
+      state.storage.sql.exec("INSERT INTO wager_quote (actor_id,quote_key,fingerprint,wager_id,kind,terms_json,command_version,snapshot_json,created_at) VALUES ('member',?,?,?,?,?,?,?,'2026-01-01T00:00:00.000Z')", quoteBody.quoteKey, fingerprint, quoteBody.wagerId, "teaser", "{}", "5", JSON.stringify(snapshot));
+      state.storage.sql.exec("INSERT INTO processed_command (id,type,actor_id,request_json,response_json,expires_at) VALUES (?,?,?,?,?,'2099-01-01T00:00:00.000Z')", placementBody.commandId, "PlaceTeaserWager", "member", JSON.stringify(poolCommandSchema.parse(placementCommand)), JSON.stringify(placementResponse));
+    });
+    await bindings.DB.exec("DELETE FROM odds_ingestion; DELETE FROM market_offer; DELETE FROM sports_event;");
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    expect(await (await app.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, quoteBody))).text()).toBe(JSON.stringify(snapshot));
+    expect(await (await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, placementBody))).text()).toBe(JSON.stringify(placementResponse));
+    const durableSnapshot = () => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote ORDER BY rowid")], commands: [...state.storage.sql.exec("SELECT * FROM processed_command ORDER BY rowid")], wagers: [...state.storage.sql.exec("SELECT * FROM wager ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")], accounts: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")] }));
+    const before = await durableSnapshot();
+    expect((await app.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, { ...quoteBody, quoteKey: "fresh-seven", commandId: "fresh-seven" }))).status).toBe(400);
+    expect((await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, { ...placementBody, quoteKey: "fresh-seven", commandId: "fresh-seven-place", mutationKey: "fresh-seven-place" }))).status).toBe(400);
+    expect(await durableSnapshot()).toBe(before);
+  }, 90_000);
+
+  it("rejects six safe moneyline legs whose combined parlay odds overflow without durable mutation", async () => {
+    const poolId = `overflow-${crypto.randomUUID()}`; const slug = `overflow-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const retrievedAt = new Date().toISOString(); const startsAt = "2099-09-10T20:00:00.000Z";
+    for (let index = 0; index < 6; index++) {
+      const eventId = `overflow-${index}`;
+      await bindings.DB.prepare("INSERT INTO sports_event (id,provider_event_id,league,home_team,away_team,starts_at,status,correction_version) VALUES (?,?, 'nfl','Home','Away',?,'scheduled','1')").bind(eventId, eventId, startsAt).run();
+      await bindings.DB.prepare("INSERT INTO market_offer (event_id,market,canonical_book,retrieved_at,offer_version,payload_json) VALUES (?,'moneyline','DraftKings',?,'v1',?)").bind(eventId, retrievedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: Number.MAX_SAFE_INTEGER }, { name: "Away", price: -100 }] })).run();
+    }
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
+    const body = { quoteKey: "overflow-quote", commandId: "overflow-quote", wagerId: "overflow-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1", legs: Array.from({ length: 6 }, (_, index) => ({ eventId: `overflow-${index}`, canonicalBook: "DraftKings", market: "moneyline", selection: "home", offerId: `overflow-${index}:moneyline:home`, offerVersion: "v1" })) };
+    const before = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote")], command: [...state.storage.sql.exec("SELECT * FROM processed_command")], wager: [...state.storage.sql.exec("SELECT * FROM wager")], account: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")] }));
+    const response = await app.fetch(request(`/api/p/${slug}/wagers/parlays/quote`, body));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "PARLAY_ODDS_OUT_OF_RANGE" });
+    const after = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote")], command: [...state.storage.sql.exec("SELECT * FROM processed_command")], wager: [...state.storage.sql.exec("SELECT * FROM wager")], account: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")] }));
+    expect(after).toBe(before);
   }, 90_000);
 
   it("replays an exact quote-first placement before later D1 locking", async () => {

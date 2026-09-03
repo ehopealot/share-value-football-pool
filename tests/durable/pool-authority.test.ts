@@ -1,7 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PoolCommand } from "../../src/durable/pool-commands";
-import { migrateSeasonCreatedAt } from "../../src/durable/schema";
+import { migratePoolStorage, migrateSeasonCreatedAt } from "../../src/durable/schema";
 
 const pools = (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO;
 const send = async (slug: string, command: PoolCommand) => {
@@ -10,6 +10,36 @@ const send = async (slug: string, command: PoolCommand) => {
 };
 
 describe("PoolDO authority", () => {
+  it("atomically rebuilds populated legacy wager storage for parlays and effective settlement odds", async () => {
+    const slug = `parlay-migration-${crypto.randomUUID()}`;
+    await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Migration", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
+    const migrated = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("DROP TABLE wager");
+      sql.exec("CREATE TABLE wager (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, owner_id TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('straight','teaser')), risk_micros TEXT NOT NULL, accepted_odds INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','won','lost','refunded')), ruleset_version TEXT NOT NULL, settled_result_version TEXT, confirmed_at TEXT NOT NULL)");
+      sql.exec("INSERT INTO wager (rowid,id,season_id,owner_id,type,risk_micros,accepted_odds,status,ruleset_version,settled_result_version,confirmed_at) VALUES (17,'legacy','s1','owner','teaser','1000000',-110,'won','SHARE_POOL_2026_V1','rv','2026-01-01T00:00:00.000Z')");
+      sql.exec("INSERT INTO wager_leg (id,wager_id,event_id,league,canonical_book,retrieved_at,policy_version,offer_version,market,selection,original_odds,event_starts_at) VALUES ('legacy:0','legacy','event','nfl','DraftKings','2026-01-01T00:00:00.000Z','CANONICAL_BOOKS_2026_V1','v1','spread','home',-110,'2026-01-02T00:00:00.000Z')");
+      sql.exec("INSERT INTO settlement (id,wager_id,result_version,outcome,return_micros,profit_micros,source_result_json,created_at) VALUES ('settled','legacy','rv','win','2000000','1000000','[]','2026-01-03T00:00:00.000Z')");
+      sql.exec("INSERT INTO wager_quote (actor_id,quote_key,fingerprint,wager_id,kind,terms_json,command_version,snapshot_json,created_at) VALUES ('owner','legacy-quote','fingerprint','legacy','teaser','{}','1','{}','2026-01-01T00:00:00.000Z')");
+      sql.exec("INSERT INTO processed_command (id,type,actor_id,request_json,response_json,expires_at) VALUES ('legacy-command','PlaceTeaserWager','owner','{}','{}','2099-01-01T00:00:00.000Z')");
+      const snapshot = () => ({ wager: [...sql.exec("SELECT rowid,* FROM wager")], leg: [...sql.exec("SELECT * FROM wager_leg WHERE wager_id='legacy'")], settlement: [...sql.exec("SELECT settled_odds FROM settlement WHERE id='settled'")], quote: [...sql.exec("SELECT * FROM wager_quote WHERE quote_key='legacy-quote'")], command: [...sql.exec("SELECT * FROM processed_command WHERE id='legacy-command'")] });
+      state.storage.transactionSync(() => migratePoolStorage(sql));
+      const first = snapshot();
+      state.storage.transactionSync(() => migratePoolStorage(sql));
+      return { first, second: snapshot(), ddl: [...sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='wager'")][0]!.sql };
+    });
+    expect(migrated.second).toEqual(migrated.first);
+    expect(migrated.first.wager[0]).toMatchObject({ rowid: 17, id: "legacy", type: "teaser", status: "won" });
+    expect(migrated.first.leg).toHaveLength(1);
+    expect(migrated.first.settlement).toEqual([{ settled_odds: null }]);
+    expect(migrated.ddl).toContain("'parlay'");
+    await expect(runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      state.storage.sql.exec("INSERT INTO wager VALUES ('parlay','s1','owner','parlay','1000000',250,'open','PARLAY_2026_V1',NULL,'2026-01-01T00:00:00.000Z')");
+      expect(() => state.storage.sql.exec("INSERT INTO wager VALUES ('bad-type','s1','owner','unknown','1000000',100,'open','x',NULL,'2026-01-01T00:00:00.000Z')")).toThrow();
+      expect(() => state.storage.sql.exec("INSERT INTO wager VALUES ('bad-status','s1','owner','straight','1000000',100,'pending','x',NULL,'2026-01-01T00:00:00.000Z')")).toThrow();
+    })).resolves.toBeUndefined();
+  }, 90_000);
+
   it("repairs historical created_at values deterministically across legacy and current schemas", async () => {
     const slug = `created-at-${crypto.randomUUID()}`;
     const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Created at Pool", creatorId: "owner", creatorName: "Owner", password: "correct-password" };

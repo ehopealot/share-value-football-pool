@@ -1,4 +1,4 @@
-import { migrateSeasonCreatedAt, poolSchema } from "./schema";
+import { migratePoolStorage, migrateSeasonCreatedAt, poolSchema } from "./schema";
 import { authenticatePoolSecret, hashPoolPassword, verifyPoolPassword } from "../security/pool-password";
 import { executeShareOrder, quoteShareOrder, reverseShareOrder } from "./accounting-commands";
 import { divideRoundHalfEven, MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
@@ -13,6 +13,7 @@ import { enqueueOutbox, drainOutbox, nextOutboxAttempt, type PoolOutboxMessage }
 import { shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { TEASER_RULESET_ID } from "../domain/teaser-table";
+import { parlayOdds } from "../domain/parlay";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -27,7 +28,7 @@ const first = (sql: SqlStorage, query: string, ...params: SqlStorageValue[]): Ro
 const now = () => new Date().toISOString();
 const actorId = (command: PoolCommand) => command.type === "InitializePool" ? command.creatorId : command.actorId;
 const isReadCommand = (command: PoolCommand) => command.type === "ReadPoolGate" || command.type === "ReadPoolView" || command.type === "ReadMessageBoard" || command.type === "ReadStandings" || command.type === "ReadActivity" || command.type === "ReadSeasonHistory" || command.type === "ReadWagers" || command.type === "ReadMyWagers" || command.type === "ReadAuditExport" || command.type === "ProbePlacementReplay" || command.type === "ReplayWagerQuote";
-const isQuoteCommand = (command: PoolCommand) => command.type === "QuoteShareOrder" || command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager";
+const isQuoteCommand = (command: PoolCommand) => command.type === "QuoteShareOrder" || command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager";
 /** Board conversation is authoritative-only and deliberately has no D1 projection or alarm work. */
 const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost";
 const canonical = (value: unknown) => JSON.stringify(value);
@@ -43,7 +44,7 @@ const requestFingerprint = (command: PoolCommand, commandAuthenticatorKey?: stri
   if (command.type === "InitializePool" || command.type === "JoinPool") return canonical({ ...command, password: authenticate(command.password) });
   if (command.type === "UpdatePoolSettings" && command.password !== undefined) return canonical({ ...command, password: authenticate(command.password) });
   // Browser quote retries must survive mutable D1 offers, while reuse for a different browser request remains a conflict.
-  if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager") return canonical({ type: command.type, commandId: command.commandId, actorId: command.actorId, identity: command.identity });
+  if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager") return canonical({ type: command.type, commandId: command.commandId, actorId: command.actorId, identity: command.identity });
   return canonical(command);
 };
 /** Pre-announcement post commands remain replayable for the processed-command retention window. */
@@ -59,7 +60,10 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
 export class PoolDO {
   constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
-    migrateSeasonCreatedAt(this.state.storage.sql);
+    this.state.storage.transactionSync(() => {
+      migrateSeasonCreatedAt(this.state.storage.sql);
+      migratePoolStorage(this.state.storage.sql);
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -161,7 +165,8 @@ export class PoolDO {
       case "RegradeWager": payload = { ...base, commandType: command.type, wagerId: command.wagerId }; break;
       case "CreateSeasonAnnotation": payload = { ...base, commandType: command.type, seasonId: command.seasonId }; break;
       case "PlaceStraightWager":
-      case "PlaceTeaserWager": payload = { ...base, commandType: command.type, seasonId: command.seasonId, memberId: command.actorId, wagerId: command.wagerId }; break;
+      case "PlaceTeaserWager":
+      case "PlaceParlayWager": payload = { ...base, commandType: command.type, seasonId: command.seasonId, memberId: command.actorId, wagerId: command.wagerId }; break;
       default: throw new Error("OUTBOX_IDENTITY_MISSING");
     }
     return { eventId: crypto.randomUUID(), eventType: "CommandApplied", version, payload };
@@ -221,7 +226,7 @@ export class PoolDO {
     if (command.type === "ReadAuditExport") return { commandVersion: String(pool.command_version), ...memberAuditExport(sql, command.actorId, this.authoritativeTime()) };
     if (command.type === "ProbePlacementReplay") {
       const candidate = poolCommandSchema.safeParse(command.placement);
-      if (!candidate.success || (candidate.data.type !== "PlaceStraightWager" && candidate.data.type !== "PlaceTeaserWager") || candidate.data.actorId !== command.actorId) throw new Error("INVALID_PLACEMENT_REPLAY_PROBE");
+      if (!candidate.success || (candidate.data.type !== "PlaceStraightWager" && candidate.data.type !== "PlaceTeaserWager" && candidate.data.type !== "PlaceParlayWager") || candidate.data.actorId !== command.actorId) throw new Error("INVALID_PLACEMENT_REPLAY_PROBE");
       const previousPlacement = first(sql, "SELECT type, actor_id, request_json, response_json FROM processed_command WHERE id = ?", candidate.data.commandId);
       if (!previousPlacement) return { commandVersion: String(pool.command_version), replayed: false };
       if (previousPlacement.type !== candidate.data.type || previousPlacement.actor_id !== candidate.data.actorId || previousPlacement.request_json !== requestFingerprint(candidate.data, this.env.POOL_COMMAND_AUTHENTICATOR_KEY)) throw new Error("IDEMPOTENCY_CONFLICT");
@@ -234,32 +239,35 @@ export class PoolDO {
       if (stored.fingerprint !== command.identity.fingerprint) throw new Error("IDEMPOTENCY_CONFLICT");
       return JSON.parse(String(stored.snapshot_json)) as PoolCommandResult;
     }
-    if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager") {
+    if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager") {
       if (command.identity.actorId !== command.actorId || command.identity.quoteKey !== command.commandId || command.projection.actorId !== command.actorId || command.projection.quoteKey !== command.commandId || command.projection.fingerprint !== command.identity.fingerprint) throw new Error("INVALID_QUOTE");
       const existing = first(sql, "SELECT fingerprint, wager_id, kind, snapshot_json FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.commandId);
-      const kind = command.type === "QuoteStraightWager" ? "straight" : "teaser";
+      const kind = command.type === "QuoteStraightWager" ? "straight" : command.type === "QuoteTeaserWager" ? "teaser" : "parlay";
       if (existing) {
         if (existing.fingerprint !== command.identity.fingerprint || existing.wager_id !== command.projection.wagerId || existing.kind !== kind) throw new Error("IDEMPOTENCY_CONFLICT");
         return JSON.parse(String(existing.snapshot_json)) as PoolCommandResult;
       }
       const commandVersion = String(pool.command_version);
       if (command.type === "QuoteTeaserWager") {
+        if (command.projection.legs.length > 6) throw new Error("INVALID_QUOTE");
         try {
           validateTeaser(command.projection.legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg)), command.projection.teaserPoints);
         } catch {
           throw new Error("INVALID_QUOTE");
         }
       }
+      if (command.type === "QuoteParlayWager" && parlayOdds(command.projection.legs) !== command.projection.acceptedOdds) throw new Error("INVALID_QUOTE");
       const { wagerId: quotedWagerId, actorId: _actor, fingerprint: _fingerprint, ...snapshot } = command.projection;
       if (snapshot.ownerMemberId !== command.actorId || snapshot.commandVersion !== commandVersion) throw new Error("ORDER_QUOTE_STALE");
       const terms = placementTerms({ wagerId: quotedWagerId, ...snapshot });
       sql.exec("INSERT INTO wager_quote (actor_id, quote_key, fingerprint, wager_id, kind, terms_json, command_version, snapshot_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", command.actorId, command.commandId, command.identity.fingerprint, quotedWagerId, kind, canonical(terms), commandVersion, canonical(snapshot), now());
       return snapshot;
     }
-    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager") {
+    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager" || command.type === "PlaceParlayWager") {
+      if (command.type === "PlaceTeaserWager" && command.legs.length > 6) throw new Error("INVALID_WAGER_LEG");
       const quote = first(sql, "SELECT wager_id, kind, terms_json, command_version FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.quoteKey);
       if (!quote) throw new Error("LINE_CHANGED");
-      const kind = command.type === "PlaceStraightWager" ? "straight" : "teaser";
+      const kind = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";
       if (quote.kind !== kind || String(quote.wager_id) !== command.wagerId) throw new Error("LINE_CHANGED");
       if (command.quotedCommandVersion !== String(quote.command_version) || command.quotedCommandVersion !== String(pool.command_version)) throw new Error("ORDER_QUOTE_STALE");
       if (canonical(placementTerms(command)) !== String(quote.terms_json)) throw new Error("LINE_CHANGED");

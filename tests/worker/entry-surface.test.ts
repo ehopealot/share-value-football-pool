@@ -246,6 +246,21 @@ describe("authenticated pool HTTP boundary", () => {
   });
 });
 
+describe("authoritative parlay offer pricing", () => {
+  it("canonicalizes a same-game spread and total at +250", async () => {
+    await ensureMigrations();
+    const retrievedAt = new Date().toISOString();
+    const startsAt = "2099-09-10T20:00:00.000Z";
+    await bindings.DB.exec("DELETE FROM market_offer; DELETE FROM sports_event; DELETE FROM odds_ingestion;");
+    await bindings.DB.prepare("INSERT INTO odds_ingestion (provider,last_polled_at,last_success_at,last_error) VALUES ('odds',?,?,NULL)").bind(retrievedAt, retrievedAt).run();
+    await bindings.DB.prepare("INSERT INTO sports_event (id,provider_event_id,league,home_team,away_team,starts_at,status,correction_version) VALUES ('parlay-event','parlay-event','nfl','Home','Away',?,'scheduled','1')").bind(startsAt).run();
+    await bindings.DB.prepare("INSERT INTO market_offer (event_id,market,canonical_book,retrieved_at,offer_version,payload_json) VALUES ('parlay-event','spread','DraftKings',?,'v1',?),('parlay-event','total','DraftKings',?,'v1',?)").bind(retrievedAt, JSON.stringify({ policyVersion: CANONICAL_BOOK_POLICY_VERSION, outcomes: [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }] }), retrievedAt, JSON.stringify({ policyVersion: CANONICAL_BOOK_POLICY_VERSION, outcomes: [{ name: "Over", price: -110, point: 47 }, { name: "Under", price: -110, point: 47 }] })).run();
+    const requested = (market: "spread" | "total", selection: "home" | "over") => ({ eventId: "parlay-event", canonicalBook: "DraftKings", market, selection, offerId: `parlay-event:${market}:${selection}`, offerVersion: "v1" });
+    const canonical = await canonicalizeWagerQuote(bindings.DB, { type: "PlaceParlayWager", commandId: "seed", actorId: "member", wagerId: "parlay", quoteKey: "quote", quotedCommandVersion: "0", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "PARLAY_2026_V1", legs: [requested("spread", "home"), requested("total", "over")] } as any);
+    expect(canonical).toMatchObject({ type: "PlaceParlayWager", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", legs: [{ originalOdds: -110 }, { originalOdds: -110 }] });
+  });
+});
+
 describe("production entrypoint composition", () => {
   beforeEach(async () => {
     await ensureMigrations();

@@ -14,7 +14,7 @@ export class PoolCommandRouter {
   async send(slug: string, command: PoolCommand): Promise<Record<string, unknown>> {
     const record = await this.registry.getBySlug(slug);
     if (!record || record.status !== "ready") throw new Error("POOL_NOT_AVAILABLE");
-    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager") {
+    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager" || command.type === "PlaceParlayWager") {
       if (!this.db) throw new Error("MARKET_UNAVAILABLE");
       await revalidateWagerOffers(this.db, command);
     }

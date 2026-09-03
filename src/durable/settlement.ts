@@ -5,6 +5,7 @@ import type { CorrectedEventResult } from "../contracts/commands";
 import { parseIntegerText } from "../domain/fixed-point";
 import type { FinalResultVersion } from "../odds/result-source";
 import { enqueueOutbox } from "./outbox";
+import { gradeParlay, PARLAY_RULESET_ID } from "../domain/parlay";
 
 type Sql = { exec(query: string, ...params: SqlStorageValue[]): Iterable<Record<string, SqlStorageValue>> };
 type Row = Record<string, SqlStorageValue>;
@@ -45,8 +46,14 @@ function gradeResults(wager: Row, legs: Row[], source: readonly FinalResultVersi
   if (grades.includes("pending")) return null;
   const settledGrades = grades as Array<"win" | "loss" | "push" | "void">;
   const teaserGrade = String(wager.type) === "teaser" ? gradeTeaser(settledGrades, Number(legs[0].teaser_adjustment) as 6 | 6.5 | 7 | 7.5 | 10) : undefined;
-  const outcome = teaserGrade ? teaserGrade.outcome : settledGrades[0] === "win" ? "win" : settledGrades[0] === "loss" ? "loss" : "refund";
-  const odds = outcome === "win" ? teaserGrade?.odds ?? Number(wager.accepted_odds) : null;
+  const parlayGrade = String(wager.type) === "parlay"
+    ? String(wager.ruleset_version) === PARLAY_RULESET_ID
+      ? gradeParlay(settledGrades, legs.map((leg) => ({ eventId: String(leg.event_id), market: String(leg.market) as "spread" | "total" | "moneyline", selection: String(leg.selection) as "home" | "away" | "over" | "under", originalOdds: Number(leg.original_odds) })))
+      : (() => { throw new Error("INVALID_PARLAY_RULESET"); })()
+    : undefined;
+  const outcome = parlayGrade?.outcome ?? teaserGrade?.outcome ?? (settledGrades[0] === "win" ? "win" : settledGrades[0] === "loss" ? "loss" : "refund");
+  const effectiveParlayOdds = parlayGrade?.outcome === "win" ? parlayGrade.odds : undefined;
+  const odds = outcome === "win" ? effectiveParlayOdds ?? teaserGrade?.odds ?? Number(wager.accepted_odds) : null;
   const profit = odds === null ? 0n : americanProfitMicros(parseIntegerText(String(wager.risk_micros)), odds);
   return { grades: settledGrades, outcome, profit, odds };
 }
@@ -70,11 +77,11 @@ export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], o
     if (legs.every((leg) => String(leg.result_version ?? "") === byEvent.get(resultKey(String(leg.event_id), String(leg.league)))!.correctionVersion)) continue;
     const graded = gradeResults(wager, legs, source);
     if (!graded) continue;
-    const { grades, outcome, profit } = graded;
+    const { grades, outcome, profit, odds } = graded;
     const risk = parseIntegerText(String(wager.risk_micros));
     const prior = first(sql, "SELECT s.* FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement r WHERE r.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wager.id);
     if (prior) reversePrior(sql, wager, prior);
-    apply(sql, wager, outcome, risk, profit, version, JSON.stringify(source), prior ? String(prior.id) : null);
+    apply(sql, wager, outcome, risk, profit, odds, version, JSON.stringify(source), prior ? String(prior.id) : null);
     for (let index = 0; index < legs.length; index++) sql.exec("UPDATE wager_leg SET grade = ?, result_version = ? WHERE id = ?", grades[index], byEvent.get(resultKey(String(legs[index].event_id), String(legs[index].league)))!.correctionVersion, legs[index].id);
     applied.push({ wager, source, identity: source.map((result) => ({ eventId: result.eventId, correctionVersion: result.correctionVersion })), ...(prior ? { priorResultVersion: String(prior.result_version) } : {}) });
     settled++;
@@ -103,14 +110,14 @@ function reversePrior(sql: Sql, wager: Row, prior: Row, actorId = "system", reas
   // Settlement rows keep the internal win/loss/refund vocabulary; won/lost is the published/wager-status vocabulary.
   const float = priorOutcome === "win" ? -profit : priorOutcome === "loss" ? parseIntegerText(String(wager.risk_micros)) : 0n;
   applyLedger(sql, wager, available, locked, float, `reversal:${prior.id}`, "settlement_reversal", actorId);
-  sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, source_result_json, reversal_of, actor_id, reason, created_at) VALUES (?, ?, ?, 'reversal', ?, ?, ?, ?, ?, ?, ?)", crypto.randomUUID(), wager.id, String(prior.result_version), (-returnMicros).toString(), (-profit).toString(), String(prior.source_result_json), prior.id, actorId, reason, iso());
+  sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES (?, ?, ?, 'reversal', ?, ?, NULL, ?, ?, ?, ?, ?)", crypto.randomUUID(), wager.id, String(prior.result_version), (-returnMicros).toString(), (-profit).toString(), String(prior.source_result_json), prior.id, actorId, reason, iso());
 }
-function apply(sql: Sql, wager: Row, outcome: string, risk: bigint, profit: bigint, version: string, source: string, reversalOf: string | null, actorId = "system", reason: string | null = null): void {
+function apply(sql: Sql, wager: Row, outcome: string, risk: bigint, profit: bigint, odds: number | null, version: string, source: string, reversalOf: string | null, actorId = "system", reason: string | null = null): void {
   const available = outcome === "win" ? risk + profit : outcome === "refund" ? risk : 0n;
   const locked = -risk; const float = outcome === "win" ? profit : outcome === "loss" ? -risk : 0n;
   applyLedger(sql, wager, available, locked, float, String(wager.id), "settlement", actorId);
   sql.exec("UPDATE wager SET status = ?, settled_result_version = ? WHERE id = ?", outcome === "win" ? "won" : outcome === "loss" ? "lost" : "refunded", version, wager.id);
-  sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, source_result_json, reversal_of, actor_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", crypto.randomUUID(), wager.id, version, outcome, available.toString(), profit.toString(), source, reversalOf, actorId, reason, iso());
+  sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", crypto.randomUUID(), wager.id, version, outcome, available.toString(), profit.toString(), outcome === "win" ? odds : null, source, reversalOf, actorId, reason, iso());
 }
 function applyLedger(sql: Sql, wager: Row, available: bigint, locked: bigint, float: bigint, causation: string, kind: string, actorId = "system"): void {
   const account = first(sql, "SELECT available_micros, locked_micros FROM share_account WHERE season_id = ? AND member_id = ?", wager.season_id, wager.owner_id)!;
@@ -122,12 +129,12 @@ function applyLedger(sql: Sql, wager: Row, available: bigint, locked: bigint, fl
   sql.exec("UPDATE season SET float_micros = ? WHERE id = ?", nextFloat.toString(), wager.season_id);
   sql.exec("INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, '0', ?, ?, ?)", crypto.randomUUID(), wager.season_id, wager.owner_id, actorId, available.toString(), locked.toString(), float.toString(), causation, kind, iso());
 }
-function applyAdministrativeCorrection(sql: Sql, wager: Row, actorId: string, reason: string, commandId: string, outcome: "win" | "loss" | "refund", profit: bigint, resultVersion: string, replacement: string, grades?: readonly string[]): Array<{ id: string; reason: "float_exhausted" | "super_bowl_final" }> {
+function applyAdministrativeCorrection(sql: Sql, wager: Row, actorId: string, reason: string, commandId: string, outcome: "win" | "loss" | "refund", profit: bigint, odds: number | null, resultVersion: string, replacement: string, grades?: readonly string[]): Array<{ id: string; reason: "float_exhausted" | "super_bowl_final" }> {
   const prior = first(sql, "SELECT s.* FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement r WHERE r.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wager.id);
   const source = prior ? String(prior.source_result_json) : JSON.stringify({ status: "open", wagerId: wager.id });
   if (prior) reversePrior(sql, wager, prior, actorId, reason);
   const risk = parseIntegerText(String(wager.risk_micros));
-  apply(sql, wager, outcome, risk, profit, resultVersion, replacement, prior ? String(prior.id) : null, actorId, reason);
+  apply(sql, wager, outcome, risk, profit, outcome === "win" ? odds : null, resultVersion, replacement, prior ? String(prior.id) : null, actorId, reason);
   if (grades) {
     const legs = [...sql.exec("SELECT id FROM wager_leg WHERE wager_id = ? ORDER BY id", wager.id)];
     for (let index = 0; index < legs.length; index++) sql.exec("UPDATE wager_leg SET grade = ? WHERE id = ?", grades[index], legs[index].id);
@@ -147,13 +154,13 @@ export function correctWager(sql: Sql, wager: Row, actorId: string, reason: stri
   if (!graded) throw new Error("CORRECTION_RESULT_INVALID");
   const resultVersion = `commissioner:${commandId}:${JSON.stringify(ordered.map((result) => [result.eventId, result.correctionVersion]))}`;
   const replacement = JSON.stringify({ source: "commissioner_correction", commandId, correctedResults: ordered, derived: { outcome: graded.outcome, odds: graded.odds } });
-  return applyAdministrativeCorrection(sql, wager, actorId, reason, commandId, graded.outcome, graded.profit, resultVersion, replacement, graded.grades);
+  return applyAdministrativeCorrection(sql, wager, actorId, reason, commandId, graded.outcome, graded.profit, graded.odds, resultVersion, replacement, graded.grades);
 }
 
 /** A commissioner void is an administrative refund, not a synthetic event regrade. */
 export function voidWager(sql: Sql, wager: Row, actorId: string, reason: string, commandId: string): Array<{ id: string; reason: "float_exhausted" | "super_bowl_final" }> {
   const replacement = JSON.stringify({ source: "commissioner_void", commandId, outcome: "refund" });
-  return applyAdministrativeCorrection(sql, wager, actorId, reason, commandId, "refund", 0n, `commissioner-void:${commandId}`, replacement);
+  return applyAdministrativeCorrection(sql, wager, actorId, reason, commandId, "refund", 0n, null, `commissioner-void:${commandId}`, replacement);
 }
 
 function closeEligibleSeasons(sql: Sql, observedResults: readonly FinalResultVersion[] = [], observedAt: ReadonlyMap<string, string> = new Map()): Array<{ id: string; reason: "float_exhausted" | "super_bowl_final" }> {

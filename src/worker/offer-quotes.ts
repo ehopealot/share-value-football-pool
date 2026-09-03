@@ -5,6 +5,7 @@ import type { PoolCommand } from "../durable/pool-commands";
 import { TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
 import { adjustTeaserLine } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
+import { PARLAY_RULESET_ID, parlayOdds } from "../domain/parlay";
 
 export class LineChangedError extends Error {
   constructor(readonly replacement: Record<string, unknown>) { super("LINE_CHANGED"); }
@@ -16,8 +17,8 @@ export class QuoteLineChangedError extends Error {
 }
 
 export type OfferQuote = { eventId: string; market: MarketName; canonicalBook: string; retrievedAt: string; offerVersion: string; payload: unknown };
-type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" }>;
-type PlacementLeg = Extract<PoolCommand, { type: "PlaceStraightWager" }>['leg'] | Extract<PoolCommand, { type: "PlaceTeaserWager" }>['legs'][number];
+type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" | "PlaceParlayWager" }>;
+type PlacementLeg = Extract<PoolCommand, { type: "PlaceStraightWager" }>['leg'] | Extract<PoolCommand, { type: "PlaceTeaserWager" | "PlaceParlayWager" }>['legs'][number];
 type OfferRow = Record<"league" | "home_team" | "away_team" | "starts_at" | "status" | "canonical_book" | "retrieved_at" | "offer_version" | "payload_json", string>;
 type IngestionRow = { last_success_at: string | null; last_error: string | null };
 export type StoredOutcome = { name: string; price: number; point?: number };
@@ -55,6 +56,10 @@ export async function canonicalizeWagerQuote(db: D1Database, proposed: Placement
   if (proposed.type === "PlaceStraightWager") {
     const leg = canonicalLegs[0]!;
     return { ...proposed, acceptedOdds: leg.market === "moneyline" ? leg.originalOdds : 100, rulesetVersion: TEASER_RULESET_ID, leg: { ...leg, adjustedLine: leg.originalLine } } as Placement;
+  }
+  if (proposed.type === "PlaceParlayWager") {
+    const legs = canonicalLegs.map((leg) => ({ ...leg, adjustedLine: leg.originalLine }));
+    return { ...proposed, acceptedOdds: parlayOdds(legs), rulesetVersion: PARLAY_RULESET_ID, legs } as Placement;
   }
   const legs = canonicalLegs.map((leg) => ({ ...leg, adjustedLine: adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine! } as TeaserLeg, proposed.teaserPoints) }));
   const acceptedOdds = teaserOdds(legs.length, proposed.teaserPoints);
@@ -101,14 +106,14 @@ export async function revalidateWagerOffers(db: D1Database, command: Placement, 
   if (command.type === "PlaceStraightWager") {
     const expectedOdds = command.leg.market === "moneyline" ? command.leg.originalOdds : 100;
     if (command.acceptedOdds !== expectedOdds || command.rulesetVersion !== TEASER_RULESET_ID) throw new Error("NON_CANONICAL_QUOTE");
-  } else {
+  } else if (command.type === "PlaceTeaserWager") {
     const expectedOdds = teaserOdds(command.legs.length, command.teaserPoints);
     if (expectedOdds === undefined || command.acceptedOdds !== expectedOdds || command.rulesetVersion !== TEASER_RULESET_ID) throw new Error("NON_CANONICAL_QUOTE");
     for (const leg of command.legs) {
       const expected = adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg, command.teaserPoints);
       if (leg.adjustedLine !== expected) throw new Error("NON_CANONICAL_QUOTE");
     }
-  }
+  } else if (command.acceptedOdds !== parlayOdds(command.legs) || command.rulesetVersion !== PARLAY_RULESET_ID) throw new Error("NON_CANONICAL_QUOTE");
   return command;
 }
 

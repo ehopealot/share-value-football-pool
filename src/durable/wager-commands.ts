@@ -2,12 +2,13 @@ import { WHOLE_SHARE_MICROS, parseIntegerText } from "../domain/fixed-point";
 import { adjustTeaserLine, validateTeaser } from "../domain/grading";
 import { teaserOdds, TEASER_RULESET_ID } from "../domain/teaser-table";
 import { CANONICAL_BOOK_POLICY_VERSION } from "../odds/types";
+import { PARLAY_RULESET_ID, parlayOdds, validateParlay } from "../domain/parlay";
 import type { TeaserLeg } from "../domain/types";
 import type { PoolCommand } from "./pool-commands";
 
 type Sql = { exec(query: string, ...params: SqlStorageValue[]): Iterable<Record<string, SqlStorageValue>> };
-type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" }>;
-type WagerLeg = Extract<Placement, { type: "PlaceStraightWager" }>["leg"] | Extract<Placement, { type: "PlaceTeaserWager" }>["legs"][number];
+type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" | "PlaceParlayWager" }>;
+type WagerLeg = Extract<Placement, { type: "PlaceStraightWager" }>["leg"] | Extract<Placement, { type: "PlaceTeaserWager" | "PlaceParlayWager" }>["legs"][number];
 const first = (sql: Sql, query: string, ...params: SqlStorageValue[]) => [...sql.exec(query, ...params)][0];
 const now = () => new Date().toISOString();
 const gcd = (a: bigint, b: bigint): bigint => b === 0n ? a : gcd(b, a % b);
@@ -39,20 +40,24 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
   const account = first(sql, "SELECT available_micros, locked_micros FROM share_account WHERE season_id = ? AND member_id = ?", command.seasonId, command.actorId);
   if (!account || parseIntegerText(String(account.available_micros)) < risk) throw new Error("INSUFFICIENT_SHARES");
   const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
-  if (legs.some((leg) => !["DraftKings", "FanDuel", "BetMGM", "Caesars"].includes(leg.canonicalBook) || leg.policyVersion !== CANONICAL_BOOK_POLICY_VERSION || leg.canonicalOfferProof.eventId !== leg.eventId || leg.canonicalOfferProof.offerVersion !== leg.offerVersion || leg.canonicalOfferProof.canonicalBook !== leg.canonicalBook || leg.canonicalOfferProof.market !== leg.market || leg.canonicalOfferProof.selection !== leg.selection || leg.canonicalOfferProof.odds !== leg.originalOdds || leg.canonicalOfferProof.line !== leg.originalLine)) throw new Error("INVALID_OFFER_SNAPSHOT");
+  if (legs.some((leg) => !["DraftKings", "FanDuel", "BetMGM", "Caesars"].includes(leg.canonicalBook) || leg.policyVersion !== CANONICAL_BOOK_POLICY_VERSION || leg.canonicalOfferProof.eventId !== leg.eventId || leg.canonicalOfferProof.offerVersion !== leg.offerVersion || leg.canonicalOfferProof.canonicalBook !== leg.canonicalBook || leg.canonicalOfferProof.market !== leg.market || leg.canonicalOfferProof.selection !== leg.selection || (leg.market !== "moneyline" && leg.canonicalOfferProof.odds !== leg.originalOdds) || leg.canonicalOfferProof.line !== leg.originalLine)) throw new Error("INVALID_OFFER_SNAPSHOT");
   if (command.type === "PlaceStraightWager") {
     const validSelection = command.leg.market === "total" ? ["over", "under"].includes(command.leg.selection) : ["home", "away"].includes(command.leg.selection);
     if (!validSelection || (command.leg.market === "moneyline" && (command.leg.originalLine !== null || command.leg.adjustedLine !== null || command.acceptedOdds !== command.leg.originalOdds)) || (command.leg.market !== "moneyline" && (command.leg.originalLine === null || command.leg.adjustedLine !== command.leg.originalLine || command.acceptedOdds !== 100))) throw new Error("INVALID_WAGER_LEG");
-  } else {
+  } else if (command.type === "PlaceTeaserWager") {
     validateTeaser(legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg)), command.teaserPoints);
     if (command.rulesetVersion !== TEASER_RULESET_ID || teaserOdds(legs.length, command.teaserPoints) !== command.acceptedOdds || legs.some((leg) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg, command.teaserPoints) !== (leg as Extract<Placement, { type: "PlaceTeaserWager" }>['legs'][number]).adjustedLine)) throw new Error("INVALID_TEASER_TERMS");
+  } else {
+    validateParlay(legs);
+    if (command.rulesetVersion !== PARLAY_RULESET_ID || parlayOdds(legs) !== command.acceptedOdds || legs.some((leg) => leg.adjustedLine !== leg.originalLine)) throw new Error("INVALID_PARLAY_TERMS");
   }
   if (legs.some((leg) => new Date(leg.eventStartsAt).getTime() <= Date.now())) throw new Error("MARKET_LOCKED");
   assertSideBetLimit(sql, command, legs, maxSideBetMicros);
 
   const confirmedAt = now();
   sql.exec("UPDATE share_account SET available_micros = ?, locked_micros = ?, row_version = row_version + 1 WHERE season_id = ? AND member_id = ?", (parseIntegerText(String(account.available_micros)) - risk).toString(), (parseIntegerText(String(account.locked_micros ?? "0")) + risk).toString(), command.seasonId, command.actorId);
-  sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)", command.wagerId, command.seasonId, command.actorId, command.type === "PlaceStraightWager" ? "straight" : "teaser", risk.toString(), command.acceptedOdds, command.rulesetVersion, confirmedAt);
+  const wagerType = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";
+  sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)", command.wagerId, command.seasonId, command.actorId, wagerType, risk.toString(), command.acceptedOdds, command.rulesetVersion, confirmedAt);
   for (const [index, leg] of legs.entries()) {
     sql.exec(
       "INSERT INTO wager_leg (id, wager_id, event_id, league, canonical_book, retrieved_at, policy_version, offer_version, canonical_offer_id, canonical_proof_json, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, is_super_bowl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
