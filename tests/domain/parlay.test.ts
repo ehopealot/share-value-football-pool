@@ -29,6 +29,13 @@ describe("PARLAY_2026_V1 pricing and validation", () => {
     ])).toBe(233);
   });
 
+  it("prices a same-event moneyline and total with the paired-total adjustment", () => {
+    expect(parlayOdds([
+      leg("one", "moneyline", "home", -150),
+      leg("one", "total", "over", -110)
+    ])).toBe(191);
+  });
+
   it("enforces two through six selections", () => {
     expect(() => validateParlay([leg("one", "spread", "home")])).toThrow(/2.*6/i);
     expect(() => validateParlay(Array.from({ length: 7 }, (_, index) => leg(`game-${index}`, "spread", "home")))).toThrow(/2.*6/i);
@@ -61,11 +68,24 @@ describe("PARLAY_2026_V1 pricing and validation", () => {
     ])).toBe(-477);
   });
 
-  it("rejects unsafe odds inputs and outputs with the canonical error", () => {
-    expect(() => parlayOdds([
-      leg("one", "moneyline", "home", Number.MAX_SAFE_INTEGER + 1),
-      leg("two", "moneyline", "away", -110)
-    ])).toThrow(PARLAY_ODDS_OUT_OF_RANGE);
+  it("treats +100 and -100 as the same even-money multiplier", () => {
+    expect(gradeParlay(grades("win", "void"), [
+      leg("one", "moneyline", "home", 100),
+      leg("two", "total", "over")
+    ])).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
+    expect(gradeParlay(grades("win", "void"), [
+      leg("one", "moneyline", "home", -100),
+      leg("two", "total", "over")
+    ])).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
+  });
+
+  it("rejects zero, fractional, unsafe input, and unsafe output odds with the canonical error", () => {
+    for (const odds of [0, 100.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => parlayOdds([
+        leg("one", "moneyline", "home", odds),
+        leg("two", "moneyline", "away", -110)
+      ])).toThrow(PARLAY_ODDS_OUT_OF_RANGE);
+    }
     expect(() => parlayOdds([
       leg("one", "moneyline", "home", Number.MAX_SAFE_INTEGER),
       leg("two", "moneyline", "away", Number.MAX_SAFE_INTEGER)
@@ -87,5 +107,14 @@ describe("PARLAY_2026_V1 pricing and validation", () => {
     expect(gradeParlay(grades("push", "win"), paired)).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
     expect(gradeParlay(grades("win", "void"), paired)).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
     expect(gradeParlay(grades("push", "void"), paired)).toEqual({ outcome: "refund", winningLegs: 0 });
+  });
+
+  it("reverts a paired total to +100 when its moneyline pushes or voids", () => {
+    const paired = [
+      leg("one", "moneyline", "home", -150),
+      leg("one", "total", "over")
+    ];
+    expect(gradeParlay(grades("push", "win"), paired)).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
+    expect(gradeParlay(grades("void", "win"), paired)).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
   });
 });
