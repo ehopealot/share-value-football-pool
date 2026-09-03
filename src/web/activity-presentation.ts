@@ -1,5 +1,6 @@
 import type { ReadActivity } from "../contracts/http";
 import { formatMicros, parseIntegerText } from "../domain/fixed-point";
+import { sortWagersByStartTime } from "./wager-presentation";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -17,7 +18,7 @@ export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string):
     group.wagers.push(wager);
     groups.set(wager.memberId, group);
   }
-  return [...groups.values()].map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString() }));
+  return [...groups.values()].map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByStartTime(group.wagers) }));
 }
 
 export function formatWeeklyPerformance(profitMicros: string): string {

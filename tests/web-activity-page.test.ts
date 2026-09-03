@@ -10,7 +10,8 @@ describe("Activity page", () => {
     expect(source).toContain('].sort().reverse();');
     expect(source).toContain('weeks.includes(selectedWeek) ? selectedWeek : weeks[0]');
     expect(source).toContain('className="activity-table"');
-    expect(source).toContain('<th>Member</th><th>Wager</th><th>Result</th><th>P&amp;L</th>');
+    expect(source).toContain('<th>Member</th><th>Start</th><th>Wager</th><th>Result</th><th>P&amp;L</th>');
+    expect(source).toContain('displayWagerStartTime(wager)');
     expect(source).toContain('weekNumberLabel(start)');
     expect(source).not.toContain('Week of {weekLabel(start)}');
   });

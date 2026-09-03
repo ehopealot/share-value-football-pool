@@ -8,7 +8,7 @@ import { addTeaserLeg, teaserLegForOutcome, writeTeaserSlip } from "../teaser-sl
 import { buildParlaySlip, writeParlaySlip } from "../parlay-slip";
 import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketExclusive, writeSelectionTray, type TrayItem } from "../selection-tray";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
-import { formatAmericanOdds, formatSignedLine } from "../odds-format";
+import { formatAmericanOdds, formatKickoff, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
 import { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
@@ -36,7 +36,7 @@ export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek,
       const classes = ["odds-option", locked ? "locked" : "", option?.offer.market === "total" ? "odds-option-total" : ""].filter(Boolean).join(" ");
       return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked || selectionDisabled} checked={selected.has(pickId({ eventId: option.offer.eventId, market: option.offer.market, selection: option.selection as TrayItem["selection"] }))} onChange={() => onToggle(option)} /><span className="odds-option-name">{option.name}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
     };
-    const kickoff = new Date(game.startsAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const kickoff = formatKickoff(game.startsAt);
     return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
   })}</tbody></table></div>;
 }, oddsBoardTablePropsAreEqual);

@@ -7,15 +7,15 @@ const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", 
 describe("activity presentation", () => {
   it("groups the selected kickoff week by member and counts open tickets as zero performance", () => {
     const groups = groupActivityMembersForWeek([
-      wager(),
-      wager({ wagerId: "open", status: "open", performanceMicros: "0", profitMicros: undefined }),
-      wager({ wagerId: "loss", status: "lost", performanceMicros: "-300000000", profitMicros: "0" }),
+      wager({ wagerId: "late", legs: [leg({ eventStartsAt: "2026-09-08T20:00:00.000Z" })] }),
+      wager({ wagerId: "open", type: "teaser", status: "open", performanceMicros: "0", profitMicros: undefined, legs: [leg({ eventStartsAt: "2026-09-08T20:00:00.000Z" }), leg({ eventId: "earliest-parlay-leg", eventStartsAt: "2026-09-06T18:00:00.000Z" })] }),
+      wager({ wagerId: "loss", status: "lost", performanceMicros: "-300000000", profitMicros: "0", legs: [leg({ eventStartsAt: "2026-09-07T20:00:00.000Z" })] }),
       wager({ wagerId: "other-week", weekStart: "2026-09-08T04:00:00.000Z", performanceMicros: "300000000", profitMicros: "300000000" }),
       wager({ wagerId: "other-member", memberId: "arizona", memberDisplayName: "Wildcat", performanceMicros: "-300000000" })
     ], "2026-09-01T04:00:00.000Z");
 
     expect(groups).toEqual([
-      expect.objectContaining({ memberId: "ucla", memberDisplayName: "Bruin", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "wager" }), expect.objectContaining({ wagerId: "open" }), expect.objectContaining({ wagerId: "loss" })] }),
+      expect.objectContaining({ memberId: "ucla", memberDisplayName: "Bruin", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "open" }), expect.objectContaining({ wagerId: "loss" }), expect.objectContaining({ wagerId: "late" })] }),
       expect.objectContaining({ memberId: "arizona", memberDisplayName: "Wildcat", performanceMicros: "-300000000" })
     ]);
     expect(formatWeeklyPerformance("500000000")).toBe("+500.00 shares");

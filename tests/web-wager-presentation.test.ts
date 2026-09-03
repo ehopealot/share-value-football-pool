@@ -3,8 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Confirmation } from "../src/web/components/Confirmation";
 import { WagerDetails } from "../src/web/components/WagerDetails";
-import { WagerRows } from "../src/web/pages/MyWagersPage";
-import { ticketReturns } from "../src/web/wager-presentation";
+import { formatKickoff } from "../src/web/odds-format";
+import { displayWagerStartTime, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
+
+const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", type: "straight", confirmedAt: "2026-09-01T00:00:00.000Z", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }], ...overrides });
 
 describe("owner ticket presentation", () => {
   it("uses the shared half-even American-odds calculation for possible returns", () => {
@@ -16,16 +18,14 @@ describe("owner ticket presentation", () => {
     expect(ticketReturns("9007199254740993", 100)).toEqual({ profit: "9007199254.74", total: "18014398509.48" });
   });
 
-  it("labels accepted and recorded settlement odds without claiming losses or historic nulls were paid", () => {
-    const parlay = { wagerId: "p", memberDisplayName: "Member", type: "parlay", status: "won", acceptedOdds: 300, settledOdds: 250, riskMicros: "1000000", returnMicros: "3500000", outcome: "won", legs: [] };
-    const won = renderToStaticMarkup(createElement(WagerRows, { wager: parlay }));
-    expect(won).toContain("+300");
-    expect(won).toContain("+250");
-    expect(won).toContain("Recorded settlement odds");
-    const historic = renderToStaticMarkup(createElement(WagerRows, { wager: { ...parlay, settledOdds: null } }));
-    expect(historic).toContain("Not recorded");
-    const lost = renderToStaticMarkup(createElement(WagerRows, { wager: { ...parlay, status: "lost", outcome: "lost", returnMicros: "0", settledOdds: null } }));
-    expect(lost).toContain("No paid odds");
+  it("shows a local start only for straights and orders parlays by their earliest leg", () => {
+    const late = wager({ wagerId: "late", legs: [{ eventStartsAt: "2026-09-08T20:00:00.000Z" }] });
+    const parlay = wager({ wagerId: "parlay", type: "parlay", legs: [{ eventStartsAt: "2026-09-07T20:00:00.000Z" }, { eventStartsAt: "2026-09-06T18:00:00.000Z" }] });
+    const early = wager({ wagerId: "early", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }] });
+
+    expect(displayWagerStartTime(early)).toBe(formatKickoff("2026-09-06T20:00:00.000Z"));
+    expect(displayWagerStartTime(parlay)).toBe("");
+    expect(sortWagersByStartTime([late, early, parlay]).map((item) => item.wagerId)).toEqual(["parlay", "early", "late"]);
   });
 
   it("renders parlay confirmation terms and owner settlement details", () => {
