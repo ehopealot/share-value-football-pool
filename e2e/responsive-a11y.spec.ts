@@ -99,6 +99,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await expect(page.getByText(/No shares issued yet/)).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Local Away/ })).toBeVisible();
   await page.getByRole("checkbox").first().check();
+  await expect(page.locator(".selection-tray-list li")).not.toContainText("spread");
   const removeSelection = page.getByRole("button", { name: "Remove" });
   await expect(removeSelection).toHaveClass("selection-tray-remove");
   await expect(removeSelection).toHaveCSS("min-height", "44px");
