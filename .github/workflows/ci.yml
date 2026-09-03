@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --maxWorkers=5
+      - run: npm run typecheck
+      - name: Check committed diff
+        run: |
+          if git rev-parse --verify HEAD^ >/dev/null; then
+            git diff --check HEAD^ HEAD
+          else
+            git diff --check "$(git hash-object -t tree /dev/null)" HEAD
+          fi
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: ci
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment freshness
+        id: freshness
+        run: |
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$GITHUB_SHA" = "$remote_main" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale commit $GITHUB_SHA; main is $remote_main"
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply D1 migrations
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: ./node_modules/.bin/wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+      - name: Deploy production Worker
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          CI: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+        run: npm run deploy:production
+      - name: Verify production health
+        if: steps.freshness.outputs.deploy == 'true'
+        run: |
+          for attempt in $(seq 1 12); do
+            status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out "%{http_code}" https://officepool.football/health/app || true)"
+            if [ "$status" = "200" ]; then
+              exit 0
+            fi
+            echo "Health check attempt $attempt returned ${status:-no response}; retrying"
+            sleep 5
+          done
+          echo "Production health check did not return HTTP 200"
+          exit 1
