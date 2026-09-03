@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Confirmation } from "../src/web/components/Confirmation";
 import { WagerDetails } from "../src/web/components/WagerDetails";
 import { formatKickoff } from "../src/web/odds-format";
-import { displayWagerStartTime, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
+import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
 
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", type: "straight", confirmedAt: "2026-09-01T00:00:00.000Z", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }], ...overrides });
 
@@ -18,13 +18,13 @@ describe("owner ticket presentation", () => {
     expect(ticketReturns("9007199254740993", 100)).toEqual({ profit: "9007199254.74", total: "18014398509.48" });
   });
 
-  it("shows a local start only for straights and orders parlays by their earliest leg", () => {
+  it("shows every local leg start and orders parlays by their earliest leg", () => {
     const late = wager({ wagerId: "late", legs: [{ eventStartsAt: "2026-09-08T20:00:00.000Z" }] });
     const parlay = wager({ wagerId: "parlay", type: "parlay", legs: [{ eventStartsAt: "2026-09-07T20:00:00.000Z" }, { eventStartsAt: "2026-09-06T18:00:00.000Z" }] });
     const early = wager({ wagerId: "early", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }] });
 
-    expect(displayWagerStartTime(early)).toBe(formatKickoff("2026-09-06T20:00:00.000Z"));
-    expect(displayWagerStartTime(parlay)).toBe("");
+    expect(displayWagerStartTimes(early)).toEqual([formatKickoff("2026-09-06T20:00:00.000Z")]);
+    expect(displayWagerStartTimes(parlay)).toEqual([formatKickoff("2026-09-07T20:00:00.000Z"), formatKickoff("2026-09-06T18:00:00.000Z")]);
     expect(sortWagersByStartTime([late, early, parlay]).map((item) => item.wagerId)).toEqual(["parlay", "early", "late"]);
   });
 

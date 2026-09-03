@@ -12,7 +12,7 @@ describe("Activity page", () => {
     expect(source).toContain('className="activity-table"');
     expect(source).toContain('<th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th>');
     expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
-    expect(source).toContain('displayWagerStartTime(wager)');
+    expect(source).toContain('displayWagerStartTimes(wager)');
     expect(source).toContain('weekNumberLabel(start)');
     expect(source).not.toContain('Week of {weekLabel(start)}');
   });

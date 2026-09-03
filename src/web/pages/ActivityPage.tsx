@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { activitySelectedOutcomeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
-import { displayWagerStartTime } from "../wager-presentation";
+import { displayWagerStartTimes } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -22,6 +22,10 @@ function Staked({ wager }: { wager: Wager }) {
   return stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : null;
 }
 
+function WagerStartTimes({ wager }: { wager: Wager }) {
+  return <div className="activity-wager-lines">{displayWagerStartTimes(wager).map((start, index) => <span key={index}>{start}</span>)}</div>;
+}
+
 export function ActivityPage() {
   const { slug = "" } = useParams();
   const [data, setData] = useState<import("../../contracts/http").ReadActivity>();
@@ -37,7 +41,7 @@ export function ActivityPage() {
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
   return <Layout signedIn><div className="activity-page"><h1>Activity</h1>
     <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
-      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td>{displayWagerStartTime(wager)}</td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
+      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td><WagerStartTimes wager={wager}/></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }

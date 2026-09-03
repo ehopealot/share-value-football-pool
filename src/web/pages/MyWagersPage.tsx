@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { activitySelectedOutcomeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
-import { displayWagerStartTime, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
+import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 
 const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
 
@@ -21,9 +21,13 @@ function Staked({ wager }: { wager: any }) {
   return stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : null;
 }
 
+function WagerStartTimes({ wager }: { wager: any }) {
+  return <div className="wager-legs">{displayWagerStartTimes(wager).map((start, index) => <span key={index}>{start}</span>)}</div>;
+}
+
 export function WagerRows({ wager }: { wager: any }) {
   const payout = wager.status === "open" ? ticketReturns(wager.riskMicros, wager.acceptedOdds).total : shares(wager.returnMicros);
-  return <tr><td>{displayWagerStartTime(wager)}</td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td>{payout}</td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;
+  return <tr><td><WagerStartTimes wager={wager}/></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td>{payout}</td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;
 }
 
 export function MyWagersPage() {
