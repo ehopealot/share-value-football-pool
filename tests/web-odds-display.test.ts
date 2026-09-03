@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds } from "../src/web/odds-format";
-import { oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails } from "../src/web/pages/OddsPage";
+import { batchAfterPopState, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
 
@@ -33,6 +33,16 @@ describe("member-facing odds display", () => {
     expect(selectionTrayDisplayLabel({ market: "spread", selection: "away" } as any, { offer: { ...offer, market: "spread" }, outcome: { name: "Away", point: 3, price: -110 } })).toBe("Away at Home: Away +3");
     expect(selectionTrayDisplayLabel({ market: "total", selection: "over" } as any, { offer: { ...offer, market: "total" }, outcome: { name: "Over", point: 44.5, price: -110 } })).toBe("Away at Home: Over 44.5");
     expect(selectionTrayDisplayLabel({ market: "moneyline", selection: "home" } as any, { offer: { ...offer, market: "moneyline" }, outcome: { name: "Home", price: 125 } })).toBe("Away at Home: Home +125");
+  });
+
+  it("returns both review and placement results to the odds board on browser back", () => {
+    const reviewing = { tag: "reviewing", entries: [], quoteFailures: [] } as any;
+    const results = { tag: "results", placed: [], failed: [], retryPlacements: [] } as any;
+    const quoting = { tag: "quoting" } as any;
+
+    expect(batchAfterPopState(reviewing)).toBeUndefined();
+    expect(batchAfterPopState(results)).toBeUndefined();
+    expect(batchAfterPopState(quoting)).toEqual(quoting);
   });
 
   it("keeps the odds table memoized while only a bet amount changes", () => {
