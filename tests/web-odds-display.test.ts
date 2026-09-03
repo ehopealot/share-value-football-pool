@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatAmericanOdds } from "../src/web/odds-format";
+import { formatAmericanOdds, formatKickoff } from "../src/web/odds-format";
 import { batchAfterPopState, filterGamesByTeam, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
@@ -11,6 +11,13 @@ describe("member-facing odds display", () => {
     expect(formatAmericanOdds(100)).toBe("+100");
     expect(formatAmericanOdds(225)).toBe("+225");
     expect(formatAmericanOdds(-110)).toBe("-110");
+  });
+
+  it("uses one compact local kickoff formatter for the odds board and wager tables", () => {
+    const date = new Date("2026-09-06T20:00:00.000Z");
+    const hour = date.getHours() % 12 || 12;
+    expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe(`${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`);
+    expect(oddsPageSource).toContain("formatKickoff(game.startsAt)");
   });
 
   it("provides complete straight-bet confirmation details including the amount to win", () => {

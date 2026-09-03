@@ -443,7 +443,6 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     const teaserPAndL = (actor: Page) => teaserRow(actor).locator("td").last();
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRow(viewer)).toContainText("Selection hidden until the game starts.");
-    await expect(teaserRow(viewer)).toContainText("Open");
     await expect(teaserPAndL(viewer)).toHaveText("");
     await expect(teaserRow(viewer)).not.toContainText(commissionerName);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
@@ -582,11 +581,11 @@ test("activity stays immutable and presents only the current settlement without 
     const activityPAndL = (actor: Page) => activityRow(actor).locator("td").last();
     // Both viewers receive the same safe settlement performance, while only the owner receives protected terms.
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityRow(page)).toContainText("won");
-    await expect(activityRow(page)).toContainText("+1.00 shares");
+    await expect(activityPAndL(page)).toHaveText("+1.00 shares");
+    await expect(activityPAndL(page)).toHaveClass("activity-performance-won");
     await member.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityRow(member)).toContainText("won");
-    await expect(activityRow(member)).toContainText("+1.00 shares");
+    await expect(activityPAndL(member)).toHaveText("+1.00 shares");
+    await expect(activityPAndL(member)).toHaveClass("activity-performance-won");
     const hidden = await activityJson(member, slug);
     expect(hidden).not.toContain("riskMicros");
     expect(hidden).toContain('"performanceMicros":"1000000"');
@@ -594,19 +593,18 @@ test("activity stays immutable and presents only the current settlement without 
     // The correction chain replaces only the current outcome and safe performance presentation.
     expect(await correctWager(page, slug, wagerId, "lost", "Official scoring correction", "official-loss-v2")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityRow(page)).toContainText("lost");
-    await expect(activityRow(page)).toContainText("-1.00 shares");
+    await expect(activityPAndL(page)).toHaveText("-1.00 shares");
+    await expect(activityPAndL(page)).toHaveClass("activity-performance-lost");
     await member.reload();
-    await expect(activityRow(member)).toContainText("lost");
-    await expect(activityRow(member)).toContainText("-1.00 shares");
+    await expect(activityPAndL(member)).toHaveText("-1.00 shares");
+    await expect(activityPAndL(member)).toHaveClass("activity-performance-lost");
     expect(await correctWager(page, slug, wagerId, "refunded", "Settled ticket voided", "official-void-v3")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityRow(page)).toContainText("refunded");
-    await expect(activityPAndL(page)).toHaveText("");
-    await expect(activityRow(page)).not.toContainText("0.00 shares");
+    await expect(activityPAndL(page)).toHaveText("0.00 shares");
+    await expect(activityPAndL(page)).not.toHaveClass(/activity-performance-(won|lost)/);
     await member.reload();
-    await expect(activityRow(member)).toContainText("refunded");
-    await expect(activityPAndL(member)).toHaveText("");
+    await expect(activityPAndL(member)).toHaveText("0.00 shares");
+    await expect(activityPAndL(member)).not.toHaveClass(/activity-performance-(won|lost)/);
     expect(await activityRow(page).count()).toBe(1);
     expect(await activityRow(member).count()).toBe(1);
   } finally { await memberContext.close(); }
