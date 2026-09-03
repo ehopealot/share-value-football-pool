@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds } from "../src/web/odds-format";
 import { oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails } from "../src/web/pages/OddsPage";
+
+const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
 
 describe("member-facing odds display", () => {
   it("always prefixes a positive American price with +", () => {
@@ -37,5 +41,10 @@ describe("member-facing odds display", () => {
     const previous = { games, currentWeek: "2026-09-01T04:00:00.000Z", selectedPickIds: ["event:spread:away"], onToggle };
     expect(oddsBoardTablePropsAreEqual(previous, { ...previous, selectedPickIds: ["event:spread:away"] })).toBe(true);
     expect(oddsBoardTablePropsAreEqual(previous, { ...previous, selectedPickIds: ["event:spread:home"] })).toBe(false);
+  });
+
+  it("offers a full-page Reload odds link only when the feed is stale", () => {
+    expect(oddsPageSource).toContain('board?.feed.status === "stale"');
+    expect(oddsPageSource).toContain('<a href={window.location.href}>Reload odds</a>');
   });
 });
