@@ -39,9 +39,8 @@ export function AdminSettingsPage() {
       <h2 id="commissioner-notice-settings-heading">Commissioner notice</h2>
       <div className="share-order-form pool-settings-notice-controls">
         <div className="pool-settings-notice-field">
-          <label htmlFor="commissioner-notice">Notice text</label>
           <p id="commissioner-notice-help" className="pool-settings-help">This notice displays in a banner on joined pool pages.</p>
-          <textarea id="commissioner-notice" className="commissioner-notice-input" aria-describedby="commissioner-notice-help" disabled={settings.pending} value={commissionerNotice} maxLength={500} onChange={(e) => { edit(); setCommissionerNotice(e.target.value); }} />
+          <textarea id="commissioner-notice" className="commissioner-notice-input" aria-labelledby="commissioner-notice-settings-heading" aria-describedby="commissioner-notice-help" disabled={settings.pending} value={commissionerNotice} maxLength={500} onChange={(e) => { edit(); setCommissionerNotice(e.target.value); }} />
         </div>
         <button disabled={!commissionerNotice.trim() || settings.pending} onClick={() => void save(`notice:${commissionerNotice}`, () => ({ commissionerNotice }))}>Save notice</button>
         {view.pool.commissionerNotice !== null && <button disabled={settings.pending} onClick={() => void save("clear-notice", () => ({ commissionerNotice: null }))}>Clear notice</button>}

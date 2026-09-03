@@ -38,8 +38,9 @@ describe("commissioner banner notice", () => {
     expect(css()).toMatch(/\.commissioner-notice\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*pre-wrap/s);
     expect(css()).toContain("--notice-background");
     expect(css()).toContain("--notice-ink");
-    expect(settings()).toContain('htmlFor="commissioner-notice"');
+    expect(settings()).toContain('aria-labelledby="commissioner-notice-settings-heading"');
     expect(settings()).toContain('id="commissioner-notice"');
+    expect(settings()).not.toContain(">Notice text<");
     expect(settings()).toContain("maxLength={500}");
     expect(settings()).toContain("Save notice");
     expect(settings()).toContain("Clear notice");
