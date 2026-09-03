@@ -45,4 +45,14 @@ describe("commissioner banner notice", () => {
     expect(settings()).toContain("Clear notice");
     expect(settings()).toContain("invalidatePoolView()");
   });
+
+  it("groups settings actions with their controls and explains the notice banner", () => {
+    expect(settings()).toContain('className="pool-settings"');
+    expect(settings()).toContain('className="share-order-form pool-settings-notice-controls"');
+    expect(settings()).toContain('id="commissioner-notice-help"');
+    expect(settings()).toContain('aria-describedby="commissioner-notice-help"');
+    expect(settings()).toContain("This notice displays in a banner on joined pool pages.");
+    expect(css()).toMatch(/\.pool-settings\s*\{[^}]*display:\s*grid[^}]*gap:/s);
+    expect(css()).toMatch(/\.pool-settings-notice-field\s*\{[^}]*flex:\s*1 1 min\(100%, 65ch\)/s);
+  });
 });
