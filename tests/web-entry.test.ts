@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "../src/web/api";
 import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
-import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
+import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, straightPlacementBatchTransition, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
 import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
+import { PageGeneration } from "../src/web/page-generation";
 
 describe("entry redirects", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -142,6 +143,42 @@ describe("entry redirects", () => {
     expect(failureReason(new Error("offline"), "quote")).toBe("Odds unavailable.");
     expect(failureReason(asApi("MARKET_LOCKED", 400), "place")).toBe("Event has started.");
     expect(failureReason(asApi("SIDE_BET_LIMIT", 400), "place", "800000000")).toBe("Max bet: 800 shares.");
+  });
+
+  it("invalidates pending placement work when a route changes or unmounts", () => {
+    const pages = new PageGeneration();
+    const oldPool = pages.start("old-pool");
+    expect(pages.capture("old-pool")).toBe(oldPool);
+    expect(pages.current(oldPool)).toBe(true);
+
+    const newPool = pages.start("new-pool");
+    expect(pages.current(oldPool)).toBe(false);
+    pages.invalidate(oldPool);
+    expect(pages.current(newPool)).toBe(true);
+    pages.invalidate(newPool);
+    expect(pages.current(newPool)).toBe(false);
+  });
+
+  it("retains known straight-batch outcomes while retrying only unresolved placements", () => {
+    const retry = [{ label: "Unknown placement" }] as any;
+    const transition = straightPlacementBatchTransition(
+      { entries: retry, quoteFailures: [{ label: "Unquoted", reason: "Odds unavailable." }], placed: ["Already placed"], failed: [{ label: "Already rejected", reason: "Event has started." }] } as any,
+      { placed: [{ label: "Newly placed" }], failed: [{ label: "Rejected now", reason: "Not enough shares.", entry: {} }], retry } as any
+    );
+    expect(transition).toEqual({
+      tag: "reviewing",
+      entries: retry,
+      quoteFailures: [{ label: "Unquoted", reason: "Odds unavailable." }],
+      placed: ["Already placed", "Newly placed"],
+      failed: [{ label: "Already rejected", reason: "Event has started." }, { label: "Rejected now", reason: "Not enough shares." }]
+    });
+
+    expect(straightPlacementBatchTransition(transition as any, { placed: [{ label: "Recovered placement" }], failed: [], retry: [] } as any)).toEqual({
+      tag: "results",
+      placed: ["Already placed", "Newly placed", "Recovered placement"],
+      failed: [{ label: "Already rejected", reason: "Event has started." }, { label: "Rejected now", reason: "Not enough shares." }],
+      retryPlacements: []
+    });
   });
 
   it("anchors Tuesday weeks to Eastern Time boundaries", () => {

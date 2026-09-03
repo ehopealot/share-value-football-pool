@@ -9,6 +9,7 @@ import { ticketReturns } from "../wager-presentation";
 import { outcomeForSelection } from "../selection-matcher";
 import { formatAmericanOdds } from "../odds-format";
 import { teaserRiskError } from "../selection-tray";
+import { PageGeneration } from "../page-generation";
 export type TeaserSemantic = { legs: TeaserLeg[]; points: number; risk: string; quoteKey: string; wagerId: string };
 type TeaserReview = { tag: "reviewing"; request: TeaserSemantic; quote: any; mutationKey: string };
 type TeaserUnresolvedPlacement = { tag: "placement-unknown"; request: TeaserSemantic; quote: any; mutationKey: string };
@@ -56,8 +57,13 @@ const teaserPick = (leg: TeaserLeg, points: number) => pickAtLine(leg, adjustedL
 const teaserAdjustment = (leg: TeaserLeg, points: number) => signed(adjustedLine(leg, points) - leg.originalLine);
 
 export function TeaserPage() {
-  const { slug = "" } = useParams(); const nav = useNavigate(); const [view, setView] = useState<any>(); const [state, setState] = useState<State>(() => ({ tag: "editing", editor: fresh([], 6) })); const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null);
-  useEffect(() => { const legs = readTeaserSlip(slug); setState({ tag: "editing", editor: fresh(legs, 6) }); void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
+  const { slug = "" } = useParams(); const nav = useNavigate(); const [view, setView] = useState<any>(); const [state, setState] = useState<State>(() => ({ tag: "editing", editor: fresh([], 6) })); const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const generations = useRef(new PageGeneration());
+  useEffect(() => {
+    const ticket = generations.current.start(slug);
+    const legs = readTeaserSlip(slug); setView(undefined); setError(""); setState({ tag: "editing", editor: fresh(legs, 6) });
+    void api.poolView(slug).then((loaded) => { if (generations.current.current(ticket)) setView(loaded); }).catch((e) => { if (generations.current.current(ticket)) setError(errorMessage(e)); });
+    return () => generations.current.invalidate(ticket);
+  }, [slug]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const editor = state.tag === "editing" ? state.editor : undefined;
   const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
@@ -65,14 +71,47 @@ export function TeaserPage() {
   const returnToEditor = (request: Semantic) => setState({ tag: "editing", editor: fresh(request.legs, request.points, request.risk) });
   const pending = state.tag === "quoting" || state.tag === "submitting";
   const edit = (next: Semantic) => { setError(""); setState({ tag: "editing", editor: editTeaserSemantic(next) }); };
-  const review = async () => { if (!editor || !view?.activeSeason?.id) return; const validation = teaserRiskError(editor.risk, { maxSideBetMicros: view.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (validation) return setError(validation); const request = editor; const attempt = teaserQuoteAttemptTransition(request); setError(attempt.error); setState(attempt.state); try { const quote = await api.quoteTeaser(slug, { wagerId: request.wagerId, seasonId: view.activeSeason.id, riskMicros: (BigInt(request.risk) * 1000000n).toString(), teaserPoints: request.points, rulesetVersion: "SHARE_POOL_2026_V1", legs: request.legs.map(l => ({ eventId: l.eventId, canonicalBook: l.canonicalBook, market: l.market, selection: l.selection, offerId: `${l.eventId}:${l.market}:${l.selection}`, offerVersion: l.offerVersion })), quoteKey: request.quoteKey, commandId: request.quoteKey }); setState({ tag: "reviewing", request, quote, mutationKey: crypto.randomUUID() }); } catch (e) {
-    if (commandOutcome(e) === "stale") {
-      try { const recovered = await recoverTeaserSemantic(slug, request); const transition = teaserRecoveryTransition(recovered, request); writeTeaserSlip(slug, transition.slip); setState(transition.state); setError(transition.error); }
-      catch { setState({ tag: "editing", editor: request }); setError("We could not retrieve current odds. Your quote was not changed; retry this same request."); }
-    } else { setState({ tag: "editing", editor: retryTeaserSemantic(request) }); setError(errorMessage(e)); }
-  } };
+  const review = async () => {
+    if (!editor || !view?.activeSeason?.id) return;
+    const ticket = generations.current.capture(slug); if (!ticket) return;
+    const validation = teaserRiskError(editor.risk, { maxSideBetMicros: view.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (validation) return setError(validation);
+    const request = editor; const attempt = teaserQuoteAttemptTransition(request); setError(attempt.error); setState(attempt.state);
+    try {
+      const quote = await api.quoteTeaser(slug, { wagerId: request.wagerId, seasonId: view.activeSeason.id, riskMicros: (BigInt(request.risk) * 1000000n).toString(), teaserPoints: request.points, rulesetVersion: "SHARE_POOL_2026_V1", legs: request.legs.map(l => ({ eventId: l.eventId, canonicalBook: l.canonicalBook, market: l.market, selection: l.selection, offerId: `${l.eventId}:${l.market}:${l.selection}`, offerVersion: l.offerVersion })), quoteKey: request.quoteKey, commandId: request.quoteKey });
+      if (!generations.current.current(ticket)) return;
+      setState({ tag: "reviewing", request, quote, mutationKey: crypto.randomUUID() });
+    } catch (e) {
+      if (!generations.current.current(ticket)) return;
+      if (commandOutcome(e) === "stale") {
+        try {
+          const recovered = await recoverTeaserSemantic(slug, request);
+          if (!generations.current.current(ticket)) return;
+          const transition = teaserRecoveryTransition(recovered, request); writeTeaserSlip(slug, transition.slip); setState(transition.state); setError(transition.error);
+        } catch { if (generations.current.current(ticket)) { setState({ tag: "editing", editor: request }); setError("We could not retrieve current odds. Your quote was not changed; retry this same request."); } }
+      } else { setState({ tag: "editing", editor: retryTeaserSemantic(request) }); setError(errorMessage(e)); }
+    }
+  };
   const reviewed = state.tag === "reviewing" || state.tag === "submitting" || state.tag === "placement-unknown" ? state : undefined;
-  const place = async () => { const attempt = state.tag === "reviewing" || state.tag === "placement-unknown" ? state : undefined; if (!attempt) return; const transition = teaserPlacementAttemptTransition(attempt); setError(transition.error); setState(transition.state); try { await api.placeCommand(slug, "/wagers/teasers/place", buildTeaserPlacement(attempt.quote, attempt.request.wagerId, attempt.mutationKey)); writeTeaserSlip(slug, []); nav(`/p/${slug}/my-wagers`); } catch (e) { if (commandOutcome(e) === "stale") { try { const recovered = await recoverTeaserSemantic(slug, attempt.request); const recoveredTransition = teaserRecoveryTransition(recovered, attempt.request); writeTeaserSlip(slug, recoveredTransition.slip); setState(recoveredTransition.state); setError(recoveredTransition.error); } catch { setState(attempt); setError("Odds unavailable."); } } else if (commandOutcome(e) === "terminal") { setState(teaserTerminalTransition(attempt.request)); setError(errorMessage(e)); } else { setState(teaserUnresolvedPlacementTransition(attempt)); setError(teaserUnknownPlacementMessage); } } };
+  const place = async () => {
+    const attempt = state.tag === "reviewing" || state.tag === "placement-unknown" ? state : undefined; if (!attempt) return;
+    const ticket = generations.current.capture(slug); if (!ticket) return;
+    const transition = teaserPlacementAttemptTransition(attempt); setError(transition.error); setState(transition.state);
+    try {
+      await api.placeWager(slug, "/wagers/teasers/place", buildTeaserPlacement(attempt.quote, attempt.request.wagerId, attempt.mutationKey));
+      if (!generations.current.current(ticket)) return;
+      writeTeaserSlip(slug, []); nav(`/p/${slug}/my-wagers`);
+    } catch (e) {
+      if (!generations.current.current(ticket)) return;
+      if (commandOutcome(e) === "stale") {
+        try {
+          const recovered = await recoverTeaserSemantic(slug, attempt.request);
+          if (!generations.current.current(ticket)) return;
+          const recoveredTransition = teaserRecoveryTransition(recovered, attempt.request); writeTeaserSlip(slug, recoveredTransition.slip); setState(recoveredTransition.state); setError(recoveredTransition.error);
+        } catch { if (generations.current.current(ticket)) { setState(attempt); setError("Odds unavailable."); } }
+      } else if (commandOutcome(e) === "terminal") { setState(teaserTerminalTransition(attempt.request)); setError(errorMessage(e)); }
+      else { setState(teaserUnresolvedPlacementTransition(attempt)); setError(teaserUnknownPlacementMessage); }
+    }
+  };
   if (reviewed) {
     const placementUnknown = reviewed.tag === "placement-unknown";
     return <Layout signedIn><Confirmation snapshot={{ kind: "teaser", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place teaser"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;

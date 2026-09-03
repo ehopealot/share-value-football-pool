@@ -11,6 +11,7 @@ import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatAmericanOdds, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
+import { PageGeneration } from "../page-generation";
 import { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export type BoardPick = { offer: any; outcome: any };
@@ -109,7 +110,7 @@ export function straightQuoteRequest(semantic: { pick: BoardPick; risk: string; 
   return { wagerId: semantic.wagerId, seasonId, riskMicros: (BigInt(semantic.risk) * 1000000n).toString(), rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: offer.eventId, canonicalBook: offer.canonicalBook, market: offer.market, selection, offerId: `${offer.eventId}:${offer.market}:${selection}`, offerVersion: offer.offerVersion }, quoteKey: semantic.quoteKey, commandId: semantic.quoteKey };
 }
 
-/** Batch item failures name the reason and keep the item retryable; unknown outcomes never auto-resubmit. */
+/** Batch item failures name the reason and keep the item retryable after its safe automatic status replays. */
 export const failureReason = (error: unknown, phase: "quote" | "place", maxSideBetMicros?: string): string =>
   error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / 1000000n).toString()} shares.`
     : commandOutcome(error) === "stale" ? "Line changed."
@@ -126,18 +127,28 @@ export const straightReviewDetails = (entry: Pick<ReviewEntry, "item" | "quote">
   const line = leg.market === "moneyline" || leg.originalLine === null || leg.originalLine === undefined ? "" : ` ${leg.market === "total" ? Number(leg.originalLine) : formatSignedLine(Number(leg.originalLine))}`;
   return { matchup: `${leg.awayTeam ?? "Away"} at ${leg.homeTeam ?? "Home"}`, pick: `${market} — ${selection}${line}`, odds: formatAmericanOdds(entry.quote.acceptedOdds), risk: `${entry.item.risk} shares`, toWin: `${ticketReturns(entry.quote.riskMicros, entry.quote.acceptedOdds).profit} shares` };
 };
-type Batch = { tag: "quoting" } | { tag: "reviewing"; entries: ReviewEntry[]; quoteFailures: FailedEntry[] } | { tag: "placing"; entries: ReviewEntry[]; quoteFailures: FailedEntry[] } | { tag: "results"; placed: string[]; failed: FailedEntry[]; retryPlacements: ReviewEntry[] };
+type StraightReviewBatch = { entries: ReviewEntry[]; quoteFailures: FailedEntry[]; placed: string[]; failed: FailedEntry[] };
+type StraightPlacementResult = { placed: ReviewEntry[]; failed: Array<FailedEntry & { entry: ReviewEntry }>; retry: ReviewEntry[] };
+type Batch = { tag: "quoting" } | ({ tag: "reviewing" | "placing" } & StraightReviewBatch) | { tag: "results"; placed: string[]; failed: FailedEntry[]; retryPlacements: ReviewEntry[] };
 /** The review-history entry is transient UI state, including its post-placement results. */
 export const batchAfterPopState = (current: Batch | undefined): Batch | undefined => current?.tag === "reviewing" || current?.tag === "results" ? undefined : current;
-const placeEntries = async (slug: string, entries: ReviewEntry[], maxSideBetMicros?: string): Promise<{ placed: ReviewEntry[]; failed: Array<FailedEntry & { entry: ReviewEntry }>; retry: ReviewEntry[] }> => {
+/** Preserves known outcomes while only unresolved frozen placements remain available for manual recovery. */
+export const straightPlacementBatchTransition = (reviewing: StraightReviewBatch, result: StraightPlacementResult): Batch => {
+  const placed = [...reviewing.placed, ...result.placed.map((entry) => entry.label)];
+  const failed = [...reviewing.failed, ...result.failed.map(({ label, reason }) => ({ label, reason }))];
+  return result.retry.length > 0
+    ? { tag: "reviewing", entries: result.retry, quoteFailures: reviewing.quoteFailures, placed, failed }
+    : { tag: "results", placed, failed, retryPlacements: [] };
+};
+const placeEntries = async (slug: string, entries: ReviewEntry[], maxSideBetMicros?: string): Promise<StraightPlacementResult> => {
   const placed: ReviewEntry[] = []; const failed: Array<FailedEntry & { entry: ReviewEntry }> = []; const retry: ReviewEntry[] = [];
   for (const entry of entries) {
-    try { await api.placeCommand(slug, "/wagers/straight/place", buildStraightPlacement(entry.quote, entry.item.wagerId, entry.mutationKey)); placed.push(entry); }
+    try { await api.placeWager(slug, "/wagers/straight/place", buildStraightPlacement(entry.quote, entry.item.wagerId, entry.mutationKey)); placed.push(entry); }
     catch (e) {
       const outcome = commandOutcome(e);
-      // An unknown outcome must only ever resend the exact frozen placement; the server replays it idempotently.
+      // The API exhausted its safe replays of this exact frozen placement; retain it for manual recovery.
       if (outcome === "retryable") retry.push(entry);
-      failed.push({ label: entry.label, reason: failureReason(e, "place", maxSideBetMicros), entry });
+      else failed.push({ label: entry.label, reason: failureReason(e, "place", maxSideBetMicros), entry });
     }
   }
   return { placed, failed, retry };
@@ -249,16 +260,18 @@ export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
   const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState(""); const [teamFilter, setTeamFilter] = useState("");
   const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState(""); const [parlayTransferPending, setParlayTransferPending] = useState(false);
-  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const parlayTransfer = useRef(new ParlayTrayTransferGate()); const parlayTransferGeneration = useRef(0); slugRef.current = slug;
+  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const pageGenerations = useRef(new PageGeneration()); const parlayTransfer = useRef(new ParlayTrayTransferGate()); const parlayTransferGeneration = useRef(0); slugRef.current = slug;
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const query = `?${new URLSearchParams(Object.fromEntries([["league", league]].filter(([, value]) => value)))}`;
   useEffect(() => { let active = true; void api.odds(slug, query).then((fresh) => { if (active) setBoard(fresh); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [slug, query]);
-  useEffect(() => { void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
   useEffect(() => {
+    const ticket = pageGenerations.current.start(slug);
     const generation = ++parlayTransferGeneration.current;
-    parlayTransfer.current.cancel(); setParlayTransferPending(false);
+    parlayTransfer.current.cancel(); setParlayTransferPending(false); setBatch(undefined); setView(undefined); setError(""); setNotice("");
     const restored = readSelectionTray(slug); trayRef.current = restored; setTray(restored);
+    void api.poolView(slug).then((loaded) => { if (pageGenerations.current.current(ticket)) setView(loaded); }).catch((e) => { if (pageGenerations.current.current(ticket)) setError(errorMessage(e)); });
     return () => {
+      pageGenerations.current.invalidate(ticket);
       if (parlayTransferGeneration.current !== generation) return;
       parlayTransferGeneration.current++;
       parlayTransfer.current.cancel();
@@ -301,12 +314,14 @@ export function OddsPage() {
 
   const quoteAll = async () => {
     if (parlayTransfer.current.pending) return;
+    const ticket = pageGenerations.current.capture(slug); if (!ticket) return;
     const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (riskError) return setError(riskError);
     if (!view?.activeSeason?.id) return setError("Open an active season before reviewing wagers.");
     setNotice(""); setError("");
     setBatch({ tag: "quoting" });
     // Always quote against a freshly fetched board so a retry after a line change cannot reuse stale authority.
     const fresh = await api.odds(slug, query).catch(() => undefined);
+    if (!pageGenerations.current.current(ticket)) return;
     if (fresh) setBoard(fresh);
     const current = fresh ?? board;
     const entries: ReviewEntry[] = []; const failures: FailedEntry[] = []; let nextTray = [...tray];
@@ -316,27 +331,34 @@ export function OddsPage() {
       if (!resolved) { failures.push({ label, reason: "This selection is no longer available on the board." }); nextTray = removeItem(nextTray, item); continue; }
       try {
         const quote = await api.quoteStraight(slug, straightQuoteRequest({ pick: resolved, risk: item.risk, wagerId: item.wagerId, quoteKey: crypto.randomUUID() }, view.activeSeason.id));
+        if (!pageGenerations.current.current(ticket)) return;
         entries.push({ item, pick: resolved, quote, mutationKey: crypto.randomUUID(), label });
-      } catch (e) { failures.push({ label, reason: failureReason(e, "quote", view.pool.maxSideBetMicros) }); }
+      } catch (e) {
+        if (!pageGenerations.current.current(ticket)) return;
+        failures.push({ label, reason: failureReason(e, "quote", view.pool.maxSideBetMicros) });
+      }
     }
+    if (!pageGenerations.current.current(ticket)) return;
     persist(nextTray);
     if (entries.length) window.history.pushState({ ...(window.history.state ?? {}), sharePoolBetReview: true }, "", window.location.href);
-    setBatch(entries.length ? { tag: "reviewing", entries, quoteFailures: failures } : { tag: "results", placed: [], failed: failures, retryPlacements: [] });
+    setBatch(entries.length ? { tag: "reviewing", entries, quoteFailures: failures, placed: [], failed: [] } : { tag: "results", placed: [], failed: failures, retryPlacements: [] });
   };
 
-  const placeAll = async (reviewing: { entries: ReviewEntry[]; quoteFailures: FailedEntry[] }) => {
-    setBatch({ ...reviewing, tag: "placing" });
+  const placeAll = async (reviewing: StraightReviewBatch) => {
+    const ticket = pageGenerations.current.capture(slug); if (!ticket) return;
+    setError(""); setBatch({ ...reviewing, tag: "placing" });
     const result = await placeEntries(slug, reviewing.entries, view?.pool.maxSideBetMicros);
-    const placedLabels = result.placed.map((entry) => entry.label);
+    if (!pageGenerations.current.current(ticket)) return;
     persist(tray.filter((item) => !result.placed.some((entry) => entry.item.eventId === item.eventId && entry.item.market === item.market && entry.item.selection === item.selection)));
-    if (result.retry.length > 0) {
-      // Unknown outcomes keep their frozen placement on screen; resending the exact same wager cannot double-place.
-      setBatch({ tag: "reviewing", entries: result.retry, quoteFailures: [] });
+    const transition = straightPlacementBatchTransition(reviewing, result);
+    if (transition.tag === "reviewing") {
+      // Only unresolved outcomes remain after automatic replays; known results stay visible beside the frozen retry.
+      setBatch(transition);
       setError("Placement result unknown.");
       return;
     }
-    setBatch({ tag: "results", placed: placedLabels, failed: result.failed.map(({ label, reason }) => ({ label, reason })), retryPlacements: [] });
-    void api.odds(slug, query).then(setBoard).catch(() => undefined);
+    setBatch(transition);
+    void api.odds(slug, query).then((fresh) => { if (pageGenerations.current.current(ticket)) setBoard(fresh); }).catch(() => undefined);
   };
 
   const addEligibleToTeaser = () => {
@@ -377,6 +399,8 @@ export function OddsPage() {
       <div className="table-scroll" tabIndex={0}><table><caption>Bet confirmation</caption><thead><tr><th>Matchup</th><th>Pick</th><th>Odds</th><th>Risk</th><th>To win</th></tr></thead><tbody>{entries.map((entry) => { const details = straightReviewDetails(entry); return <tr key={entry.item.wagerId}><td>{details.matchup}</td><td>{details.pick}</td><td>{details.odds}</td><td>{details.risk}</td><td>{details.toWin}</td></tr>; })}</tbody></table></div>
       <span className="tray-actions"><button className="primary-action" disabled={batch.tag === "placing"} onClick={() => void placeAll(batch)}>{batch.tag === "placing" ? "Placing…" : `Place ${entries.length} wager${entries.length === 1 ? "" : "s"}`}</button>
       <button disabled={batch.tag === "placing"} onClick={backToBoard}>Back to board</button></span>
+      {batch.placed.length > 0 && <section aria-label="Placed wagers"><h2>Placed</h2><ul>{batch.placed.map((label) => <li key={label}>{label}</li>)}</ul></section>}
+      {batch.failed.length > 0 && <section aria-label="Failed wagers"><h2>Not placed</h2><ul>{batch.failed.map((failure, index) => <li key={`${failure.label}-${index}`} role="alert">{failure.label} — {failure.reason}</li>)}</ul></section>}
       {error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
   }
   if (batch?.tag === "results") {

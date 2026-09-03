@@ -15,6 +15,30 @@ export const commandOutcome = (error: unknown): CommandOutcome => {
   return "terminal";
 };
 
+const wagerPlacementStatusChecksAtMs = [2_000, 10_000] as const;
+type WagerPlacementRetryOptions = { sleep?: (milliseconds: number) => Promise<void>; now?: () => number };
+const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+/** Replays only an ambiguous frozen wager placement at +2s and +10s before handing control back to its UI. */
+export async function retryWagerPlacement<T>(place: () => Promise<T>, options: WagerPlacementRetryOptions = {}): Promise<T> {
+  try { return await place(); }
+  catch (firstError) {
+    if (commandOutcome(firstError) !== "retryable") throw firstError;
+    const now = options.now ?? Date.now;
+    const startedAt = now();
+    const wait = options.sleep ?? sleep;
+    let latestError = firstError;
+    for (const retryAt of wagerPlacementStatusChecksAtMs) {
+      await wait(Math.max(0, retryAt - (now() - startedAt)));
+      try { return await place(); }
+      catch (error) {
+        if (commandOutcome(error) !== "retryable") throw error;
+        latestError = error;
+      }
+    }
+    throw latestError;
+  }
+}
+
 export const errorMessage = (error: unknown) => {
   if (!(error instanceof ApiError)) return "Service unavailable.";
   const messages: Record<string, string> = { LINE_CHANGED: "Line changed.", SUSPENDED: "Pool access suspended.", INSUFFICIENT_SHARES: "Not enough shares.", SIDE_BET_LIMIT: "Side bet limit reached.", WHOLE_SHARE_RISK_REQUIRED: "Whole shares required.", MARKET_STALE: "Odds are stale.", MARKET_UNAVAILABLE: "Market unavailable.", MARKET_LOCKED: "Event has started.", WAGER_NOT_STARTED: "Wager has not started.", SEASON_CLOSED: "Season is closed.", SEASON_NOT_ACTIVE: "No active season.", SEASON_NOT_CLOSED: "Season is not closed.", ORDER_QUOTE_STALE: "Share price changed.", ORDER_REVERSAL_INSUFFICIENT_AVAILABLE_SHARES: "Not enough shares to reverse this order.", RECENT_AUTH_REQUIRED: "Sign in again.", IDEMPOTENCY_CONFLICT: "Duplicate request.", MESSAGE_BOARD_POST_NOT_FOUND: "That post is no longer available.", MESSAGE_BOARD_REPLY_NOT_ALLOWED: "Replies can only be added to a top-level post.", REQUEST_FAILED: "Service unavailable.", POOL_NOT_AVAILABLE: "Pool unavailable.", POOL_UNAVAILABLE: "Pool unavailable." };
@@ -178,8 +202,10 @@ export const api = {
   wagers: async (slug: string): Promise<ReadMyWagersType> => parseReadMyWagersSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers`, { method: "GET", headers: {} })),
   /** Administration retries need a bounded lost-response path so the frozen command can be replayed. */
   command: (slug: string, path: string, body: unknown) => boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}${path}`, { method: "POST", body: JSON.stringify(body) }),
-  /** Only durable placement/execution retries need bounded response recovery. */
+  /** Non-wager durable placement/execution retries only need bounded response recovery. */
   placeCommand: (slug: string, path: string, body: unknown) => boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}${path}`, { method: "POST", body: JSON.stringify(body) }),
+  /** A wager route probes the exact frozen command before mutable work, making its status replays safe. */
+  placeWager: (slug: string, path: string, body: unknown) => retryWagerPlacement(() => boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}${path}`, { method: "POST", body: JSON.stringify(body) })),
   quoteStraight: async (slug: string, body: StraightQuoteRequest) => parseStraightQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers/straight/quote`, { method: "POST", body: JSON.stringify(body) })),
   quoteTeaser: async (slug: string, body: TeaserQuoteRequest) => parseTeaserQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers/teasers/quote`, { method: "POST", body: JSON.stringify(body) })),
   quoteParlay: async (slug: string, body: ParlayQuoteRequest) => parseParlayQuoteSuccess(body, await boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers/parlays/quote`, { method: "POST", body: JSON.stringify(body) })),
