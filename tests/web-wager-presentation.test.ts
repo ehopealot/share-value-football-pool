@@ -28,6 +28,15 @@ describe("owner ticket presentation", () => {
     expect(sortWagersByStartTime([late, early, parlay]).map((item) => item.wagerId)).toEqual(["parlay", "early", "late"]);
   });
 
+  it("places unavailable starts last and breaks start-time ties deterministically", () => {
+    const tied = wager({ wagerId: "tied", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }] });
+    const tiedLater = wager({ wagerId: "tied-later", confirmedAt: "2026-09-01T00:00:01.000Z", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }] });
+    const hidden = wager({ wagerId: "b", confirmedAt: "2026-09-02T00:00:00.000Z", legs: undefined });
+    const malformed = wager({ wagerId: "a", confirmedAt: "2026-09-02T00:00:00.000Z", legs: [{ eventStartsAt: "not-a-date" }] });
+
+    expect(sortWagersByStartTime([hidden, tiedLater, malformed, tied]).map((item) => item.wagerId)).toEqual(["tied", "tied-later", "a", "b"]);
+  });
+
   it("renders parlay confirmation terms and owner settlement details", () => {
     const leg = { eventId: "event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2030-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: "event:spread:home", eventId: "event", offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: 100, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: -3, originalOdds: 100, eventStartsAt: "2030-01-02T00:00:00.000Z", homeTeam: "Home", awayTeam: "Away" } as const;
     const total = { ...leg, canonicalOfferProof: { ...leg.canonicalOfferProof, offerId: "event:total:over", market: "total" as const, selection: "over" as const, line: 47 }, market: "total" as const, selection: "over" as const, originalLine: 47, adjustedLine: 47 };
