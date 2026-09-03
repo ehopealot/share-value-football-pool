@@ -43,8 +43,8 @@ test("My Wagers shows only the current settlement economics after real regrades 
   await page.getByRole("button", { name: "Place 1 wager" }).click();
   await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));
-  await expect(page.getByRole("heading", { name: "Active tickets" })).toBeVisible();
-  await expect(page.getByText("Open", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Open bets" })).toBeVisible();
   await expect(page.getByRole("button", { name: /cancel/i })).toHaveCount(0);
 
   const wagerId = await page.evaluate(async (poolSlug) => {
@@ -53,29 +53,31 @@ test("My Wagers shows only the current settlement economics after real regrades 
   }, slug);
   const finalized = await page.evaluate(async () => (await fetch("/__local-test/result", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ eventId: "local-nfl-upcoming", homeScore: 17, awayScore: 24 }) })).status);
   expect(finalized).toBe(200);
-  const currentTime = new Date(Date.now() + 10 * 60_000).toISOString();
+  // Local placement fixtures intentionally start just over 24 hours after reseeding.
+  const currentTime = new Date(Date.now() + 26 * 60 * 60_000).toISOString();
   const settled = await page.evaluate(async ({ poolSlug, currentTime }) => (await fetch("/__local-test/alarm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolSlug, currentTime }) })).status, { poolSlug: slug, currentTime });
   expect(settled).toBe(200);
   expect(await page.evaluate(async ({ poolSlug, currentTime }) => (await fetch("/__local-test/current-time", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolSlug, currentTime }) })).status, { poolSlug: slug, currentTime })).toBe(200);
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Completed tickets" })).toBeVisible();
-  await expect(page.getByText("won", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Outcome: won; return 2\.00 shares; profit 1\.00 shares\./)).toBeVisible();
+  const settledBets = page.getByRole("table", { name: "Settled bets" });
+  await expect(page.getByRole("heading", { name: "Settled bets" })).toBeVisible();
+  await expect(settledBets.locator("tbody tr").first()).toContainText("won");
+  await expect(settledBets.locator("tbody tr").first()).toContainText("2.00");
 
   const regraded = await page.evaluate(async ({ poolSlug, id }) => (await fetch(`/api/p/${poolSlug}/admin/corrections/${id}/regrade`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reason: "Official correction", correctedResults: [{ eventId: "local-nfl-upcoming", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "official-loss-v2" }] }) })).status, { poolSlug: slug, id: wagerId });
   expect(regraded).toBe(200);
   await page.reload();
-  await expect(page.getByText("lost", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Outcome: lost; return 0\.00 shares; profit 0\.00 shares\./)).toBeVisible();
-  await expect(page.getByText(/Outcome: won; return 2\.00 shares/)).toHaveCount(0);
+  await expect(settledBets.locator("tbody tr").first()).toContainText("lost");
+  await expect(settledBets.locator("tbody tr").first()).toContainText("0.00");
+  await expect(settledBets.locator("tbody tr").first()).not.toContainText("won");
 
   const voided = await page.evaluate(async ({ poolSlug, id }) => (await fetch(`/api/p/${poolSlug}/admin/corrections/${id}/void`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reason: "Settled ticket void" }) })).status, { poolSlug: slug, id: wagerId });
   expect(voided).toBe(200);
   await page.reload();
-  await expect(page.getByText("refunded", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Outcome: refunded; return 1\.00 shares; profit 0\.00 shares\./)).toBeVisible();
-  await expect(page.getByText(/Outcome: loss; return 0\.00 shares/)).toHaveCount(0);
+  await expect(settledBets.locator("tbody tr").first()).toContainText("refunded");
+  await expect(settledBets.locator("tbody tr").first()).toContainText("1.00");
+  await expect(settledBets.locator("tbody tr").first()).not.toContainText("lost");
   await expect(page.getByRole("button", { name: /cancel/i })).toHaveCount(0);
 
   const memberContext = await browser.newContext();
@@ -94,10 +96,10 @@ test("My Wagers shows only the current settlement economics after real regrades 
     await member.getByLabel("Pool password").fill("settlement-password");
     await member.getByRole("button", { name: "Join pool" }).click();
     await member.goto(`${worker.baseURL}/p/${slug}/my-wagers`);
-    await expect(member.getByRole("heading", { name: "Active tickets" })).toBeVisible();
-    await expect(member.getByRole("heading", { name: "Completed tickets" })).toBeVisible();
-    await expect(member.getByText("No active tickets.")).toBeVisible();
-    await expect(member.getByText("No completed tickets.")).toBeVisible();
+    await expect(member.getByRole("heading", { name: "Open bets" })).toBeVisible();
+    await expect(member.getByRole("heading", { name: "Settled bets" })).toBeVisible();
+    await expect(member.getByText("No open bets.")).toBeVisible();
+    await expect(member.getByText("No settled bets.")).toBeVisible();
     await expect(member.getByRole("button", { name: /cancel/i })).toHaveCount(0);
   } finally {
     await memberContext.close();
