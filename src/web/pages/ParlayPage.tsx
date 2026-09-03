@@ -136,7 +136,7 @@ export function ParlayPage() {
     const ticket = generations.current.capture(slug); if (!ticket) return;
     const transition = parlayPlacementAttemptTransition(attempt); setError(transition.error); setState(transition.state);
     try {
-      await api.placeCommand(slug, "/wagers/parlays/place", buildParlayPlacement(attempt.quote, attempt.request.wagerId, attempt.mutationKey));
+      await api.placeWager(slug, "/wagers/parlays/place", buildParlayPlacement(attempt.quote, attempt.request.wagerId, attempt.mutationKey));
       if (!generations.current.current(ticket)) return;
       writeParlaySlip(slug, []);
       nav(`/p/${slug}/my-wagers`);

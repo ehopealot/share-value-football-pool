@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, invalidatePoolViewForBoardRead, onPoolBoardRead, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
+import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, invalidatePoolViewForBoardRead, onPoolBoardRead, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess, retryWagerPlacement } from "../src/web/api";
 import { FrozenAdminCommand } from "../src/web/admin-command";
 import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
@@ -142,6 +142,75 @@ describe("wager recovery messages", () => {
 
   it("uses a concise active-season history error", () => {
     expect(errorMessage(new ApiError("SEASON_NOT_CLOSED", 400))).toBe("Season is not closed.");
+  });
+});
+
+describe("wager placement status recovery", () => {
+  it("replays an ambiguous placement at +2 seconds and +10 seconds", async () => {
+    let elapsed = 0;
+    const sleep = vi.fn(async (milliseconds: number) => { elapsed += milliseconds; });
+    const place = vi.fn()
+      .mockRejectedValueOnce(new Error("first response lost"))
+      .mockRejectedValueOnce(new ApiError("POOL_UNAVAILABLE", 503))
+      .mockResolvedValueOnce({ wagerId: "wager-1" });
+
+    await expect(retryWagerPlacement(place, { sleep, now: () => elapsed })).resolves.toEqual({ wagerId: "wager-1" });
+    expect(place).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenNthCalledWith(1, 2_000);
+    expect(sleep).toHaveBeenNthCalledWith(2, 8_000);
+  });
+
+  it("stops status recovery when a replay gives a terminal placement result", async () => {
+    let elapsed = 0;
+    const sleep = vi.fn(async (milliseconds: number) => { elapsed += milliseconds; });
+    const terminal = new ApiError("MARKET_LOCKED", 400);
+    const place = vi.fn().mockRejectedValueOnce(new Error("first response lost")).mockRejectedValueOnce(terminal);
+
+    await expect(retryWagerPlacement(place, { sleep, now: () => elapsed })).rejects.toBe(terminal);
+    expect(place).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledWith(2_000);
+  });
+
+  it("returns the final ambiguous result only after both status checks", async () => {
+    let elapsed = 0;
+    const sleep = vi.fn(async (milliseconds: number) => { elapsed += milliseconds; });
+    const final = new ApiError("POOL_UNAVAILABLE", 503);
+    const place = vi.fn()
+      .mockRejectedValueOnce(new Error("first response lost"))
+      .mockRejectedValueOnce(new Error("second response lost"))
+      .mockRejectedValueOnce(final);
+
+    await expect(retryWagerPlacement(place, { sleep, now: () => elapsed })).rejects.toBe(final);
+    expect(place).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenNthCalledWith(1, 2_000);
+    expect(sleep).toHaveBeenNthCalledWith(2, 8_000);
+  });
+
+  it("replays the exact wager request while leaving generic placement commands alone", async () => {
+    vi.useFakeTimers();
+    const body = { wagerId: "wager-1", mutationKey: "placement-1" };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("first response lost"))
+      .mockRejectedValueOnce(new Error("second response lost"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ wagerId: "wager-1" }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      const placed = api.placeWager("pool/one", "/wagers/straight/place", body);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await expect(placed).resolves.toEqual({ wagerId: "wager-1" });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      for (let call = 1; call <= 3; call++) {
+        expect(fetchMock).toHaveBeenNthCalledWith(call, "/api/p/pool%2Fone/wagers/straight/place", expect.objectContaining({ method: "POST", body: JSON.stringify(body), signal: expect.any(AbortSignal) }));
+      }
+
+      fetchMock.mockReset().mockRejectedValueOnce(new Error("order response lost"));
+      await expect(api.placeCommand("pool/one", "/admin/orders/execute", body)).rejects.toThrow("order response lost");
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      fetchMock.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
 
