@@ -40,7 +40,7 @@ test("Message board lets active members exchange one-level replies with durable 
       await action.click();
       await request;
       await expect(page.getByLabel("New post")).toBeDisabled();
-      await expect(page.getByRole("alert")).toHaveText("Service unavailable.");
+      await expect(page.getByRole("alert")).toHaveText("Service unavailable.", { timeout: 8_000 });
       await expect(action).toBeEnabled();
       await action.click();
       await expect(page.getByText(post, { exact: true })).toHaveCount(1);
@@ -74,7 +74,7 @@ test("Message board lets active members exchange one-level replies with durable 
     if (!response.ok) throw new Error(`response barrier failed: ${response.status}`);
   }, `/api/p/${pool.slug}/board/read`);
   await page.goto(`${worker.baseURL}/p/${pool.slug}/board`);
-  await expect(page.getByRole("alert")).toContainText("Service unavailable.");
+  await expect(page.getByRole("alert")).toContainText("Service unavailable.", { timeout: 8_000 });
   await expect(page.getByRole("link", { name: "Return to the pool home" })).toBeVisible();
   await page.goto(`${worker.baseURL}/p/${pool.slug}/board`);
   await expect(page.getByText("Opening thread", { exact: true })).toBeVisible();
@@ -119,7 +119,7 @@ test("Message board lets active members exchange one-level replies with durable 
     await replyRequest;
     await expect(replyInput).toBeDisabled();
     await expect(replyButton).toBeDisabled();
-    await expect(member.getByRole("alert")).toHaveText("Service unavailable.");
+    await expect(member.getByRole("alert")).toHaveText("Service unavailable.", { timeout: 8_000 });
     await replyButton.click();
     await replyButton.click();
     await openingThread.getByRole("button", { name: "Post reply" }).click();

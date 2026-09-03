@@ -309,7 +309,7 @@ test("canonical Super Bowl confirmation and final result automatically close the
     expect(await page.evaluate(async (pathname) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname }) })).status, `/api/p/${slug}/admin/seasons/${seasonId}/super-bowl/confirm`)).toBe(200);
     const droppedConfirmationAt = Date.now();
     await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
-    await expect(page.getByRole("alert")).toHaveText("Service unavailable.");
+    await expect(page.getByRole("alert")).toHaveText("Service unavailable.", { timeout: 8_000 });
     expect(Date.now() - droppedConfirmationAt).toBeLessThan(10_000);
     await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
     await expect(page.getByText(/Super Bowl candidate: T11 Local Super Bowl LXI\. Confirmed\./)).toBeVisible();

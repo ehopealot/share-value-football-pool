@@ -39,10 +39,12 @@ describe("member-facing odds display", () => {
     const reviewing = { tag: "reviewing", entries: [], quoteFailures: [] } as any;
     const results = { tag: "results", placed: [], failed: [], retryPlacements: [] } as any;
     const quoting = { tag: "quoting" } as any;
+    const placing = { tag: "placing", entries: [], quoteFailures: [] } as any;
 
     expect(batchAfterPopState(reviewing)).toBeUndefined();
     expect(batchAfterPopState(results)).toBeUndefined();
     expect(batchAfterPopState(quoting)).toEqual(quoting);
+    expect(batchAfterPopState(placing)).toEqual(placing);
   });
 
   it("keeps the odds table memoized while only a bet amount changes", () => {
