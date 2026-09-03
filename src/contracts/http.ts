@@ -171,7 +171,6 @@ const evidenceResultVersion = (evidence: z.infer<typeof settlementResultEvidence
 
 export const auditSettlement = z.object({ id: auditId, wagerId: auditId, resultVersion: auditId, outcome: z.enum(["win", "loss", "refund", "reversal"]), returnMicros: canonicalIntegerText, profitMicros: canonicalIntegerText, settledOdds: z.number().int().safe().refine((odds) => odds !== 0).nullable(), sourceResult: settlementResultEvidence, reversalOf: auditId.nullable(), actorId: auditId, reason: z.string().min(1).nullable(), createdAt: auditTimestamp }).strict().superRefine((settlement, ctx) => {
   if (settlement.resultVersion !== evidenceResultVersion(settlement.sourceResult)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["resultVersion"], message: "Result version must identify the persisted source evidence." });
-  if (settlement.outcome === "win" && settlement.settledOdds === null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settledOdds"], message: "Winning settlements must record effective odds." });
   if (settlement.outcome !== "win" && settlement.settledOdds !== null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settledOdds"], message: "Only winning settlements may record effective odds." });
   if (settlement.outcome === "reversal" || Array.isArray(settlement.sourceResult)) return;
   const evidenceOutcome = settlement.sourceResult.source === "commissioner_void" ? "refund" : settlement.sourceResult.derived.outcome;
@@ -211,6 +210,8 @@ export type AuditExportResponse = z.infer<typeof auditExportResponse>;
 export const activityOrder = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reason: z.string(), createdAt: z.string().datetime() });
 export const ReadStandings = z.object({ commandVersion: decimalString, standings: z.array(z.object({ rank: z.number().int().positive(), userId: z.string().min(1), displayName: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString, totalMicros: decimalString, priceMicros: decimalString, notionalValueMicros: decimalString, gainMicros: decimalString })) });
 export const ReadActivity = z.object({ commandVersion: decimalString, activity: z.object({ orders: z.array(activityOrder), wagers: z.array(memberWager) }) });
+/** Exact owner-only wager response, including nullable historical effective settlement odds. */
+export const ReadMyWagers = z.object({ commandVersion: decimalString, wagers: z.array(memberWager) }).strict();
 const historyStanding = ReadStandings.shape.standings.element;
 const historyAccount = z.object({ memberId: auditId, memberDisplayName: auditId, availableMicros: canonicalIntegerText, lockedMicros: canonicalIntegerText, totalMicros: canonicalIntegerText, holdingValueMicros: canonicalIntegerText, gainMicros: canonicalIntegerText }).strict();
 const historyOrder = auditOrder.extend({ memberDisplayName: auditId }).strict();
@@ -225,6 +226,7 @@ export const ReadSeasonHistory = z.object({
 }).strict();
 export type ReadStandings = z.infer<typeof ReadStandings>;
 export type ReadActivity = z.infer<typeof ReadActivity>;
+export type ReadMyWagers = z.infer<typeof ReadMyWagers>;
 export type ReadSeasonHistory = z.infer<typeof ReadSeasonHistory>;
 
 export const commandResponse = z.object({ commandVersion: z.string(), code: z.string().optional() });

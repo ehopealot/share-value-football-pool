@@ -53,6 +53,13 @@ describe("wager recovery messages", () => {
     } finally { fetchMock.mockRestore(); }
   });
 
+  it("rejects malformed owner wager settlement odds at the browser boundary", async () => {
+    const malformed = { commandVersion: "1", wagers: [{ wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", outcome: "won", returnMicros: "3500000", profitMicros: "2500000", settledOdds: "250", settledAt: "2026-01-02T00:00:00.000Z" }] };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(malformed), { status: 200, headers: { "content-type": "application/json" } }));
+    try { await expect(api.wagers("pool")).rejects.toThrow(); }
+    finally { fetchMock.mockRestore(); }
+  });
+
   it("notifies mounted layouts after local board activity", () => {
     vi.stubGlobal("window", new EventTarget());
     try {

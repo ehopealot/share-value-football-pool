@@ -6,7 +6,7 @@ import { freeSeasonEntitlement, type SeasonEntitlementService } from "../service
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
 import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest, messageBoardPostRequest } from "../contracts/http";
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -116,7 +116,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       return c.json(ReadSeasonHistory.parse(await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id, seasonId })));
     }
     const result = await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id });
-    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : undefined;
+    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : type === "ReadMyWagers" ? ReadMyWagers : undefined;
     return c.json(schema ? schema.parse(result) : result);
   });
   app.get("/api/p/:slug/view", read("ReadPoolView"));

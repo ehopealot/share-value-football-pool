@@ -18,7 +18,11 @@ export function ArchivedRulesetGuidance({ slug, rulesetVersion }: { slug: string
 }
 
 export function WagerRulesetGuidance({ slug, wager }: { slug: string; wager: { wagerId: string; type: string; rulesetVersion?: string } }) {
-  if (wager.type === "parlay") return <p>Parlay ticket rules: <Link to={`/p/${slug}/rules#parlay-rules-heading`}>matching immutable {PARLAY_RULESET_ID} terms</Link>. This parlay is governed independently of the season teaser ruleset.</p>;
+  if (!wager.rulesetVersion) return null;
+  if (wager.type === "parlay") {
+    if (wager.rulesetVersion === PARLAY_RULESET_ID) return <p>Parlay ticket rules: <Link to={`/p/${slug}/rules#parlay-rules-heading`}>matching immutable {PARLAY_RULESET_ID} terms</Link>. This parlay is governed independently of the season teaser ruleset.</p>;
+    return <p role="alert" className="error-summary">Unsupported parlay ruleset: {wager.rulesetVersion}. No matching immutable parlay rules are available.</p>;
+  }
   if (wager.type === "teaser" && wager.rulesetVersion === TEASER_RULESET_ID) return <p>Teaser ticket rules: <Link to={`/p/${slug}/rules#teaser-rules-heading`}>matching immutable {TEASER_RULESET_ID} payout table</Link>.</p>;
   return null;
 }

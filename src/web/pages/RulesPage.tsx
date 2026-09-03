@@ -22,8 +22,9 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
     </section>
     {supported && <section aria-labelledby="teaser-rules-heading">
       <h2 id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>
-      <div className="table-scroll" tabIndex={0}><table><caption>Fixed system teaser prices (American odds)</caption><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
-      <p>Regular teasers allow 2–6 legs. 10-point teasers require exactly 3 legs. Moneylines are ineligible. NFL and NCAA sides and totals may be mixed.</p>
+      <div className="table-scroll" tabIndex={0}><table><caption>Fixed system teaser prices (American odds)</caption><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell === 7 ? "7 (legacy only)" : cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
+      <p>Regular teasers allow 2–6 legs. New teaser tickets are capped at six legs. 10-point teasers require exactly 3 legs. Moneylines are ineligible. NFL and NCAA sides and totals may be mixed.</p>
+      <p>The seven-leg row applies only to previously accepted legacy tickets.</p>
       <p>If any leg loses, the teaser loses. Otherwise pushed or void legs are removed and the remaining valid leg count is repriced from this table. If every leg pushes or voids, or too few winning legs remain, the risk is refunded.</p>
     </section>}
     <section aria-labelledby="parlay-rules-heading">

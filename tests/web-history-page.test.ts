@@ -22,6 +22,13 @@ describe("archived history presentation", () => {
     expect(html).toContain("independently of the season teaser ruleset");
   });
 
+  it("warns for an unknown stored parlay ruleset and preserves redaction when no ruleset is visible", () => {
+    const unknown = render(createElement(WagerRulesetGuidance, { slug: "pool", wager: { wagerId: "parlay", type: "parlay", rulesetVersion: "PARLAY_2027_V2" } }));
+    expect(unknown).toContain("Unsupported parlay ruleset: PARLAY_2027_V2");
+    expect(unknown).not.toContain('href="/p/pool/rules#parlay-rules-heading"');
+    expect(render(createElement(WagerRulesetGuidance, { slug: "pool", wager: { wagerId: "parlay", type: "parlay" } }))).toBe("");
+  });
+
   it("warns that an unsupported archived ruleset must not use the current payout table", () => {
     const html = render(createElement(ArchivedRulesetGuidance, { slug: "pool", rulesetVersion: "SHARE_POOL_2025_V9" }));
     expect(html).toContain("Unsupported archived ruleset: SHARE_POOL_2025_V9");

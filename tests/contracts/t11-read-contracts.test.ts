@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditExportResponse, auditSettlement, OddsBoardResponse, ReadActivity, ReadPoolView, ReadSeasonHistory, ReadStandings } from "../../src/contracts/http";
+import { auditExportResponse, auditSettlement, OddsBoardResponse, ReadActivity, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings } from "../../src/contracts/http";
 
 describe("T11 member read contracts", () => {
   const wager = { wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-29T00:00:00.000Z", performanceMicros: "0" };
@@ -59,10 +59,16 @@ describe("T11 member read contracts", () => {
     const parlay = { ...wager, type: "parlay", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", outcome: "won", returnMicros: "3500000", profitMicros: "2500000", settledAt: "2026-01-02T00:00:00.000Z", settledOdds: 250 };
     expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [parlay] } }).activity.wagers[0]).toMatchObject({ type: "parlay", settledOdds: 250 });
     const providerResults = [{ eventId: "event-1", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "provider-1" }];
-    expect(auditSettlement.parse({ id: "settlement", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "3500000", profitMicros: "2500000", settledOdds: 250, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-02T00:00:00.000Z" }).settledOdds).toBe(250);
+    const win = { id: "settlement", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "3500000", profitMicros: "2500000", settledOdds: 250, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-02T00:00:00.000Z" };
+    expect(auditSettlement.parse(win).settledOdds).toBe(250);
+    expect(auditSettlement.parse({ ...win, settledOdds: null }).settledOdds).toBeNull();
     const refund = { id: "refund", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "refund", returnMicros: "1000000", profitMicros: "0", settledOdds: null, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-02T00:00:00.000Z" };
     expect(auditSettlement.parse(refund).settledOdds).toBeNull();
     expect(() => auditSettlement.parse({ ...refund, settledOdds: undefined })).toThrow();
+    expect(() => auditSettlement.parse({ ...refund, settledOdds: 250 })).toThrow();
+    expect(ReadMyWagers.parse({ commandVersion: "1", wagers: [parlay] }).wagers[0]).toMatchObject({ type: "parlay", settledOdds: 250 });
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...parlay, settledOdds: "250" }] })).toThrow();
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [], unexpected: true })).toThrow();
   });
 
   it("exactly validates automatic, manual, open-source, and reversal audit evidence", () => {

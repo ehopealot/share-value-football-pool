@@ -1,4 +1,4 @@
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, parlayWagerQuoteRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, parlayWagerQuoteRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadMyWagers as ReadMyWagersType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
 import type { z } from "zod";
 
 export class ApiError extends Error {
@@ -55,6 +55,7 @@ export const buildParlayPlacement = (quote: z.infer<typeof parlayWagerQuoteSnaps
 export const buildShareOrderExecution = (quote: z.infer<typeof shareOrderQuoteSnapshot>, mutationKey: string, reason: string) => executeShareOrderRequest.parse({ seasonId: quote.seasonId, memberId: quote.memberId, mode: quote.mode, amountMicros: quote.amountMicros, quote: { priceMicros: quote.priceMicros, commandVersion: quote.commandVersion }, reason, idempotencyKey: mutationKey });
 export const parseAuditExportSuccess = (value: unknown): AuditExportResponse => auditExportResponse.parse(value);
 export const parseOddsBoardSuccess = (value: unknown): OddsBoardResponseType => OddsBoardResponse.parse(value);
+export const parseReadMyWagersSuccess = (value: unknown): ReadMyWagersType => ReadMyWagers.parse(value);
 export const parseReadMessageBoardSuccess = (value: unknown) => ReadMessageBoardResponse.parse(value);
 export const parseMessageBoardMutationSuccess = (value: unknown) => MessageBoardMutationResponse.parse(value);
 export const parseMessageBoardPostSuccess = (value: unknown) => MessageBoardPostResponse.parse(value);
@@ -167,7 +168,7 @@ export const api = {
   activity: async (slug: string): Promise<ReadActivityType> => ReadActivity.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/activity`, { method: "GET", headers: {} })),
   history: async (slug: string, seasonId: string): Promise<ReadSeasonHistoryType> => ReadSeasonHistory.parse(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/history/${encodeURIComponent(seasonId)}`, { method: "GET", headers: {} })),
   auditExport: async (slug: string): Promise<AuditExportResponse> => parseAuditExportSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/export`, { method: "GET", headers: {} })),
-  wagers: (slug: string) => json<any>(`/api/p/${encodeURIComponent(slug)}/wagers`, { method: "GET", headers: {} }),
+  wagers: async (slug: string): Promise<ReadMyWagersType> => parseReadMyWagersSuccess(await json<unknown>(`/api/p/${encodeURIComponent(slug)}/wagers`, { method: "GET", headers: {} })),
   /** Administration retries need a bounded lost-response path so the frozen command can be replayed. */
   command: (slug: string, path: string, body: unknown) => boundedJson<unknown>(`/api/p/${encodeURIComponent(slug)}${path}`, { method: "POST", body: JSON.stringify(body) }),
   /** Only durable placement/execution retries need bounded response recovery. */
