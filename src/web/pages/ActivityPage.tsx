@@ -19,7 +19,7 @@ function WagerLines({ wager }: { wager: Wager }) {
 
 function Staked({ wager }: { wager: Wager }) {
   const stake = formatActivityStake(wager);
-  return stake ? <>{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></> : null;
+  return stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : null;
 }
 
 export function ActivityPage() {

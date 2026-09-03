@@ -12,7 +12,7 @@ describe("My wagers page", () => {
     expect(source).toContain('displayWagerStartTime(wager)');
     expect(source).toContain('formatActivityLeg(leg)');
     expect(source).toContain('<strong key={index} className={activitySelectedOutcomeClass(wager)}>{segment.text}</strong>');
-    expect(source).toContain('<small className="activity-staked-odds">{stake.odds}</small>');
+    expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
   });
 });
