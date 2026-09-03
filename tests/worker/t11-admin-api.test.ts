@@ -156,7 +156,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     const automatic = await authenticatedExport(member);
     expect(automatic).toMatchObject({
       accounts: expect.arrayContaining([{ seasonId: "s1", memberId: "member", availableMicros: "2833333", lockedMicros: "0", rowVersion: expect.any(String) }]),
-      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
+      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", settledOdds: -120, sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
       wagerCorrections: [], administrationAudit: [],
       wagers: [expect.objectContaining({ wagerId: "same-game-wager", status: "won", riskMicros: "1000000", acceptedOdds: -120, outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ eventId, market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ eventId, market: "total", grade: "win", resultVersion: "provider-1" })] })]
     });

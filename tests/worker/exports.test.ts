@@ -38,7 +38,7 @@ describe("member export and encrypted infrastructure backup", () => {
     const poolId = `invalid-audit-${crypto.randomUUID()}`;
     await bindings.DB.prepare("INSERT INTO pool_registry (pool_id, normalized_slug, do_name, creator_id, status, command_id, created_at) VALUES (?, ?, ?, 'owner', 'ready', ?, ?)").bind(poolId, "invalid-audit-pool", poolId, `create-${poolId}`, new Date().toISOString()).run();
     const providerResults = [{ eventId: "event-1", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "1" }];
-    const settlement = { id: "settlement", wagerId: "w", resultVersion: '[["event-1","1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" };
+    const settlement = { id: "settlement", wagerId: "w", resultVersion: '[["event-1","1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", settledOdds: 100, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" };
     const replacementResult = { source: "commissioner_correction", commandId: "command", correctedResults: providerResults, derived: { outcome: "win", odds: 100 } };
     const correction = { id: "correction", wagerId: "w", actorId: "owner", reason: "Official correction", sourceResult: providerResults, replacementResult, commandId: "command", createdAt: "2026-01-01T00:00:00.000Z" };
     const base = { format: "share-value-pool-audit-v1", commandVersion: "1", pool: { id: poolId, slug: "invalid-audit-pool", name: "Pool", commissionerId: "owner", signupsOpen: true, commandVersion: "1" }, seasons: [], seasonProviderResults: [], accounts: [], orders: [], ledger: [], settlements: [settlement], wagerCorrections: [correction], administrationAudit: [], seasonAnnotations: [], wagers: [] };
@@ -98,12 +98,16 @@ describe("member export and encrypted infrastructure backup", () => {
       INSERT INTO ledger_entry VALUES ('a-ledger-replacement', 's1', 'member', 'owner', '-1000000', '0', '0', '-1000000', 'a-regrade', 'settlement', '2026-01-03T00:00:00.000Z');
       INSERT INTO wager VALUES ('straight-hidden', 's1', 'member', 'straight', '1000000', 100, 'lost', 'SHARE_POOL_2026_V1', 'commissioner:correction-command:[["hidden-straight","official-2"]]', '2026-01-02T00:00:00.000Z');
       INSERT INTO wager VALUES ('teaser-partial', 's1', 'member', 'teaser', '1000000', -120, 'open', 'SHARE_POOL_2026_V1', NULL, '2026-01-02T00:00:00.000Z');
+      INSERT INTO wager VALUES ('parlay-settled', 's1', 'member', 'parlay', '1000000', 300, 'won', 'PARLAY_2026_V1', '[["parlay-started","provider-1"]]', '2026-01-02T00:00:00.000Z');
       INSERT INTO wager_leg VALUES ('straight-leg', 'straight-hidden', 'hidden-straight', 'nfl', 'DraftKings', '2026-01-01T00:00:00.000Z', 'policy', 'offer', NULL, NULL, 'spread', 'home', '-3.5', -110, NULL, NULL, '1970-01-01T00:00:00.000Z', 0, 'loss', 'provider-1');
       INSERT INTO wager_leg VALUES ('teaser-started', 'teaser-partial', 'revealed-leg', 'nfl', 'DraftKings', '2026-01-01T00:00:00.000Z', 'policy', 'offer', NULL, NULL, 'spread', 'away', '3.5', -110, '6', '9.5', '1970-01-01T00:00:00.000Z', 0, NULL, NULL);
       INSERT INTO wager_leg VALUES ('teaser-hidden', 'teaser-partial', 'future-leg', 'ncaaf', 'FanDuel', '2026-01-01T00:00:00.000Z', 'policy', 'offer', NULL, NULL, 'total', 'under', '50.5', -110, '6', '56.5', '${future}', 0, NULL, NULL);
-      INSERT INTO settlement VALUES ('settlement', 'straight-hidden', '[["hidden-straight","provider-1"]]', 'refund', '1000000', '0', '[{"eventId":"hidden-straight","league":"nfl","status":"cancelled","homeScore":null,"awayScore":null,"correctionVersion":"provider-1","eventName":null,"postseason":false}]', NULL, 'owner', 'manual correction', '2026-01-03T00:00:00.000Z');
-      INSERT INTO settlement VALUES ('z-reversal', 'straight-hidden', '[["hidden-straight","provider-1"]]', 'reversal', '-1000000', '0', '[{"eventId":"hidden-straight","league":"nfl","status":"cancelled","homeScore":null,"awayScore":null,"correctionVersion":"provider-1","eventName":null,"postseason":false}]', 'settlement', 'owner', 'review reversal', '2026-01-03T00:00:00.000Z');
-      INSERT INTO settlement VALUES ('a-regrade', 'straight-hidden', 'commissioner:correction-command:[["hidden-straight","official-2"]]', 'loss', '0', '0', '{"source":"commissioner_correction","commandId":"correction-command","correctedResults":[{"eventId":"hidden-straight","league":"nfl","status":"final","homeScore":17,"awayScore":24,"correctionVersion":"official-2"}],"derived":{"outcome":"loss","odds":null}}', NULL, 'owner', 'review regrade', '2026-01-03T00:00:00.000Z');
+      INSERT INTO wager_leg VALUES ('parlay-started-leg', 'parlay-settled', 'parlay-started', 'nfl', 'DraftKings', '2026-01-01T00:00:00.000Z', 'policy', 'offer', NULL, NULL, 'spread', 'home', '-3', 100, NULL, NULL, '1970-01-01T00:00:00.000Z', 0, 'win', 'provider-1');
+      INSERT INTO wager_leg VALUES ('parlay-future-leg', 'parlay-settled', 'parlay-future', 'ncaaf', 'FanDuel', '2026-01-01T00:00:00.000Z', 'policy', 'offer', NULL, NULL, 'total', 'under', '50.5', -110, NULL, NULL, '${future}', 0, 'win', 'provider-1');
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('settlement', 'straight-hidden', '[["hidden-straight","provider-1"]]', 'refund', '1000000', '0', NULL, '[{"eventId":"hidden-straight","league":"nfl","status":"cancelled","homeScore":null,"awayScore":null,"correctionVersion":"provider-1","eventName":null,"postseason":false}]', NULL, 'owner', 'manual correction', '2026-01-03T00:00:00.000Z');
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('z-reversal', 'straight-hidden', '[["hidden-straight","provider-1"]]', 'reversal', '-1000000', '0', NULL, '[{"eventId":"hidden-straight","league":"nfl","status":"cancelled","homeScore":null,"awayScore":null,"correctionVersion":"provider-1","eventName":null,"postseason":false}]', 'settlement', 'owner', 'review reversal', '2026-01-03T00:00:00.000Z');
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('a-regrade', 'straight-hidden', 'commissioner:correction-command:[["hidden-straight","official-2"]]', 'loss', '0', '0', NULL, '{"source":"commissioner_correction","commandId":"correction-command","correctedResults":[{"eventId":"hidden-straight","league":"nfl","status":"final","homeScore":17,"awayScore":24,"correctionVersion":"official-2"}],"derived":{"outcome":"loss","odds":null}}', NULL, 'owner', 'review regrade', '2026-01-03T00:00:00.000Z');
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('parlay-settlement', 'parlay-settled', '[["parlay-started","provider-1"]]', 'win', '3500000', '2500000', 250, '[{"eventId":"parlay-started","league":"nfl","status":"final","homeScore":24,"awayScore":17,"correctionVersion":"provider-1"}]', NULL, 'system', NULL, '2026-01-03T00:00:00.000Z');
       INSERT INTO wager_correction VALUES ('z-correction', 'straight-hidden', 'owner', 'bad provider result', '[{"eventId":"hidden-straight","league":"nfl","status":"cancelled","homeScore":null,"awayScore":null,"correctionVersion":"provider-1","eventName":null,"postseason":false}]', '{"source":"commissioner_correction","commandId":"correction-command","correctedResults":[{"eventId":"hidden-straight","league":"nfl","status":"final","homeScore":17,"awayScore":24,"correctionVersion":"official-2"}],"derived":{"outcome":"loss","odds":null}}', 'correction-command', '2026-01-03T00:00:00.000Z');
       INSERT INTO wager_correction VALUES ('a-correction', 'straight-hidden', 'owner', 'final provider result', '{"source":"commissioner_correction","commandId":"correction-command","correctedResults":[{"eventId":"hidden-straight","league":"nfl","status":"final","homeScore":17,"awayScore":24,"correctionVersion":"official-2"}],"derived":{"outcome":"loss","odds":null}}', '{"source":"commissioner_void","commandId":"correction-command-2","outcome":"refund"}', 'correction-command-2', '2026-01-03T00:00:00.000Z');
       INSERT INTO administration_audit VALUES ('admin-audit', 'owner', 'regrade_wager', 'straight-hidden', 'bad provider result', 'correction-command', '2026-01-03T00:00:00.000Z');
@@ -126,19 +130,21 @@ describe("member export and encrypted infrastructure backup", () => {
     expect(owner.ledger).toEqual(expect.arrayContaining([expect.objectContaining({ availableDelta: "900719925474099312345678" })]));
     // Reverse-lexical UUID-like IDs prove tied timestamps retain append/causal rowid order.
     expect((owner.ledger as Array<{ id: string }>).map(({ id }) => id)).toEqual(["ledger-fund", "z-ledger-reversal", "a-ledger-replacement"]);
-    expect(owner.settlements).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "owner", reason: "manual correction" })]));
+    expect(owner.settlements).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "owner", reason: "manual correction", settledOdds: null })]));
     // Millisecond timestamps can tie inside one correction command; every contractual chronological array retains append order.
-    expect((owner.settlements as Array<{ id: string }>).map(({ id }) => id)).toEqual(["settlement", "z-reversal", "a-regrade"]);
+    expect((owner.settlements as Array<{ id: string }>).map(({ id }) => id)).toEqual(["settlement", "z-reversal", "a-regrade", "parlay-settlement"]);
     expect((owner.wagerCorrections as Array<{ id: string }>).map(({ id }) => id)).toEqual(["z-correction", "a-correction"]);
     expect(owner).toMatchObject({ administrationAudit: [expect.objectContaining({ id: "admin-audit" })], seasonAnnotations: [expect.objectContaining({ id: "annotation" })] });
     const ownerWagers = owner.wagers as Array<Record<string, unknown>>;
     expect(ownerWagers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ wagerId: "straight-hidden", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "lost", returnMicros: "0", profitMicros: "0", settledAt: "2026-01-03T00:00:00.000Z" }),
-      expect.objectContaining({ wagerId: "teaser-partial", riskMicros: "1000000", acceptedOdds: -120, rulesetVersion: "SHARE_POOL_2026_V1" })
+      expect.objectContaining({ wagerId: "straight-hidden", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "lost", returnMicros: "0", profitMicros: "0", settledOdds: null, settledAt: "2026-01-03T00:00:00.000Z" }),
+      expect.objectContaining({ wagerId: "teaser-partial", riskMicros: "1000000", acceptedOdds: -120, rulesetVersion: "SHARE_POOL_2026_V1" }),
+      expect.objectContaining({ wagerId: "parlay-settled", type: "parlay", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", outcome: "won", settledOdds: 250 })
     ]));
     expect(JSON.stringify(ownerWagers)).toContain("hidden-straight");
     expect(JSON.stringify(ownerWagers)).toContain("revealed-leg");
     expect(JSON.stringify(ownerWagers)).not.toContain("future-leg");
+    expect(JSON.stringify(ownerWagers)).not.toContain("parlay-future");
     for (const viewer of ["viewer", "owner"]) {
       const viewerExport = await exported(viewer);
       expect(viewerExport.seasonProviderResults).toEqual(owner.seasonProviderResults);
@@ -147,6 +153,7 @@ describe("member export and encrypted infrastructure backup", () => {
       expect(body).toContain("revealed-leg");
       expect(body).toContain("hidden-straight");
       expect(body).not.toContain("future-leg");
+      expect(body).not.toContain("parlay-future");
       expect(wagers.find((wager) => wager.wagerId === "straight-hidden")).not.toHaveProperty("riskMicros");
       expect(wagers.find((wager) => wager.wagerId === "straight-hidden")).not.toHaveProperty("outcome");
     }

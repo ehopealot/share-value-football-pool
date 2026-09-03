@@ -128,8 +128,8 @@ export type OddsBoardResponse = z.infer<typeof OddsBoardResponse>;
 
 /** Authoritative member reads use canonical accounting text and may omit protected ticket fields. */
 export const memberWager = z.object({
-  wagerId: z.string().min(1), seasonId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), type: z.enum(["straight", "teaser"]), status: z.enum(["open", "won", "lost", "refunded"]), confirmedAt: z.string().datetime(), weekStart: z.string().datetime(), performanceMicros: decimalString,
-  riskMicros: decimalString.optional(), acceptedOdds: z.number().int().optional(), rulesetVersion: z.string().optional(), outcome: z.enum(["won", "lost", "refunded"]).optional(), returnMicros: decimalString.optional(), profitMicros: decimalString.optional(), settledAt: z.string().datetime().optional(),
+  wagerId: z.string().min(1), seasonId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), type: z.enum(["straight", "teaser", "parlay"]), status: z.enum(["open", "won", "lost", "refunded"]), confirmedAt: z.string().datetime(), weekStart: z.string().datetime(), performanceMicros: decimalString,
+  riskMicros: decimalString.optional(), acceptedOdds: z.number().int().optional(), rulesetVersion: z.string().optional(), outcome: z.enum(["won", "lost", "refunded"]).optional(), returnMicros: decimalString.optional(), profitMicros: decimalString.optional(), settledOdds: z.number().int().safe().refine((odds) => odds !== 0).nullable().optional(), settledAt: z.string().datetime().optional(),
   legs: z.array(z.object({ eventId: z.string(), league: z.string(), canonicalBook: z.string(), retrievedAt: z.string().datetime(), policyVersion: z.string(), offerVersion: z.string(), market: z.string(), selection: z.string(), originalLine: z.string().optional(), originalOdds: z.number(), teaserAdjustment: z.string().optional(), adjustedLine: z.string().optional(), eventStartsAt: z.string().datetime(), homeTeam: z.string().optional(), awayTeam: z.string().optional(), grade: z.string().optional(), resultVersion: z.string().optional() })).optional()
 });
 
@@ -169,8 +169,10 @@ const evidenceResultVersion = (evidence: z.infer<typeof settlementResultEvidence
   return `commissioner:${evidence.commandId}:${JSON.stringify(evidence.correctedResults.map((result) => [result.eventId, result.correctionVersion]))}`;
 };
 
-export const auditSettlement = z.object({ id: auditId, wagerId: auditId, resultVersion: auditId, outcome: z.enum(["win", "loss", "refund", "reversal"]), returnMicros: canonicalIntegerText, profitMicros: canonicalIntegerText, sourceResult: settlementResultEvidence, reversalOf: auditId.nullable(), actorId: auditId, reason: z.string().min(1).nullable(), createdAt: auditTimestamp }).strict().superRefine((settlement, ctx) => {
+export const auditSettlement = z.object({ id: auditId, wagerId: auditId, resultVersion: auditId, outcome: z.enum(["win", "loss", "refund", "reversal"]), returnMicros: canonicalIntegerText, profitMicros: canonicalIntegerText, settledOdds: z.number().int().safe().refine((odds) => odds !== 0).nullable(), sourceResult: settlementResultEvidence, reversalOf: auditId.nullable(), actorId: auditId, reason: z.string().min(1).nullable(), createdAt: auditTimestamp }).strict().superRefine((settlement, ctx) => {
   if (settlement.resultVersion !== evidenceResultVersion(settlement.sourceResult)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["resultVersion"], message: "Result version must identify the persisted source evidence." });
+  if (settlement.outcome === "win" && settlement.settledOdds === null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settledOdds"], message: "Winning settlements must record effective odds." });
+  if (settlement.outcome !== "win" && settlement.settledOdds !== null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settledOdds"], message: "Only winning settlements may record effective odds." });
   if (settlement.outcome === "reversal" || Array.isArray(settlement.sourceResult)) return;
   const evidenceOutcome = settlement.sourceResult.source === "commissioner_void" ? "refund" : settlement.sourceResult.derived.outcome;
   if (settlement.outcome !== evidenceOutcome) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["outcome"], message: "Settlement outcome must match commissioner evidence." });

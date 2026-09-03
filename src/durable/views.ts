@@ -38,8 +38,8 @@ function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, own
 }
 
 function firstSettlement(sql: SqlStorage, wagerId: string) {
-  const row = [...sql.exec<Row>("SELECT s.outcome, s.return_micros, s.profit_micros, s.created_at FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement reversal WHERE reversal.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wagerId)][0];
+  const row = [...sql.exec<Row>("SELECT s.outcome, s.return_micros, s.profit_micros, s.settled_odds, s.created_at FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement reversal WHERE reversal.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wagerId)][0];
   // Settlement rows keep the internal win/loss/refund vocabulary; member reads publish won/lost/refunded.
   const outcome = { win: "won", loss: "lost", refund: "refunded" }[String(row?.outcome)] as "won" | "lost" | "refunded";
-  return row ? { outcome, returnMicros: String(row.return_micros), profitMicros: String(row.profit_micros), settledAt: String(row.created_at) } : undefined;
+  return row ? { outcome, returnMicros: String(row.return_micros), profitMicros: String(row.profit_micros), settledOdds: row.settled_odds === null ? null : Number(row.settled_odds), settledAt: String(row.created_at) } : undefined;
 }

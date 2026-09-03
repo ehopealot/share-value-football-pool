@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditExportResponse, OddsBoardResponse, ReadActivity, ReadPoolView, ReadSeasonHistory, ReadStandings } from "../../src/contracts/http";
+import { auditExportResponse, auditSettlement, OddsBoardResponse, ReadActivity, ReadPoolView, ReadSeasonHistory, ReadStandings } from "../../src/contracts/http";
 
 describe("T11 member read contracts", () => {
   const wager = { wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "straight", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-29T00:00:00.000Z", performanceMicros: "0" };
@@ -55,6 +55,16 @@ describe("T11 member read contracts", () => {
     expect(() => ReadSeasonHistory.parse({ ...history, accounts: [{ ...history.accounts[0], gainMicros: "01" }] })).toThrow();
   });
 
+  it("accepts owner-visible parlay settlement odds and nullable audit settlement odds", () => {
+    const parlay = { ...wager, type: "parlay", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", outcome: "won", returnMicros: "3500000", profitMicros: "2500000", settledAt: "2026-01-02T00:00:00.000Z", settledOdds: 250 };
+    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [parlay] } }).activity.wagers[0]).toMatchObject({ type: "parlay", settledOdds: 250 });
+    const providerResults = [{ eventId: "event-1", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "provider-1" }];
+    expect(auditSettlement.parse({ id: "settlement", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "3500000", profitMicros: "2500000", settledOdds: 250, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-02T00:00:00.000Z" }).settledOdds).toBe(250);
+    const refund = { id: "refund", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "refund", returnMicros: "1000000", profitMicros: "0", settledOdds: null, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-02T00:00:00.000Z" };
+    expect(auditSettlement.parse(refund).settledOdds).toBeNull();
+    expect(() => auditSettlement.parse({ ...refund, settledOdds: undefined })).toThrow();
+  });
+
   it("exactly validates automatic, manual, open-source, and reversal audit evidence", () => {
     const providerResults = [{ eventId: "event-1", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "provider-1", eventName: "Week 1", postseason: false }];
     const correctedResults = [{ eventId: "event-1", league: "nfl", status: "final", homeScore: 17, awayScore: 24, correctionVersion: "official-2" }];
@@ -64,9 +74,9 @@ describe("T11 member read contracts", () => {
       seasons: [{ id: "s", label: "Season", rulesetVersion: "SHARE_POOL_2026_V1", state: "closed", openedAt: "2026-01-01T00:00:00.000Z", closedAt: "2026-02-01T00:00:00.000Z", closeReason: "super_bowl_final", floatMicros: "0", notionalMicros: "0", defaultMode: null, defaultAmountMicros: null, commandVersion: "3" }], accounts: [], orders: [], ledger: [],
       seasonProviderResults: [{ seasonId: "s", eventId: "event-1", league: "nfl", correctionVersion: "provider-1", observedAt: "2026-02-01T00:00:00.000Z", appendOrder: "1", result: providerResults[0] }],
       settlements: [
-        { id: "settlement", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" },
-        { id: "reversal", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "reversal", returnMicros: "-2000000", profitMicros: "-1000000", sourceResult: providerResults, reversalOf: "settlement", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" },
-        { id: "manual", wagerId: "w", resultVersion: 'commissioner:command:[["event-1","official-2"]]', outcome: "loss", returnMicros: "0", profitMicros: "0", sourceResult: commissionerEvidence, reversalOf: "settlement", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" }
+        { id: "settlement", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", settledOdds: 100, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "reversal", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "reversal", returnMicros: "-2000000", profitMicros: "-1000000", settledOdds: null, sourceResult: providerResults, reversalOf: "settlement", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "manual", wagerId: "w", resultVersion: 'commissioner:command:[["event-1","official-2"]]', outcome: "loss", returnMicros: "0", profitMicros: "0", settledOdds: null, sourceResult: commissionerEvidence, reversalOf: "settlement", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" }
       ],
       wagerCorrections: [
         { id: "correction", wagerId: "w", actorId: "c", reason: "Official correction", sourceResult: providerResults, replacementResult: commissionerEvidence, commandId: "command", createdAt: "2026-01-01T00:00:00.000Z" },

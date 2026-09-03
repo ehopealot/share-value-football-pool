@@ -271,6 +271,24 @@ describe("T11 authoritative member reads", () => {
     expect(history.accounts).toContainEqual(expect.objectContaining({ memberId: "m", memberDisplayName: "Sunday Shark" }));
   }, 90_000);
 
+  it("publishes parlay effective settlement odds only to its owner", async () => {
+    const slug = `t11-parlay-settled-odds-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "m", "Member");
+    await join(slug, "n", "Nonowner");
+    await draftSeason(slug, "s1", "2026");
+    await storage(slug, (state) => state.storage.sql.exec(`
+      INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, settled_result_version, confirmed_at) VALUES ('parlay', 's1', 'm', 'parlay', '1000000', 300, 'won', 'PARLAY_2026_V1', 'final-1', '2026-01-01T00:00:00.000Z');
+      INSERT INTO wager_leg (id, wager_id, event_id, league, canonical_book, retrieved_at, policy_version, offer_version, canonical_offer_id, canonical_proof_json, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, is_super_bowl, grade, result_version) VALUES ('parlay-leg', 'parlay', 'future-parlay-event', 'nfl', 'DraftKings', '2026-01-01T00:00:00.000Z', 'CANONICAL_BOOKS_2026_V1', 'v1', NULL, NULL, 'spread', 'home', '-3', 100, NULL, NULL, '2099-01-01T00:00:00.000Z', 0, 'win', 'final-1');
+      INSERT INTO wager_leg_snapshot (wager_leg_id, home_team, away_team) VALUES ('parlay-leg', 'Home', 'Away');
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('parlay-settlement', 'parlay', 'final-1', 'win', '3500000', '2500000', 250, '[]', NULL, 'system', NULL, '2026-01-02T00:00:00.000Z');
+    `));
+    const owner = await send(slug, { type: "ReadActivity", commandId: "owner-parlay", actorId: "m" });
+    expect(owner.activity.wagers[0]).toMatchObject({ type: "parlay", acceptedOdds: 300, settledOdds: 250, outcome: "won", returnMicros: "3500000" });
+    const nonowner = await send(slug, { type: "ReadActivity", commandId: "nonowner-parlay", actorId: "n" });
+    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "2500000" });
+  }, 90_000);
+
   it("keeps the production read clock real: no fixture read-time route, table, or shaped reveal", async () => {
     const slug = `t11-read-clock-${crypto.randomUUID()}`;
     await initialize(slug, "Owner");

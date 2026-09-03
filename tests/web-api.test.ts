@@ -87,9 +87,9 @@ describe("wager recovery messages", () => {
       format: "share-value-pool-audit-v1", commandVersion: "3", pool: { id: "p", slug: "pool", name: "Pool", commissionerId: "c", signupsOpen: true, commandVersion: "3" },
       seasons: [], seasonProviderResults: [], accounts: [], orders: [], ledger: [],
       settlements: [
-        { id: "automatic", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" },
-        { id: "reversal", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "reversal", returnMicros: "-2000000", profitMicros: "-1000000", sourceResult: providerResults, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" },
-        { id: "manual", wagerId: "w", resultVersion: 'commissioner:correction-command:[["event-1","official-2"]]', outcome: "loss", returnMicros: "0", profitMicros: "0", sourceResult: replacementResult, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" }
+        { id: "automatic", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "win", returnMicros: "2000000", profitMicros: "1000000", settledOdds: 100, sourceResult: providerResults, reversalOf: null, actorId: "system", reason: null, createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "reversal", wagerId: "w", resultVersion: '[["event-1","provider-1"]]', outcome: "reversal", returnMicros: "-2000000", profitMicros: "-1000000", settledOdds: null, sourceResult: providerResults, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "manual", wagerId: "w", resultVersion: 'commissioner:correction-command:[["event-1","official-2"]]', outcome: "loss", returnMicros: "0", profitMicros: "0", settledOdds: null, sourceResult: replacementResult, reversalOf: "automatic", actorId: "c", reason: "Official correction", createdAt: "2026-01-01T00:00:00.000Z" }
       ],
       wagerCorrections: [{ id: "correction", wagerId: "w", actorId: "c", reason: "Official correction", sourceResult: providerResults, replacementResult, commandId: "correction-command", createdAt: "2026-01-01T00:00:00.000Z" }],
       administrationAudit: [], seasonAnnotations: [], wagers: []
