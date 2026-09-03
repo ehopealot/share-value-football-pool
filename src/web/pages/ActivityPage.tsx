@@ -2,14 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activitySelectedOutcomeClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
+import { activitySelectedOutcomeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
 import { displayWagerStartTime } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
-
-const wagerResult = (wager: Wager) => wager.outcome ?? (wager.status === "open" ? "Open" : wager.status);
 
 function WagerLines({ wager }: { wager: Wager }) {
   if (!wager.legs?.length) return <>Selection hidden until the game starts.</>;
@@ -39,7 +37,7 @@ export function ActivityPage() {
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
   return <Layout signedIn><div className="activity-page"><h1>Activity</h1>
     <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
-      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>Result</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td>{displayWagerStartTime(wager)}</td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td>{wagerResult(wager)}</td><td>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
+      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td>{displayWagerStartTime(wager)}</td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }

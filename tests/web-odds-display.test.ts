@@ -13,8 +13,10 @@ describe("member-facing odds display", () => {
     expect(formatAmericanOdds(-110)).toBe("-110");
   });
 
-  it("uses one local kickoff formatter for the odds board and wager tables", () => {
-    expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe(new Date("2026-09-06T20:00:00.000Z").toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }));
+  it("uses one compact local kickoff formatter for the odds board and wager tables", () => {
+    const date = new Date("2026-09-06T20:00:00.000Z");
+    const hour = date.getHours() % 12 || 12;
+    expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe(`${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`);
     expect(oddsPageSource).toContain("formatKickoff(game.startsAt)");
   });
 

@@ -10,7 +10,7 @@ describe("Activity page", () => {
     expect(source).toContain('].sort().reverse();');
     expect(source).toContain('weeks.includes(selectedWeek) ? selectedWeek : weeks[0]');
     expect(source).toContain('className="activity-table"');
-    expect(source).toContain('<th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>Result</th><th>P&amp;L</th>');
+    expect(source).toContain('<th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th>');
     expect(source).toContain('<small className="activity-staked-odds">{stake.odds}</small>');
     expect(source).toContain('displayWagerStartTime(wager)');
     expect(source).toContain('weekNumberLabel(start)');
@@ -24,9 +24,9 @@ describe("Activity page", () => {
     expect(source).toContain('Selection hidden until the game starts.');
   });
 
-  it("leaves zero Activity performance blank in both wager and weekly-summary cells", () => {
-    expect(source).toContain('formatActivityWagerPerformance');
-    expect(source).toContain('<td>{formatActivityWagerPerformance(wager)}</td>');
+  it("colors wager P&L by result while leaving the weekly zero summary blank", () => {
+    expect(source).toContain('activityWagerPerformanceClass');
+    expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
     expect(source).toContain('formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>');
   });
 });

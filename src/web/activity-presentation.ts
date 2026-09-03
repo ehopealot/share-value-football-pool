@@ -32,8 +32,12 @@ export function formatActivityPerformance(performanceMicros: string): string {
   return performanceMicros === "0" ? "" : formatWeeklyPerformance(performanceMicros);
 }
 
-export function formatActivityWagerPerformance(wager: Pick<Wager, "performanceMicros">): string {
-  return formatActivityPerformance(wager.performanceMicros);
+export function formatActivityWagerPerformance(wager: Pick<Wager, "performanceMicros" | "outcome">): string {
+  return wager.performanceMicros === "0" && wager.outcome === "refunded" ? "0.00 shares" : formatActivityPerformance(wager.performanceMicros);
+}
+
+export function activityWagerPerformanceClass(wager: Pick<Wager, "outcome">): string {
+  return wager.outcome === "won" ? "activity-performance-won" : wager.outcome === "lost" ? "activity-performance-lost" : "";
 }
 
 /** Public Activity terms are optional when a ticket must be redacted. */

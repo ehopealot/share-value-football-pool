@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activitySelectedOutcomeClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
+import { activitySelectedOutcomeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
 type Wager = Parameters<typeof groupActivityMembersForWeek>[0][number];
 const leg = (overrides: Record<string, unknown> = {}) => ({ eventId: "game", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalLine: "-7.5", originalOdds: -110, eventStartsAt: "2026-09-06T20:00:00.000Z", awayTeam: "UCLA", homeTeam: "Arizona", ...overrides });
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", seasonId: "s", memberId: "ucla", memberDisplayName: "Bruin", type: "straight", status: "won", confirmedAt: "2026-09-01T00:00:00.000Z", weekStart: "2026-09-01T04:00:00.000Z", performanceMicros: "500000000", profitMicros: "500000000", legs: [leg()], ...overrides }) as Wager;
@@ -23,12 +23,15 @@ describe("activity presentation", () => {
     expect(formatWeeklyPerformance("0")).toBe("0.00 shares");
   });
 
-  it("omits zero Activity P&L regardless of wager visibility", () => {
+  it("shows a black zero P&L for pushes while keeping the weekly zero summary blank", () => {
     expect(formatActivityPerformance("0")).toBe("");
     expect(formatActivityPerformance("500000000")).toBe("+500.00 shares");
-    expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "0" }))).toBe("");
-    expect(formatActivityWagerPerformance(wager({ riskMicros: "1000000", performanceMicros: "0" }))).toBe("");
+    expect(formatActivityWagerPerformance(wager({ status: "refunded", outcome: "refunded", riskMicros: "1000000", performanceMicros: "0" }))).toBe("0.00 shares");
+    expect(formatActivityWagerPerformance(wager({ status: "open", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("");
     expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "500000000" }))).toBe("+500.00 shares");
+    expect(activityWagerPerformanceClass(wager({ outcome: "won" }))).toBe("activity-performance-won");
+    expect(activityWagerPerformanceClass(wager({ outcome: "lost" }))).toBe("activity-performance-lost");
+    expect(activityWagerPerformanceClass(wager({ outcome: "refunded" }))).toBe("");
   });
 
   it("formats the stake as whole shares and accepted odds", () => {
