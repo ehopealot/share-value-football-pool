@@ -128,7 +128,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .reversal-form input, .reversal-form button { box-sizing: border-box; height: 2.5rem; }
 .reversal-actions { display: flex; gap: var(--space-2); }
 .reversal-actions button { margin: 0; }
-.wager-legs span { display: block; }
+.wager-legs > span { display: block; }
 /* Activity keeps week/member performance scanable without repeating one table per member. */
 .main-content:has(.activity-page) { max-width: none; }
 .activity-page > section > label { margin: 0 0 var(--space-1); }
