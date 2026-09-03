@@ -61,7 +61,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .selection-tray-list { list-style: none; margin: var(--space-1) 0; padding: 0; }
 .selection-tray-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-1) 0; border-bottom: 1px solid var(--line); }
 .selection-tray-list li:last-child { border-bottom: 0; }
-.selection-tray-list label { flex-direction: row; align-items: center; margin: 0; }
+.selection-tray-amount { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .main-content:has(.odds-board) { max-width: none; }
 .odds-board .odds-game-top, .odds-board .odds-game-bottom { height: 2.4rem; }
 .odds-board .odds-cell, .odds-board .odds-matchup { height: 2.4rem; vertical-align: middle; }
@@ -69,12 +69,11 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .site-shell:has(.odds-board) { width: 100%; border-inline: 0; }
 .odds-board .odds-game-top > td, .odds-board .odds-game-top > th { border-top: 2px solid var(--ink); }
 .odds-start { white-space: nowrap; color: #3b4046; }
-/* Bet slip pinned to the viewport bottom with column-aligned risk inputs. */
+/* Bet slip pinned to the viewport bottom with compact amount inputs. */
 .selection-tray { position: sticky; bottom: 0; z-index: 2; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
 .selection-tray-list li { flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
 .tray-item-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 0.85rem; }
-.selection-tray-list li > label { flex: 0 0 auto; width: 10rem; justify-content: flex-end; flex-direction: row; align-items: center; gap: 0.4rem; }
-.selection-tray-list li > label input { width: 4.5rem; text-align: right; }
+.selection-tray-amount input { width: 4.5rem; text-align: right; }
 .selection-tray-remove { padding: 0.2rem 0; border: 0; background: transparent; color: #003f7d; font-weight: 400; text-decoration: underline; }
 .selection-tray-remove:hover:not(:disabled) { background: transparent; color: #002b5c; }
 .odds-option.locked { color: #6e7780; }
@@ -120,7 +119,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
 @media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } }
 @media (max-width: 600px) { .tray-actions button, .tray-actions .primary-action { min-height: 44px; } }
-@media (max-width: 600px) { .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "selection remove" "risk remove"; column-gap: var(--space-1); row-gap: 0; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-list li > label { grid-area: risk; width: auto; justify-content: flex-start; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
+@media (max-width: 600px) { .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
 /* Mobile Games board prioritizes compact tappable prices over repeated team names. */
 .odds-mobile-start { display: none; }
 @media (max-width: 600px) {

@@ -19,4 +19,11 @@ describe("narrow-screen touch targets", () => {
     expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.selection-tray-remove\s*\{[\s\S]*min-height:\s*44px/);
     expect(css).toContain('button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:not(:disabled)');
   });
+
+  it("keeps the mobile amount input beside a wrapping matchup", () => {
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr) 4.5rem auto;');
+    expect(css).toContain('grid-template-areas: "selection risk remove";');
+    expect(css).toMatch(/\.selection-tray-amount\s*\{[^}]*grid-area:\s*risk/);
+    expect(css).not.toContain('grid-template-areas: "selection remove" "risk remove";');
+  });
 });

@@ -20,4 +20,9 @@ describe("Activity page", () => {
     expect(source).toContain('<strong key={index}>{segment.text}</strong>');
     expect(source).toContain('Selection hidden until the game starts.');
   });
+
+  it("leaves a redacted zero-performance wager P&L blank", () => {
+    expect(source).toContain('formatActivityWagerPerformance');
+    expect(source).toContain('<td>{formatActivityWagerPerformance(wager)}</td>');
+  });
 });

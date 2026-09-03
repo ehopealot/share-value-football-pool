@@ -103,6 +103,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await expect(removeSelection).toHaveClass("selection-tray-remove");
   await expect(removeSelection).toHaveCSS("min-height", "44px");
   await expect(page.getByLabel(/Risk in whole shares/)).toBeVisible();
+  await expect(page.locator(".selection-tray-list li > label")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Place bets" })).toHaveCSS("min-height", "44px");
   await page.goto(`${worker.baseURL}/p/${pool.slug}/my-wagers`);
   await expect(page.getByRole("heading", { name: "My wagers" })).toBeVisible();

@@ -16,7 +16,7 @@ const jobSource = (workflow: string, job: string, nextJob?: string) => {
 describe("GitHub Actions CI and production deployment", () => {
   it("runs CI for pull requests and main pushes without deployment credentials", () => {
     const workflow = workflowSource();
-    const ci = jobSource(workflow, "ci", "deploy");
+    const ci = jobSource(workflow, "ci", "e2e");
 
     expect(workflow).toMatch(/\non:\n  pull_request:\n  push:\n    branches: \[main\]/);
     expect(ci).toMatch(/actions\/checkout@v4\n\s+with:\n\s+fetch-depth:\s*2/);
@@ -28,6 +28,23 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(ci).toContain("git rev-parse --verify HEAD^");
     expect(ci).toContain("git diff --check HEAD^ HEAD");
     expect(ci).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|VITE_TURNSTILE_SITE_KEY)/);
+  });
+
+  it("runs the complete Playwright suite as an advisory pull-request check", () => {
+    const workflow = workflowSource();
+    const e2e = jobSource(workflow, "e2e", "deploy");
+    const deploy = jobSource(workflow, "deploy");
+
+    expect(e2e).toMatch(/if:\s*github\.event_name == ['"]pull_request['"]/);
+    expect(e2e).toMatch(/continue-on-error:\s*true/);
+    expect(e2e).toContain("actions/checkout@v4");
+    expect(e2e).toContain("actions/setup-node@v4");
+    expect(e2e).toMatch(/node-version:\s*["']?24["']?/);
+    expect(e2e).toContain("npm ci");
+    expect(e2e).toContain("./node_modules/.bin/playwright install --with-deps chromium");
+    expect(e2e).toContain("npm run test:e2e");
+    expect(e2e).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|VITE_TURNSTILE_SITE_KEY)/);
+    expect(deploy).not.toContain("e2e");
   });
 
   it("deploys only successful main pushes with scoped credentials, migrations, and a health retry", () => {
