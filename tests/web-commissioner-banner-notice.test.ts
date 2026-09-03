@@ -52,7 +52,10 @@ describe("commissioner banner notice", () => {
     expect(settings()).toContain('className="share-order-form pool-settings-notice-controls"');
     expect(settings()).toContain('id="commissioner-notice-help"');
     expect(settings()).toContain('aria-describedby="commissioner-notice-help"');
-    expect(settings()).toContain("This notice displays in a banner on joined pool pages.");
+    expect(settings()).toContain("This notice displays in a banner above this pool.");
+    expect(settings()).toContain("Password changes require a recent sign-in.");
+    expect(settings()).not.toContain("Password rotation requires recent authentication.");
+    expect(settings()).not.toContain("Teaser risk is split evenly across its sides for this limit.");
     expect(css()).toMatch(/\.pool-settings\s*\{[^}]*display:\s*grid[^}]*gap:/s);
     expect(css()).toMatch(/\.pool-settings-notice-field\s*\{[^}]*flex:\s*1 1 min\(100%, 65ch\)/s);
   });
