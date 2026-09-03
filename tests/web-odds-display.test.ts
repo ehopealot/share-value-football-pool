@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds } from "../src/web/odds-format";
-import { batchAfterPopState, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails } from "../src/web/pages/OddsPage";
+import { batchAfterPopState, filterGamesByTeam, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
 
@@ -58,5 +58,19 @@ describe("member-facing odds display", () => {
   it("offers a full-page Reload odds link only when the feed is stale", () => {
     expect(oddsPageSource).toContain('board?.feed.status === "stale"');
     expect(oddsPageSource).toContain('<a href={window.location.href}>Reload odds</a>');
+  });
+
+  it("filters either team fuzzily while retaining input order", () => {
+    const markets = { spread: {}, total: {}, moneyline: {} };
+    const games: GameRow[] = [
+      { eventId: "jets-broncos", startsAt: "2026-09-10T17:00:00.000Z", awayTeam: "New York Jets", homeTeam: "Denver Broncos", markets },
+      { eventId: "chiefs-raiders", startsAt: "2026-09-10T20:00:00.000Z", awayTeam: "Kansas City Chiefs", homeTeam: "Las Vegas Raiders", markets },
+      { eventId: "jets-dolphins", startsAt: "2026-09-11T17:00:00.000Z", awayTeam: "New Jersey Jets", homeTeam: "Miami Dolphins", markets }
+    ];
+
+    expect(filterGamesByTeam(games, "BRONCOS")).toEqual([games[0]]);
+    expect(filterGamesByTeam(games, "cheifs")).toEqual([games[1]]);
+    expect(filterGamesByTeam(games, "jets")).toEqual([games[0], games[2]]);
+    expect(filterGamesByTeam(games, "")).toBe(games);
   });
 });
