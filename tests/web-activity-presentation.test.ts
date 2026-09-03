@@ -32,9 +32,9 @@ describe("activity presentation", () => {
   });
 
   it("formats the stake as whole shares and accepted odds", () => {
-    expect(formatActivityStake(wager({ riskMicros: "100000000", acceptedOdds: 150 }))).toBe("100 +150");
-    expect(formatActivityStake(wager({ riskMicros: "25000000", acceptedOdds: -110 }))).toBe("25 -110");
-    expect(formatActivityStake(wager({ riskMicros: undefined, acceptedOdds: undefined }))).toBe("");
+    expect(formatActivityStake(wager({ riskMicros: "100000000", acceptedOdds: 150 }))).toEqual({ amount: "100", odds: "+150" });
+    expect(formatActivityStake(wager({ riskMicros: "25000000", acceptedOdds: -110 }))).toEqual({ amount: "25", odds: "-110" });
+    expect(formatActivityStake(wager({ riskMicros: undefined, acceptedOdds: undefined }))).toBeUndefined();
   });
 
   it("maps only wins and losses to selected-pick outcome classes", () => {

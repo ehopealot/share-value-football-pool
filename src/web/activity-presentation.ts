@@ -37,9 +37,9 @@ export function formatActivityWagerPerformance(wager: Pick<Wager, "performanceMi
 }
 
 /** Public Activity terms are optional when a ticket must be redacted. */
-export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): string {
-  if (wager.riskMicros === undefined || wager.acceptedOdds === undefined) return "";
-  return `${parseIntegerText(wager.riskMicros) / 1_000_000n} ${formatAmericanOdds(wager.acceptedOdds)}`;
+export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): { amount: string; odds: string } | undefined {
+  if (wager.riskMicros === undefined || wager.acceptedOdds === undefined) return undefined;
+  return { amount: (parseIntegerText(wager.riskMicros) / 1_000_000n).toString(), odds: formatAmericanOdds(wager.acceptedOdds) };
 }
 
 /** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
