@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/web/api";
 import { addParlayLeg, buildParlaySlip, parlayLegForOutcome, readParlaySlip, writeParlaySlip } from "../src/web/parlay-slip";
 import { editParlaySemantic, ParlayPageGeneration, parlayAdvisoryOdds, parlayLegTableColumns, parlayPlacementAttemptTransition, parlayQuoteAttemptTransition, parlayQuoteRequest, parlayRecoveryTransition, parlayTerminalTransition, parlayUnknownPlacementMessage, parlayUnresolvedPlacementTransition, recoverParlaySemantic, retryParlaySemantic } from "../src/web/pages/ParlayPage";
-import { buildCurrentParlayTransfer } from "../src/web/pages/OddsPage";
+import { buildCurrentParlayTransfer, ParlayTrayTransferGate, parlayTrayChangedMessage, runParlayTrayTransfer } from "../src/web/pages/OddsPage";
 import type { TrayItem } from "../src/web/selection-tray";
 
 const offer = (eventId: string, market: "spread" | "total" | "moneyline", outcome: { name: string; price: number; point?: number }) => ({
@@ -37,6 +37,24 @@ describe("parlay slip and page semantics", () => {
 
     const unavailable = await buildCurrentParlayTransfer("pool", tray, async () => ({ offers: [ncaaf] } as any));
     expect(unavailable).toEqual({ legs: [], error: "A selected parlay leg is no longer available on the board." });
+  });
+
+  it("fences a deferred transfer when the tray changes before the unfiltered board arrives", async () => {
+    const nfl = offer("nfl-game", "spread", { name: "Home", price: -110, point: -3.5 });
+    const ncaaf = { ...offer("ncaaf-game", "total", { name: "Over", price: -110, point: 55.5 }), league: "ncaaf" as const };
+    const original = [item("nfl-game", "spread", "home"), item("ncaaf-game", "total", "over")];
+    let current = original;
+    let resolve!: (board: any) => void;
+    const load = vi.fn(() => new Promise<any>((done) => { resolve = done; }));
+    const gate = new ParlayTrayTransferGate();
+    const transfer = runParlayTrayTransfer({ gate, slug: "pool", items: original, load, currentItems: () => current, currentSlug: () => "pool" });
+    expect(gate.pending).toBe(true);
+    expect(gate.begin("pool", original)).toBeUndefined();
+    current = [...original, item("later-game", "spread", "home")];
+    resolve({ offers: [nfl, ncaaf] });
+    await expect(transfer).resolves.toEqual({ tag: "tray-changed" });
+    expect(gate.pending).toBe(false);
+    expect(parlayTrayChangedMessage).toBe("Your parlay selections changed while current odds loaded. Review and retry Build parlay.");
   });
 
   it("constructs complete immutable client leg semantics from the current board", () => {

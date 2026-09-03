@@ -21,11 +21,11 @@ export type MarketCell = { offer: any; outcome: any; label: string; selection: s
 export type GameMarkets = { spread: { away?: MarketCell; home?: MarketCell }; total: { over?: MarketCell; under?: MarketCell }; moneyline: { away?: MarketCell; home?: MarketCell } };
 export type GameRow = { eventId: string; startsAt: string; awayTeam: string; homeTeam: string; markets: GameMarkets };
 const pickId = (item: Pick<TrayItem, "eventId" | "market" | "selection">) => `${item.eventId}:${item.market}:${item.selection}`;
-export type OddsBoardTableProps = { games: GameRow[]; currentWeek: string; selectedPickIds: string[]; onToggle: (cell: MarketCell) => void };
+export type OddsBoardTableProps = { games: GameRow[]; currentWeek: string; selectedPickIds: string[]; selectionDisabled?: boolean; onToggle: (cell: MarketCell) => void };
 const samePickIds = (left: string[], right: string[]) => left.length === right.length && left.every((id, index) => id === right[index]);
 /** Risk edits must not reconcile a whole odds table; only changed selections affect its cells. */
-export const oddsBoardTablePropsAreEqual = (previous: OddsBoardTableProps, next: OddsBoardTableProps) => previous.games === next.games && previous.currentWeek === next.currentWeek && previous.onToggle === next.onToggle && samePickIds(previous.selectedPickIds, next.selectedPickIds);
-export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek, selectedPickIds, onToggle }: OddsBoardTableProps) {
+export const oddsBoardTablePropsAreEqual = (previous: OddsBoardTableProps, next: OddsBoardTableProps) => previous.games === next.games && previous.currentWeek === next.currentWeek && previous.selectionDisabled === next.selectionDisabled && previous.onToggle === next.onToggle && samePickIds(previous.selectedPickIds, next.selectedPickIds);
+export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek, selectedPickIds, selectionDisabled = false, onToggle }: OddsBoardTableProps) {
   const selected = new Set(selectedPickIds);
   return <div className="table-scroll" tabIndex={0}><table className="odds-board"><caption>Current odds</caption><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
     const top: Array<MarketCell | undefined> = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away];
@@ -34,7 +34,7 @@ export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek,
       // Only the current Tuesday–Monday week is bettable; future weeks are visible but locked.
       const locked = !inWeek(game.startsAt, currentWeek);
       const classes = ["odds-option", locked ? "locked" : "", option?.offer.market === "total" ? "odds-option-total" : ""].filter(Boolean).join(" ");
-      return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked} checked={selected.has(pickId({ eventId: option.offer.eventId, market: option.offer.market, selection: option.selection as TrayItem["selection"] }))} onChange={() => onToggle(option)} /><span className="odds-option-name">{option.name}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
+      return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked || selectionDisabled} checked={selected.has(pickId({ eventId: option.offer.eventId, market: option.offer.market, selection: option.selection as TrayItem["selection"] }))} onChange={() => onToggle(option)} /><span className="odds-option-name">{option.name}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
     };
     const kickoff = new Date(game.startsAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
@@ -142,17 +142,67 @@ export const buildCurrentParlayTransfer = async (
   load: (slug: string, query?: string) => Promise<{ offers?: any[] }> = api.odds
 ) => buildParlaySlip(items, await load(slug));
 
+type ParlayTrayTransferTicket = { id: number; slug: string; identities: string[] };
+const sameTrayIdentities = (left: readonly string[], right: TrayItem[]) => left.length === right.length && left.every((identity, index) => identity === pickId(right[index]!));
+/** A single in-flight transfer may commit only the exact tray identity it resolved. */
+export class ParlayTrayTransferGate {
+  private next = 0;
+  private active?: ParlayTrayTransferTicket;
+  get pending(): boolean { return this.active !== undefined; }
+  begin(slug: string, items: TrayItem[]): ParlayTrayTransferTicket | undefined {
+    if (this.active) return undefined;
+    const ticket = { id: ++this.next, slug, identities: items.map(pickId) };
+    this.active = ticket;
+    return ticket;
+  }
+  matches(ticket: ParlayTrayTransferTicket, slug: string, items: TrayItem[]): boolean {
+    return this.active?.id === ticket.id && ticket.slug === slug && sameTrayIdentities(ticket.identities, items);
+  }
+  finish(ticket: ParlayTrayTransferTicket): void { if (this.active?.id === ticket.id) this.active = undefined; }
+  cancel(): void { this.active = undefined; }
+}
+export const parlayTrayChangedMessage = "Your parlay selections changed while current odds loaded. Review and retry Build parlay.";
+export const parlayTransferUnavailableMessage = "Current odds are unavailable; your parlay selections were not moved.";
+type ParlayTrayTransferResult =
+  | { tag: "ready"; transfer: Awaited<ReturnType<typeof buildCurrentParlayTransfer>> }
+  | { tag: "already-pending" }
+  | { tag: "tray-changed" }
+  | { tag: "load-failed" };
+/** Fetches an unfiltered board without permitting a stale tray snapshot to mutate either slip. */
+export const runParlayTrayTransfer = async ({ gate, slug, items, load = api.odds, currentItems, currentSlug, onPending }: {
+  gate: ParlayTrayTransferGate;
+  slug: string;
+  items: TrayItem[];
+  load?: (slug: string, query?: string) => Promise<{ offers?: any[] }>;
+  currentItems: () => TrayItem[];
+  currentSlug: () => string;
+  onPending?: (pending: boolean) => void;
+}): Promise<ParlayTrayTransferResult> => {
+  const ticket = gate.begin(slug, items);
+  if (!ticket) return { tag: "already-pending" };
+  onPending?.(true);
+  try {
+    const transfer = await buildCurrentParlayTransfer(slug, items, load);
+    return gate.matches(ticket, currentSlug(), currentItems()) ? { tag: "ready", transfer } : { tag: "tray-changed" };
+  } catch {
+    return gate.matches(ticket, currentSlug(), currentItems()) ? { tag: "load-failed" } : { tag: "tray-changed" };
+  } finally {
+    gate.finish(ticket);
+    onPending?.(false);
+  }
+};
+
 export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
   const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState("");
-  const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState("");
-  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null);
+  const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState(""); const [parlayTransferPending, setParlayTransferPending] = useState(false);
+  const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const parlayTransfer = useRef(new ParlayTrayTransferGate()); slugRef.current = slug;
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const query = `?${new URLSearchParams(Object.fromEntries([["league", league]].filter(([, value]) => value)))}`;
   useEffect(() => { let active = true; void api.odds(slug, query).then((fresh) => { if (active) setBoard(fresh); }).catch(e => { if (active) setError(errorMessage(e)); }); return () => { active = false; }; }, [slug, query]);
   useEffect(() => { void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
-  useEffect(() => { setTray(readSelectionTray(slug)); }, [slug]);
-  const persist = (next: TrayItem[]) => { writeSelectionTray(slug, next); setTray(next); };
+  useEffect(() => { parlayTransfer.current.cancel(); setParlayTransferPending(false); const restored = readSelectionTray(slug); trayRef.current = restored; setTray(restored); }, [slug]);
+  const persist = (next: TrayItem[]) => { trayRef.current = next; writeSelectionTray(slug, next); setTray(next); };
   useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
   const pending = batch?.tag === "quoting" || batch?.tag === "placing";
@@ -168,8 +218,10 @@ export function OddsPage() {
   const games = useMemo(() => groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week))), [board, week]);
   const selectedPickIds = tray.map(pickId);
   const toggle = useCallback((cell: MarketCell) => {
+    if (parlayTransfer.current.pending) return;
     setTray((current) => {
       const next = toggleMarketExclusive(current, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem);
+      trayRef.current = next;
       writeSelectionTray(slug, next);
       return next;
     });
@@ -184,6 +236,7 @@ export function OddsPage() {
   const noIssuedShares = !view?.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
 
   const quoteAll = async () => {
+    if (parlayTransfer.current.pending) return;
     const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (riskError) return setError(riskError);
     if (!view?.activeSeason?.id) return setError("Open an active season before reviewing wagers.");
     setNotice(""); setError("");
@@ -223,6 +276,7 @@ export function OddsPage() {
   };
 
   const addEligibleToTeaser = () => {
+    if (parlayTransfer.current.pending) return;
     // Build a fresh teaser from this slip; a prior draft must never affect these selections.
     const transfer = buildTeaserTransfer(tray, board ?? {});
     writeTeaserSlip(slug, transfer.slip);
@@ -233,12 +287,14 @@ export function OddsPage() {
   };
 
   const addToParlay = async () => {
-    // The tray can span league filters; resolve every identity against one fresh unfiltered snapshot.
-    let next: ReturnType<typeof buildParlaySlip>;
-    try { next = await buildCurrentParlayTransfer(slug, tray); }
-    catch { return setError("Current odds are unavailable; your parlay selections were not moved."); }
-    if (next.error) return setError(next.error);
-    writeParlaySlip(slug, next.legs);
+    // The tray can span league filters; only this exact captured identity may move after the fresh unfiltered read.
+    const items = [...trayRef.current];
+    const result = await runParlayTrayTransfer({ gate: parlayTransfer.current, slug, items, currentItems: () => trayRef.current, currentSlug: () => slugRef.current, onPending: setParlayTransferPending });
+    if (slugRef.current !== slug || result.tag === "already-pending") return;
+    if (result.tag === "tray-changed") return setError(parlayTrayChangedMessage);
+    if (result.tag === "load-failed") return setError(parlayTransferUnavailableMessage);
+    if (result.transfer.error) return setError(result.transfer.error);
+    writeParlaySlip(slug, result.transfer.legs);
     persist([]);
     setError("");
     nav(`/p/${slug}/parlay`);
@@ -268,13 +324,13 @@ export function OddsPage() {
     {notice && <p role="status">{notice}</p>}
     <label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
-    <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} onToggle={toggle}/>
+    <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={parlayTransferPending} onToggle={toggle}/>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length === 0 ? <p>Check options on the board to build straight wagers, a teaser, or a parlay.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></span><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
-        <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
-        <button disabled={tray.length < 2 || tray.length > 6} onClick={addToParlay}>Build parlay</button>
-        <button className="primary-action" disabled={!view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
+      {tray.length === 0 ? <p>Check options on the board to build straight wagers, a teaser, or a parlay.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
+        <span className="tray-actions"><button disabled={parlayTransferPending || teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
+        <button disabled={parlayTransferPending || tray.length < 2 || tray.length > 6} onClick={() => void addToParlay()}>{parlayTransferPending ? "Loading current odds…" : "Build parlay"}</button>
+        <button className="primary-action" disabled={parlayTransferPending || !view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
         <p className="bet-slip-error" aria-live="polite">{riskError}</p></>}
     </section>
     <p><Link to={`/p/${slug}/overview`}>Pool home</Link></p></Layout>;
