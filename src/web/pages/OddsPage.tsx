@@ -111,15 +111,21 @@ const placeEntries = async (slug: string, entries: ReviewEntry[], maxSideBetMicr
 const displayedBoardValue = (offer: any, outcome: any, selection: TrayItem["selection"]) => {
   if (offer.market === "total") return `${outcome.point}`;
   if (offer.market === "moneyline") {
-    const price = (selection === "home" || selection === "away") ? vigFreeMoneylinePrice({ homeTeam: offer.homeTeam, awayTeam: offer.awayTeam }, offer.outcomes, selection) : undefined;
-    return price === undefined ? "unavailable" : formatAmericanOdds(price);
+    const price = Array.isArray(offer.outcomes) && (selection === "home" || selection === "away")
+      ? vigFreeMoneylinePrice({ homeTeam: offer.homeTeam, awayTeam: offer.awayTeam }, offer.outcomes, selection)
+      : undefined;
+    return formatAmericanOdds(price ?? outcome.price);
   }
   return formatSignedLine(outcome.point ?? outcome.price);
 };
 /** Tray labels mirror the board's current selected price; raw source values remain immutable quote proof only. */
-const trayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : `${item.market} ${item.selection} (no longer available)`;
+export const trayLabel = (board: { offers?: any[] }, item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => {
+  if (!resolved) return `${item.market} ${item.selection} (no longer available)`;
+  const offer = board.offers?.find((candidate) => candidate.eventId === item.eventId && candidate.market === item.market) ?? resolved.offer;
+  return `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(offer, resolved.outcome, item.selection)}`;
+};
 /** Market type is implicit in a live pick's team, total, or price display. */
-export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : trayLabel(item, resolved);
+export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : trayLabel({}, item, resolved);
 /** Transfers the first six eligible legs and returns every untransferred tray item for persistence. */
 export const buildTeaserTransfer = (items: TrayItem[], board: { offers?: any[] }) => {
   let slip: ReturnType<typeof teaserLegForOutcome>[] = []; const errors: string[] = []; const added: TrayItem[] = [];
@@ -275,7 +281,7 @@ export function OddsPage() {
     const entries: ReviewEntry[] = []; const failures: FailedEntry[] = []; let nextTray = [...tray];
     for (const item of tray) {
       const resolved = resolveTrayItem(current, item);
-      const label = trayLabel(item, resolved);
+      const label = trayLabel(board ?? {}, item, resolved);
       if (!resolved) { failures.push({ label, reason: "This selection is no longer available on the board." }); nextTray = removeItem(nextTray, item); continue; }
       try {
         const quote = await api.quoteStraight(slug, straightQuoteRequest({ pick: resolved, risk: item.risk, wagerId: item.wagerId, quoteKey: crypto.randomUUID() }, view.activeSeason.id));
@@ -359,7 +365,7 @@ export function OddsPage() {
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={parlayTransferPending} onToggle={toggle}/>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length === 0 ? <p>Check options on the board to build straight wagers, a teaser, or a parlay.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
+      {tray.length === 0 ? <p>Check options on the board to build straight wagers, a teaser, or a parlay.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board ?? {}, item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={parlayTransferPending || teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button disabled={parlayTransferPending || tray.length < 2 || tray.length > 6} onClick={() => void addToParlay()}>{parlayTransferPending ? "Loading current odds…" : "Build parlay"}</button>
         <button className="primary-action" disabled={parlayTransferPending || !view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
