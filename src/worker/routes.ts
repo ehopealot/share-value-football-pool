@@ -176,7 +176,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       catch { return null; }
     });
     const allValid = decoded.every((item) => item !== null);
-    const allFresh = offers.every((offer) => !offerIsStale(offer.retrieved_at, { commenceTime: offer.starts_at, status: "scheduled" }, now));
+    const allFresh = offers.every((offer) => !offerIsStale(offer.retrieved_at, now));
     const successCoversOffers = ingestion?.last_success_at !== null && ingestion?.last_success_at !== undefined
       && offers.every((offer) => new Date(ingestion.last_success_at!).getTime() >= new Date(offer.retrieved_at).getTime());
     const boardIsCurrent = offers.length > 0 && !ingestion?.last_error && allValid && allFresh && successCoversOffers;

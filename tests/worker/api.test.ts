@@ -346,7 +346,9 @@ describe("later wager and member HTTP API", () => {
       feed: { status: "current", message: "Odds are up to date.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" }
     });
 
-    await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = '2000-01-01T00:00:00.000Z'").run();
+    await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ?").bind(new Date(Date.now() - 29 * 60 * 1000).toISOString()).run();
+    expect((await odds()).feed.status).toBe("current");
+    await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ?").bind(new Date(Date.now() - 30 * 60 * 1000 - 1).toISOString()).run();
     expect((await odds()).feed).toEqual({ status: "stale", message: "Current odds are stale; new bets are disabled.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
     await bindings.DB.prepare("UPDATE odds_ingestion SET last_polled_at = '2030-09-01T10:04:00.000Z', last_error = 'upstream failed'").run();
     expect((await odds()).feed).toEqual({ status: "provider-error", message: "Odds provider error; accepted bets remain intact.", lastPolledAt: "2030-09-01T10:04:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });

@@ -35,7 +35,7 @@ export class OfferQuotes {
     ]);
     const row = offerResult.results[0] as Record<string, string> | undefined;
     const ingestion = ingestionResult.results[0] as IngestionRow | undefined;
-    if (!row || offerIsStale(row.retrieved_at, event, now) || !ingestionCoversOffer(ingestion, row.retrieved_at)) return null;
+    if (!row || offerIsStale(row.retrieved_at, now) || !ingestionCoversOffer(ingestion, row.retrieved_at)) return null;
     try {
       return { eventId: event.id, market, canonicalBook: row.canonical_book, retrievedAt: row.retrieved_at, offerVersion: row.offer_version, payload: decodeStoredOffer(row.payload_json, { market, canonicalBook: row.canonical_book, homeTeam: event.homeTeam, awayTeam: event.awayTeam }) };
     } catch { return null; }
@@ -127,7 +127,7 @@ async function readPlacementSnapshot(db: D1Database, legs: PlacementLeg[]): Prom
 function canonicalLeg(row: OfferRow | undefined, ingestion: IngestionRow | undefined, leg: PlacementLeg, now: Date): PlacementLeg {
   if (!row) throw new Error("MARKET_UNAVAILABLE");
   if (row.status !== "scheduled" || new Date(row.starts_at) <= now) throw new Error("MARKET_LOCKED");
-  if (offerIsStale(row.retrieved_at, { commenceTime: row.starts_at, status: "scheduled" }, now)) throw new Error("MARKET_STALE");
+  if (offerIsStale(row.retrieved_at, now)) throw new Error("MARKET_STALE");
   if (!ingestionCoversOffer(ingestion, row.retrieved_at)) throw new Error("MARKET_UNAVAILABLE");
   const payload = decodeStoredOffer(row.payload_json, { market: leg.market, canonicalBook: row.canonical_book, homeTeam: row.home_team, awayTeam: row.away_team });
   const matching = payload.outcomes.filter((item) => resolveCanonicalOutcomeSide({ market: leg.market, homeTeam: row.home_team, awayTeam: row.away_team }, item.name) === leg.selection);
@@ -144,7 +144,7 @@ function canonicalLeg(row: OfferRow | undefined, ingestion: IngestionRow | undef
 function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | undefined, leg: PlacementLeg, now: Date, teaserPoints?: Extract<PoolCommand, { type: "PlaceTeaserWager" }>["teaserPoints"]): void {
   if (!row) throw new Error("MARKET_UNAVAILABLE");
   if (row.status !== "scheduled" || new Date(row.starts_at) <= now) throw new Error("MARKET_LOCKED");
-  if (offerIsStale(row.retrieved_at, { commenceTime: row.starts_at, status: "scheduled" }, now)) throw new Error("MARKET_STALE");
+  if (offerIsStale(row.retrieved_at, now)) throw new Error("MARKET_STALE");
   if (!ingestionCoversOffer(ingestion, row.retrieved_at)) throw new Error("MARKET_UNAVAILABLE");
   let payload: StoredOffer;
   try {

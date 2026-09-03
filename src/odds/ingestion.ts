@@ -7,21 +7,23 @@ import { systemClock } from "../platform/clock";
 import type { EventStatus, League, ProviderEvent, ProviderPoll } from "./types";
 
 export interface IngestionProvider { events(league: League): Promise<ProviderPoll>; }
-const HOUR = 60 * 60 * 1000;
-const DISCOVERY_INTERVAL = 6 * HOUR;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DISCOVERY_INTERVAL = 20 * MINUTE;
+const QUOTA_BACKOFF_INTERVAL = 6 * HOUR;
+const OFFER_STALE_AFTER = 30 * MINUTE;
 const terminal = (status: EventStatus) => status === "final" || status === "cancelled" || status === "no_contest";
 
 export function pollInterval(event: ProviderEvent, now: Date): number {
   const status: EventStatus = event.status ?? "scheduled";
-  if (terminal(status)) return 15 * 60 * 1000;
-  if (status === "in_progress" || now.getTime() >= new Date(event.commenceTime).getTime()) return 2 * 60 * 1000;
+  if (terminal(status)) return 5 * MINUTE;
+  if (status === "in_progress" || now.getTime() >= new Date(event.commenceTime).getTime()) return 2 * MINUTE;
   const untilStart = new Date(event.commenceTime).getTime() - now.getTime();
-  if (untilStart > 24 * HOUR) return 6 * HOUR;
-  if (untilStart > HOUR) return 30 * 60 * 1000;
-  return 5 * 60 * 1000;
+  if (untilStart > 24 * HOUR) return 20 * MINUTE;
+  return 5 * MINUTE;
 }
 export function finalReconciliationDue(finalizedAt: Date, lastPollAt: Date | undefined, now: Date): boolean {
-  return [15 * 60 * 1000, 24 * HOUR].some((delay) => { const target = new Date(finalizedAt.getTime() + delay); return target <= now && (!lastPollAt || lastPollAt < target); });
+  return [5 * MINUTE, 24 * HOUR].some((delay) => { const target = new Date(finalizedAt.getTime() + delay); return target <= now && (!lastPollAt || lastPollAt < target); });
 }
 export function shouldPollEvent(event: ProviderEvent, lastPollAt: Date | undefined, now: Date, quotaBackoffMs = 0, finalizedAt?: Date): boolean {
   if (terminal(event.status ?? "scheduled") && finalizedAt) {
@@ -29,8 +31,8 @@ export function shouldPollEvent(event: ProviderEvent, lastPollAt: Date | undefin
   }
   return !lastPollAt || now.getTime() - lastPollAt.getTime() >= Math.max(pollInterval(event, now), quotaBackoffMs);
 }
-export function offerIsStale(retrievedAt: string, event: Pick<ProviderEvent, "commenceTime" | "status">, now: Date): boolean {
-  return now.getTime() - new Date(retrievedAt).getTime() > pollInterval({ id: "", sport: "nfl", commenceTime: event.commenceTime, homeTeam: "", awayTeam: "", status: event.status, bookmakers: [] }, now);
+export function offerIsStale(retrievedAt: string, now: Date): boolean {
+  return now.getTime() - new Date(retrievedAt).getTime() > OFFER_STALE_AFTER;
 }
 
 type EventScheduleRow = { provider_event_id: string; league: League; starts_at: string; status: EventStatus; last_polled_at: string | null; finalized_at: string | null };
@@ -38,7 +40,7 @@ type LeaguePollRow = { last_discovery_at: string | null };
 type ExistingEventRow = { provider_event_id: string; league: League; home_team: string; away_team: string; status: EventStatus; home_score: string | null; away_score: string | null; correction_version: string; finalized_at: string | null };
 type ClaimedIngestion = { poll_generation: number; last_polled_at: string | null; last_success_at: string | null; canonical_book_availability_json: string; quota_json: string | null };
 const score = (value: number | undefined): string | null => value === undefined ? null : String(value);
-const quotaBackoff = (poll: ProviderPoll) => poll.quota?.remaining !== undefined && poll.quota.remaining <= 1 ? DISCOVERY_INTERVAL : 0;
+const quotaBackoff = (poll: ProviderPoll) => poll.quota?.remaining !== undefined && poll.quota.remaining <= 1 ? QUOTA_BACKOFF_INTERVAL : 0;
 
 /** D1 is written before any later durable settlement reader can inspect result versions. */
 export class OddsIngestion {

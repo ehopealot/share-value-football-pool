@@ -8,7 +8,7 @@ import ncaafFixture from "../fixtures/odds/ncaaf-scheduled.json";
 import ncaafScoresFixture from "../fixtures/odds/ncaaf-scheduled-scores.json";
 import { canonicalize, isSuperBowl } from "../../src/odds/canonicalize";
 import { providerEventSnapshot } from "../../src/contracts/provider";
-import { OddsIngestion, finalReconciliationDue, pollInterval, shouldPollEvent, type IngestionProvider } from "../../src/odds/ingestion";
+import { OddsIngestion, finalReconciliationDue, offerIsStale, pollInterval, shouldPollEvent, type IngestionProvider } from "../../src/odds/ingestion";
 import { D1ResultSource } from "../../src/odds/result-source";
 import { settleWagers } from "../../src/durable/settlement";
 import { canonicalizeWagerQuote, OfferQuotes } from "../../src/worker/offer-quotes";
@@ -340,21 +340,63 @@ describe("odds ingestion", () => {
     expect(await new OfferQuotes(db).current(event(), "spread", new Date("2026-09-10T00:30:00.000Z"))).toBeNull();
   });
 
-  it("records outages and exposes proximity/final reconciliation polling windows", async () => {
+  it("records outages and separates the polling and stale windows", async () => {
     await new OddsIngestion(db, new Provider([event()]), { now: () => new Date("2026-09-09T18:00:00.000Z") }).poll();
     const failing: IngestionProvider = { events: async () => { throw new Error("provider unavailable"); } };
     await expect(new OddsIngestion(db, failing, { now: () => new Date("2026-09-10T00:01:00.000Z") }).poll()).rejects.toThrow("provider unavailable");
     expect(await db.prepare("SELECT last_error, last_success_at FROM odds_ingestion WHERE provider = 'odds'").first()).toMatchObject({ last_error: "provider unavailable", last_success_at: "2026-09-09T18:00:00.000Z" });
     const now = new Date("2026-09-10T00:00:00.000Z");
-    expect(pollInterval(event({ commenceTime: "2026-09-12T00:00:00.000Z" }), now)).toBe(6 * 60 * 60 * 1000);
-    expect(pollInterval(event({ commenceTime: "2026-09-10T12:00:00.000Z" }), now)).toBe(30 * 60 * 1000);
+    const distant = event({ commenceTime: "2026-09-12T00:00:00.000Z" });
+    const withinDay = event({ commenceTime: "2026-09-10T12:00:00.000Z" });
+    expect(pollInterval(distant, now)).toBe(20 * 60 * 1000);
+    expect(pollInterval(event({ commenceTime: "2026-09-11T00:00:00.001Z" }), now)).toBe(20 * 60 * 1000);
+    expect(pollInterval(event({ commenceTime: "2026-09-11T00:00:00.000Z" }), now)).toBe(5 * 60 * 1000);
+    expect(pollInterval(withinDay, now)).toBe(5 * 60 * 1000);
+    expect(pollInterval(event({ commenceTime: now.toISOString() }), now)).toBe(2 * 60 * 1000);
     expect(pollInterval(event({ commenceTime: "2026-09-10T00:30:00.000Z" }), now)).toBe(5 * 60 * 1000);
     expect(pollInterval(event({ status: "in_progress" }), now)).toBe(2 * 60 * 1000);
+    expect(pollInterval(event({ status: "final" }), now)).toBe(5 * 60 * 1000);
+    expect(shouldPollEvent(distant, new Date(now.getTime() - 19 * 60 * 1000), now)).toBe(false);
+    expect(shouldPollEvent(distant, new Date(now.getTime() - 20 * 60 * 1000), now)).toBe(true);
+    expect(shouldPollEvent(withinDay, new Date(now.getTime() - 4 * 60 * 1000), now)).toBe(false);
+    expect(shouldPollEvent(withinDay, new Date(now.getTime() - 5 * 60 * 1000), now)).toBe(true);
     const finalized = new Date("2026-09-09T00:00:00.000Z");
-    expect(finalReconciliationDue(finalized, undefined, new Date("2026-09-09T00:14:00.000Z"))).toBe(false);
-    expect(finalReconciliationDue(finalized, undefined, new Date("2026-09-09T00:15:00.000Z"))).toBe(true);
-    expect(finalReconciliationDue(finalized, new Date("2026-09-09T00:16:00.000Z"), new Date("2026-09-10T00:00:00.000Z"))).toBe(true);
-    expect(shouldPollEvent(event({ commenceTime: "2026-09-12T00:00:00.000Z" }), new Date("2026-09-09T23:00:00.000Z"), now)).toBe(false);
+    expect(finalReconciliationDue(finalized, undefined, new Date("2026-09-09T00:04:00.000Z"))).toBe(false);
+    expect(finalReconciliationDue(finalized, undefined, new Date("2026-09-09T00:05:00.000Z"))).toBe(true);
+    expect(finalReconciliationDue(finalized, new Date("2026-09-09T00:06:00.000Z"), new Date("2026-09-10T00:00:00.000Z"))).toBe(true);
+  });
+
+  it("uses a fixed 30-minute stale boundary for upcoming offers", () => {
+    const now = new Date("2026-09-10T00:00:00.000Z");
+    expect(offerIsStale(new Date(now.getTime() - 30 * 60 * 1000).toISOString(), now)).toBe(false);
+    expect(offerIsStale(new Date(now.getTime() - 30 * 60 * 1000 - 1).toISOString(), now)).toBe(true);
+  });
+
+  it("applies the fixed stale boundary to distant quote reads", async () => {
+    const at = new Date("2026-09-10T00:00:00.000Z");
+    const distant = event({ commenceTime: "2027-09-10T20:00:00.000Z" });
+    await new OddsIngestion(db, new Provider([distant]), { now: () => at }).poll();
+    const quotes = new OfferQuotes(db);
+    await expect(quotes.current(distant, "spread", new Date(at.getTime() + 29 * 60 * 1000))).resolves.not.toBeNull();
+    await expect(quotes.current(distant, "spread", new Date(at.getTime() + 30 * 60 * 1000 + 1))).resolves.toBeNull();
+  });
+
+  it("runs terminal reconciliation at five minutes and 24 hours when discovery is not due", async () => {
+    const at = new Date("2026-09-09T00:00:00.000Z");
+    const terminalEvent = event({ status: "final", homeScore: 21, awayScore: 17 });
+    const provider = new Provider([terminalEvent]);
+    await new OddsIngestion(db, provider, { now: () => at }).poll();
+    provider.calls.length = 0;
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 4 * 60 * 1000) }).poll();
+    expect(provider.calls).toEqual([]);
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 5 * 60 * 1000) }).poll();
+    expect(provider.calls).toEqual(["nfl"]);
+    provider.calls.length = 0;
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 6 * 60 * 1000) }).poll();
+    expect(provider.calls).toEqual([]);
+    await db.prepare("UPDATE odds_league_poll SET last_discovery_at = ?").bind(new Date(at.getTime() + 24 * 60 * 60 * 1000 - 60 * 1000).toISOString()).run();
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 24 * 60 * 60 * 1000) }).poll();
+    expect(provider.calls).toEqual(["nfl"]);
   });
 
   it("preserves the provider failure when recording failure health also fails", async () => {
@@ -586,19 +628,19 @@ describe("odds ingestion", () => {
     expect(await db.prepare("SELECT home_score, correction_version FROM sports_event WHERE provider_event_id='event-1'").first()).toEqual({ home_score: "14", correction_version: "2" });
   });
 
-  it("persists empty/completed-league discovery cadence and quota backoff", async () => {
+  it("persists 20-minute empty/completed-league discovery cadence and quota backoff", async () => {
     const empty = new Provider([]);
     await new OddsIngestion(db, empty, { now: () => new Date("2026-09-01T00:00:00.000Z") }).poll();
     empty.calls.length = 0;
-    await new OddsIngestion(db, empty, { now: () => new Date("2026-09-01T00:02:00.000Z") }).poll();
+    await new OddsIngestion(db, empty, { now: () => new Date("2026-09-01T00:19:00.000Z") }).poll();
     expect(empty.calls).toEqual([]);
-    await new OddsIngestion(db, empty, { now: () => new Date("2026-09-01T06:01:00.000Z") }).poll();
+    await new OddsIngestion(db, empty, { now: () => new Date("2026-09-01T00:20:00.000Z") }).poll();
     expect(empty.calls).toEqual(["nfl", "ncaaf"]);
 
     const finalEvent = event({ id: "completed", status: "final", homeScore: 1, awayScore: 0 });
     await new OddsIngestion(db, new Provider([finalEvent]), { now: () => new Date("2026-09-02T00:00:00.000Z") }).poll();
     const nextSeason = new Provider([event({ id: "next-season", commenceTime: "2027-09-10T20:00:00.000Z" })]);
-    await new OddsIngestion(db, nextSeason, { now: () => new Date("2026-09-02T06:01:00.000Z") }).poll();
+    await new OddsIngestion(db, nextSeason, { now: () => new Date("2026-09-02T00:20:00.000Z") }).poll();
     expect(nextSeason.calls).toContain("nfl");
     expect(await db.prepare("SELECT provider_event_id FROM sports_event WHERE provider_event_id='next-season'").first()).toBeTruthy();
 
@@ -613,6 +655,10 @@ describe("odds ingestion", () => {
     expect(limited.calls).toEqual([]); // persisted backoff governs in-progress polling
     await new OddsIngestion(db, limited, { now: () => new Date("2026-09-03T00:15:00.000Z") }).poll();
     expect(limited.calls).toEqual([]); // it also governs the otherwise-due terminal reconciliation
+    await new OddsIngestion(db, limited, { now: () => new Date("2026-09-03T05:59:00.000Z") }).poll();
+    expect(limited.calls).toEqual([]);
+    await new OddsIngestion(db, limited, { now: () => new Date("2026-09-03T06:00:00.000Z") }).poll();
+    expect(limited.calls).toEqual(["nfl", "ncaaf"]);
     const storedQuota = String((await db.prepare("SELECT quota_json FROM odds_ingestion WHERE provider='odds'").first<{ quota_json: string }>())!.quota_json);
     expect(storedQuota).toContain('"remaining":1');
     expect(storedQuota).toContain('"used":99');
