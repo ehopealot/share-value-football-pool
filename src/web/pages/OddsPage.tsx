@@ -40,15 +40,6 @@ export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek,
     return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
   })}</tbody></table></div>;
 }, oddsBoardTablePropsAreEqual);
-const americanToProbability = (price: number): number | undefined => price > 0 ? 100 / (price + 100) : price < 0 ? (-price) / (-price + 100) : undefined;
-const probabilityToAmerican = (probability: number): number => { const decimal = 1 / probability; return decimal >= 2 ? Math.round((decimal - 1) * 100) : -Math.round(100 / (decimal - 1)); };
-/** Removes the bookmaker's vig from a two-way moneyline: fair price = implied probability normalized by the overround. */
-export function noVigAmerican(priceA: number, priceB: number): { a: number; b: number } | undefined {
-  const impliedA = americanToProbability(priceA); const impliedB = americanToProbability(priceB);
-  if (!impliedA || !impliedB) return undefined;
-  const total = impliedA + impliedB;
-  return { a: probabilityToAmerican(impliedA / total), b: probabilityToAmerican(impliedB / total) };
-}
 /** Compact board grouping: a two-row game block — away/Over on top, home/Under underneath, one market per column. */
 export function groupBoardByEvent(offers: any[]): GameRow[] {
   const rows = new Map<string, GameRow>();

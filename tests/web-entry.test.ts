@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "../src/web/api";
 import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
-import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
+import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
 import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
@@ -125,15 +125,13 @@ describe("entry redirects", () => {
     expect(request).toMatchObject({ wagerId: "wager-1", seasonId: "season-1", riskMicros: "3000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event-1:spread:home", offerVersion: "v2" }, quoteKey: "quote-v1", commandId: "quote-v1" });
 
     const later = { ...offer, eventId: "event-2", startsAt: "2030-09-01T13:00:00.000Z", market: "total" as const, outcomes: [{ name: "Over", price: -110, point: 44.5 }] };
-    const moneyline = { ...offer, eventId: "event-3", startsAt: "2030-09-01T11:00:00.000Z", market: "moneyline" as const, outcomes: [{ name: "Home", price: 150 }] };
-    const games = groupBoardByEvent([later, offer, { ...moneyline, outcomes: [{ name: "Home", price: 150 }, { name: "Away", price: -170 }] }]);
+    const moneyline = { ...offer, eventId: "event-3", startsAt: "2030-09-01T11:00:00.000Z", market: "moneyline" as const, outcomes: [{ name: "Home", price: -135 }, { name: "Away", price: 115 }] };
+    const games = groupBoardByEvent([later, offer, moneyline]);
     expect(games.map((game) => game.eventId)).toEqual(["event-3", "event-1", "event-2"]);
     expect(games[1]).toMatchObject({ awayTeam: "Away", homeTeam: "Home", markets: { spread: { home: { label: "Home -2.5", selection: "home" } }, total: {}, moneyline: {} } });
     expect(games[2]).toMatchObject({ markets: { total: { over: { label: "O 44.5", selection: "over" } } } });
-    expect(noVigAmerican(-150, 130)).toEqual({ a: -138, b: 138 });
-    expect(noVigAmerican(-110, -110)).toEqual({ a: 100, b: 100 });
-    expect(noVigAmerican(0, 100)).toBeUndefined();
-    const trayMoneyline = { ...moneyline, outcomes: [{ name: "Home", price: -135 }, { name: "Away", price: 115 }] };
+    expect(games[0]).toMatchObject({ markets: { moneyline: { home: { label: "Home -124" }, away: { label: "Away +124" } } } });
+    const trayMoneyline = moneyline;
     const trayItem = { eventId: "event-3", market: "moneyline" as const, selection: "home" as const, wagerId: "tray-moneyline", risk: "" };
     expect(trayLabel({ offers: [trayMoneyline] }, trayItem, { offer: trayMoneyline, outcome: trayMoneyline.outcomes[0] })).toBe("Away at Home: moneyline — Home -124");
 
