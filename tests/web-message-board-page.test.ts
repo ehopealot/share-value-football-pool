@@ -96,6 +96,11 @@ describe("Message board presentation and nav state", () => {
     expect(announcementMarkup).toContain('id="post-post-1"');
     expect(announcementMarkup).toContain('title="Commissioner announcement"');
     expect(announcementMarkup).toContain('aria-label="Commissioner announcement"');
+    expect(announcementMarkup).toContain('class="message-board-announcement-icon-image"');
+    expect(announcementMarkup).toMatch(/<img[^>]*src="[^"]*announcement-color-icon[^"]*"[^>]*alt=""/);
+    expect(announcementMarkup).not.toContain("<svg");
+    expect(pageSource()).toContain('src="/announcement-color-icon.svg"');
+    expect(pageSource()).not.toContain('import announcementIcon');
     expect(markup.match(/>Reply<\/button>/g)).toHaveLength(1);
     expect(markup).toContain('aria-label="Reply to Sunday Shark"');
     const pendingMarkup = renderToStaticMarkup(createElement(MessageBoardThreads, {
@@ -148,7 +153,7 @@ describe("Message board presentation and nav state", () => {
     expect(css()).toContain(".message-board-replies");
     expect(css()).toContain(".message-board-page textarea");
     expect(css()).toMatch(/\.message-board-announcement-option\s*\{[^}]*flex-direction:\s*row[^}]*justify-self:\s*start[^}]*font-size:\s*0\.85rem/s);
-    expect(css()).toMatch(/\.message-board-announcement-icon svg\s*\{[^}]*fill:\s*none[^}]*stroke:\s*currentColor[^}]*stroke-linecap:\s*round/s);
+    expect(css()).toMatch(/\.message-board-announcement-icon-image\s*\{[^}]*display:\s*block[^}]*object-fit:\s*contain/s);
     expect(css()).toMatch(/@media \(max-width: 600px\)[\s\S]*\.message-board-page button[\s\S]*min-height:\s*44px/);
   });
 });
