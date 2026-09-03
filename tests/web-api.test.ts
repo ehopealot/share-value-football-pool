@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { api, ApiError, commandOutcome, errorMessage, invalidatePoolView, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
+import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess } from "../src/web/api";
 import { FrozenAdminCommand } from "../src/web/admin-command";
 import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
@@ -166,5 +166,48 @@ describe("frozen administration command identity", () => {
       { resultVersion: "result-1", idempotencyKey: "key-1" },
       { resultVersion: "result-3", idempotencyKey: "key-3" }
     ]);
+  });
+});
+
+describe("parlay browser boundary", () => {
+  const time = "2030-09-01T12:00:00.000Z";
+  const moneyline = {
+    eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: time, policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "offer-1",
+    canonicalOfferProof: { offerId: "event-1:moneyline:home", eventId: "event-1", offerVersion: "offer-1", canonicalBook: "DraftKings", market: "moneyline", selection: "home", odds: -110, line: null },
+    market: "moneyline", selection: "home", originalLine: null, adjustedLine: null, originalOdds: -105,
+    eventStartsAt: "2030-09-02T12:00:00.000Z", homeTeam: "Home", awayTeam: "Away"
+  } as const;
+  const total = {
+    ...moneyline,
+    canonicalOfferProof: { offerId: "event-1:total:over", eventId: "event-1", offerVersion: "offer-1", canonicalBook: "DraftKings", market: "total", selection: "over", odds: -110, line: 47.5 },
+    market: "total", selection: "over", originalLine: 47.5, adjustedLine: 47.5, originalOdds: -110
+  } as const;
+  const request = {
+    wagerId: "parlay-wager", quoteKey: "parlay-quote", commandId: "parlay-quote", seasonId: "season-1", riskMicros: "1000000", rulesetVersion: "PARLAY_2026_V1" as const,
+    legs: [
+      { eventId: moneyline.eventId, canonicalBook: moneyline.canonicalBook, market: moneyline.market, selection: moneyline.selection, offerId: moneyline.canonicalOfferProof.offerId, offerVersion: moneyline.offerVersion },
+      { eventId: total.eventId, canonicalBook: total.canonicalBook, market: total.market, selection: total.selection, offerId: total.canonicalOfferProof.offerId, offerVersion: total.offerVersion }
+    ]
+  };
+  const quote = { quoteKey: request.quoteKey, seasonId: request.seasonId, ownerMemberId: "member-1", riskMicros: request.riskMicros, acceptedOdds: 191, rulesetVersion: request.rulesetVersion, commandVersion: "12", legs: [moneyline, total] };
+
+  it("parses parlay snapshots, builds fixed placements, and uses the dedicated quote transport", async () => {
+    expect(parseParlayQuoteSuccess(request, quote)).toEqual(quote);
+    expect(() => parseParlayQuoteSuccess(request, { ...quote, legs: [...quote.legs].reverse() })).toThrow();
+    expect(buildParlayPlacement(quote, "placed-parlay", "parlay-place")).toMatchObject({
+      wagerId: "placed-parlay",
+      quoteKey: quote.quoteKey,
+      quotedCommandVersion: quote.commandVersion,
+      commandId: "parlay-place",
+      mutationKey: "parlay-place",
+      acceptedOdds: 191,
+      legs: quote.legs
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(quote), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await expect(api.quoteParlay("pool/one", request)).resolves.toEqual(quote);
+      expect(fetchMock).toHaveBeenCalledWith("/api/p/pool%2Fone/wagers/parlays/quote", expect.objectContaining({ method: "POST", body: JSON.stringify(request), signal: expect.any(AbortSignal) }));
+    } finally { fetchMock.mockRestore(); }
   });
 });
