@@ -45,7 +45,8 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   await expect(page).toHaveURL(new RegExp(`/p/${slug}/my-wagers$`));
   const wagerId = await page.evaluate(async (poolSlug) => ((await (await fetch(`/api/p/${poolSlug}/wagers`)).json()) as { wagers: Array<{ wagerId: string }> }).wagers[0]!.wagerId, slug);
 
-  const alarmAt = new Date(Date.now() + 10 * 60_000);
+  // Local placement fixtures intentionally start just over 24 hours after seeding.
+  const alarmAt = new Date(Date.now() + 26 * 60 * 60_000);
   expect(await page.evaluate(async (body) => (await fetch("/__local-test/result", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).status, result(24, 17, "provider-1"))).toBe(200);
   const trigger = async (at: Date) => page.evaluate(async ({ poolSlug, currentTime }) => (await fetch("/__local-test/alarm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolSlug, currentTime }) })).status, { poolSlug: slug, currentTime: at.toISOString() });
   expect(await trigger(alarmAt)).toBe(200);

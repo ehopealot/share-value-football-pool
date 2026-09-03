@@ -309,7 +309,7 @@ test("canonical Super Bowl confirmation and final result automatically close the
     expect(await page.evaluate(async (pathname) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname }) })).status, `/api/p/${slug}/admin/seasons/${seasonId}/super-bowl/confirm`)).toBe(200);
     const droppedConfirmationAt = Date.now();
     await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
-    await expect(page.getByRole("alert")).toContainText("Unable to complete this request (REQUEST_FAILED).");
+    await expect(page.getByRole("alert")).toHaveText("Service unavailable.", { timeout: 8_000 });
     expect(Date.now() - droppedConfirmationAt).toBeLessThan(10_000);
     await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
     await expect(page.getByText(/Super Bowl candidate: T11 Local Super Bowl LXI\. Confirmed\./)).toBeVisible();
@@ -326,7 +326,8 @@ test("canonical Super Bowl confirmation and final result automatically close the
     expect(delayed.activeSeason).toMatchObject({ id: seasonId });
 
     expect(await controlStatus(page, "/__local-test/result", { eventId: "local-nfl-upcoming", homeScore: 24, awayScore: 17 })).toBe(200);
-    expect(await controlStatus(page, "/__local-test/alarm", { poolSlug: slug, currentTime: new Date(candidateAlarmTime.getTime() + 5 * 60_000).toISOString() })).toBe(200);
+    // The other accepted ticket uses the local placement fixture's 24-hour-plus start window.
+    expect(await controlStatus(page, "/__local-test/alarm", { poolSlug: slug, currentTime: new Date(Date.now() + 26 * 60 * 60_000).toISOString() })).toBe(200);
     const closed = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { activeSeason: null; latestClosedSeason: { id: string; closeReason: string } }, slug);
     expect(closed.activeSeason).toBeNull();
     expect(closed.latestClosedSeason).toMatchObject({ id: seasonId, closeReason: "super_bowl_final" });
@@ -350,33 +351,38 @@ test("standings display canonical fixed-point values that change after real sett
     await signInAccount(member, worker.baseURL, worker.mailbox, memberName, "t11r3a-member@example.test");
     await joinPool(member, worker.baseURL, slug, "t11r3a-password");
     await issueShares(page, worker.baseURL, slug, "2", memberName);
+    const currentShareValue = page.getByText("Current share value:", { exact: false });
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "3.00", "0.00", "3.00", "1.0000", "3.00", "0.00"]);
-    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "1.0000", "2.00", "0.00"]);
+    await expect(currentShareValue).toContainText("$1.00");
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "3.00", "0.00", "3.00", "3.00", "0.00"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "2.00", "0.00"]);
     // A real straight ticket moves risk from available to locked without changing the price.
     await reseedUpcomingEvent(page);
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "2.00", "1.00", "3.00", "1.0000", "3.00", "0.00"]);
+    await expect(currentShareValue).toContainText("$1.00");
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "2.00", "1.00", "3.00", "3.00", "0.00"]);
     // Real fixture final + alarm settlement: the win mints 1,000,000 profit into the float (5,000,000 -> 6,000,000)
-    // while season notional stays 5,000,000, so the price becomes notional/float = 5/6 -> 0.8333 for every member.
+    // while season notional stays 5,000,000, so the rounded page-level share value becomes $0.83 for every member.
     await settleFixtureResult(page, slug, 17, 24);
     await page.reload();
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "4.00", "0.00", "4.00", "0.8333", "3.33", "0.33"]);
-    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "0.8333", "1.67", "-0.33"]);
+    await expect(currentShareValue).toContainText("$0.83");
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "4.00", "0.00", "4.00", "3.33", "0.33"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "1.67", "-0.33"]);
     // A reason-gated regrade of that same ticket to a loss must reverse the prior win's float profit before the
-    // loss destroys the risk: 6,000,000 - 1,000,000 - 1,000,000 = 4,000,000, so the price re-prices to 5/4 -> 1.2500.
+    // loss destroys the risk: 6,000,000 - 1,000,000 - 1,000,000 = 4,000,000, so the rounded share value becomes $1.25.
     // (An earlier revision placed a second fixture push here; that ticket stayed locked because the local alarm
     // control fires at now+10min while the post-final final_15 reconciliation is next due at observed+15min —
     // see test-results/privacy-and-settlement-sta-fa3aa-ettlement-and-after-regrade. Production reschedules its own
     // alarm to that deadline, so the single-ticket journey is the faithful settlement proof.)
     expect(await correctWager(page, slug, wagerId, "lost", "Official scoring correction", "official-loss-v2")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
+    await expect(currentShareValue).toContainText("$1.25");
     // Both members now hold exactly 2.00 shares; the member attained 2.00 at funding while the owner's ledger
     // only returns to 2.00 at the regrade settlement entry, so the earliest-attainment tiebreak swaps the ranks.
-    expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "2.00", "0.00", "2.00", "1.2500", "2.50", "0.50"]);
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["2", ownerName, "2.00", "0.00", "2.00", "1.2500", "2.50", "-0.50"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "2.00", "0.00", "2.00", "2.50", "0.50"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["2", ownerName, "2.00", "0.00", "2.00", "2.50", "-0.50"]);
   } finally { await memberContext.close(); }
 });
 
@@ -405,7 +411,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     await reseedUpcomingEvent(page);
     await ticketOwner.goto(`${worker.baseURL}/p/${slug}/odds`);
     await ticketOwner.getByRole("checkbox", { name: "Local Away +3", exact: true }).check();
-    await ticketOwner.getByRole("checkbox", { name: "T11 Super Away 4", exact: true }).check();
+    await ticketOwner.getByRole("checkbox", { name: "T11 Super Away +4", exact: true }).check();
     await ticketOwner.getByRole("button", { name: "Build teaser" }).click();
     await ticketOwner.getByLabel("Risk", { exact: true }).fill("1");
     await ticketOwner.getByRole("button", { name: "Review teaser wager" }).click();
@@ -458,7 +464,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     await viewer.reload();
     const firstRendered = teaserRow(viewer);
     await expect(firstRendered).toContainText("Local Away (+9) at Local Home");
-    await expect(firstRendered).locator("strong").toHaveText("Local Away (+9)");
+    await expect(firstRendered.locator("strong")).toHaveText("Local Away (+9)");
     await expect(teaserRow(viewer)).not.toContainText(secondLeg.eventId);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRow(page)).toContainText("Local Away (+9) at Local Home");
@@ -624,7 +630,7 @@ test("fixture close archives the season for members with append-only commissione
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const activeSeasonId = await page.evaluate(async (poolSlug) => (await (await fetch(`/api/p/${poolSlug}/view`)).json() as { activeSeason: { id: string } }).activeSeason.id, slug);
     await page.goto(`${worker.baseURL}/p/${slug}/history/${activeSeasonId}`);
-    await expect(page.getByRole("alert")).toContainText("This season is still active or in draft. Open its archive after the season closes.");
+    await expect(page.getByRole("alert")).toContainText("Season is not closed.");
     await settleFixtureResult(page, slug, 17, 24);
     // Fixture-arranged close through the documented local lifecycle control.
     expect(await controlStatus(page, "/__local-test/season", { poolSlug: slug, state: "closed" })).toBe(200);
@@ -680,7 +686,7 @@ test("fixture close archives the season for members with append-only commissione
     await page.getByLabel("Add annotation").fill("Archived after the fixture settlement window.");
     await page.getByRole("button", { name: "Add annotation" }).click();
     await expect(page.getByRole("button", { name: "Add annotation" })).toBeDisabled();
-    await expect(page.getByRole("alert")).toContainText("Unable to complete this request", { timeout: 8_000 });
+    await expect(page.getByRole("alert")).toHaveText("Service unavailable.", { timeout: 8_000 });
     await expect(page.getByRole("button", { name: "Add annotation" })).toBeEnabled();
     // The first real PoolDO append completed behind the dropped response. Retry must replay its exact body/key.
     await page.getByRole("button", { name: "Add annotation" }).click();
@@ -745,7 +751,7 @@ test("suspension denies an ordinary member with an actionable overview denial un
   } finally { await memberContext.close(); }
 });
 
-test("commissioner transfer honors self, blank-reason, nonmember, recent-auth, and suspended prohibitions before handover", async ({ page, browser, worker }) => {
+test("commissioner transfer honors self, invalid-target, recent-auth, and suspended prohibitions before handover", async ({ page, browser, worker }) => {
   const slug = "t11r4b-transfer";
   const commissionerName = "T11R4B Commissioner";
   const memberName = "T11R4B Member";
@@ -769,31 +775,29 @@ test("commissioner transfer honors self, blank-reason, nonmember, recent-auth, a
     const memberRow = page.getByRole("row", { name: memberName });
     const commissionerRow = page.getByRole("row", { name: commissionerName });
     // Self-transfer is never offered: only the ordinary member's row carries the control.
-    await expect(page.getByRole("button", { name: "Transfer commissioner" })).toHaveCount(1);
-    await expect(commissionerRow.getByRole("button", { name: "Transfer commissioner" })).toHaveCount(0);
-    // A blank audit reason keeps the command unavailable at the UI and rejected at the boundary.
-    await expect(memberRow.getByRole("button", { name: "Transfer commissioner" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Make commissioner" })).toHaveCount(1);
+    await expect(commissionerRow.getByRole("button", { name: "Make commissioner" })).toHaveCount(0);
+    // The UI supplies its fixed audit reason; the authoritative boundary still rejects a blank direct command.
+    await expect(memberRow.getByRole("button", { name: "Make commissioner" })).toBeEnabled();
     expect(await transferStatus(page, slug, memberUserId, "  ")).toEqual({ status: 400, code: "INVALID_REQUEST" });
     // A real nonmember account is not a transfer target.
     expect(await transferStatus(page, slug, visitorUserId, "Documented handover")).toEqual({ status: 400, code: "MEMBER_NOT_FOUND" });
     // Recent authentication is required: an aged session is denied at UI and boundary alike.
     expect(await expireRecentAuth(page, commissionerUserId)).toBe(200);
-    await page.getByLabel("Transfer reason").fill("Documented handover after the season.");
-    await memberRow.getByRole("button", { name: "Transfer commissioner" }).click();
-    await expect(page.getByRole("alert")).toContainText("sign in again");
+    await memberRow.getByRole("button", { name: "Make commissioner" }).click();
+    await expect(page.getByRole("alert")).toHaveText("Sign in again.");
     expect(await transferStatus(page, slug, memberUserId, "Documented handover")).toEqual({ status: 403, code: "RECENT_AUTH_REQUIRED" });
     await worker.resetAuthLimiter();
     await logInAgain(page, worker.baseURL, commissionerEmail);
     // A suspended member cannot receive the commissioner role: UI hides the control, boundary denies.
     await page.goto(`${worker.baseURL}/p/${slug}/admin/members`);
     await memberRow.getByRole("button", { name: "Suspend" }).click();
-    await expect(page.getByRole("button", { name: "Transfer commissioner" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Make commissioner" })).toHaveCount(0);
     expect(await transferStatus(page, slug, memberUserId, "Documented handover")).toEqual({ status: 403, code: "SUSPENDED" });
     await memberRow.getByRole("button", { name: "Restore" }).click();
     await expect(memberRow).toContainText("active");
     // The real handover: the same page immediately loses commissioner controls.
-    await page.getByLabel("Transfer reason").fill("Documented handover after the season.");
-    await memberRow.getByRole("button", { name: "Transfer commissioner" }).click();
+    await memberRow.getByRole("button", { name: "Make commissioner" }).click();
     await expect(page.getByText("Only the commissioner can manage members.")).toBeVisible();
     await page.goto(`${worker.baseURL}/p/${slug}/overview`);
     await expect(page.getByRole("link", { name: "Members", exact: true })).toHaveCount(0);
@@ -839,7 +843,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     await expect(page.getByText("Signups are open.")).toBeVisible();
     await page.getByLabel("New join password").fill(rotatedPassword);
     await page.getByRole("button", { name: "Rotate password" }).click();
-    await expect(page.getByRole("alert")).toContainText("sign in again");
+    await expect(page.getByRole("alert")).toHaveText("Sign in again.");
     // The denied command leaves the page on its terminal error summary; a reload restores the form.
     await page.goto(`${worker.baseURL}/p/${slug}/admin/settings`);
     // Signup closure skips that gate: the same aged session still closes and reopens signups.

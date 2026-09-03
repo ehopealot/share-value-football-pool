@@ -752,6 +752,8 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByLabel("Amount")).toHaveValue("1");
   await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
+  const quotedMemberId = await page.getByLabel("Member").inputValue();
+  expect(quotedMemberId).toBeTruthy();
   const orderQuoteBodies: Record<string, unknown>[] = [];
   const orderExecutionBodies: Record<string, unknown>[] = [];
   page.on("request", (request) => {
@@ -770,7 +772,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     await expect(
       page.getByRole("heading", { name: "Confirm share order" }),
     ).toBeVisible();
-    const reviewedQuotes = () => orderQuoteBodies.slice(quoteStart).filter((body) => body.amountMicros === "1000000" && body.mode === mode);
+    const reviewedQuotes = () => orderQuoteBodies.slice(quoteStart).filter((body) => body.memberId === quotedMemberId && body.amountMicros === "1000000" && body.mode === mode);
     await expect.poll(() => reviewedQuotes()).toHaveLength(1);
     const originalQuote = reviewedQuotes()[0]!;
     expect(originalQuote.idempotencyKey).toEqual(expect.any(String));
@@ -820,7 +822,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     });
     expect(bumped).toBe(200);
     await page.getByRole("button", { name: "Confirm order" }).click();
-    const reviewedExecutions = () => orderExecutionBodies.slice(executionStart).filter((body) => body.amountMicros === "1000000" && body.mode === mode);
+    const reviewedExecutions = () => orderExecutionBodies.slice(executionStart).filter((body) => body.memberId === quotedMemberId && body.amountMicros === "1000000" && body.mode === mode);
     await expect.poll(() => reviewedExecutions()).toHaveLength(1);
     const rejectedExecution = reviewedExecutions()[0]!;
     expect(rejectedExecution.idempotencyKey).toEqual(expect.any(String));
@@ -1266,7 +1268,7 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
     .click();
   await page.getByLabel("Reason").fill("Requires a fresh sign-in");
   await page.getByRole("button", { name: "Confirm reversal" }).click();
-  await expect(page.getByRole("alert")).toContainText("sign in again");
+  await expect(page.getByRole("alert")).toHaveText("Sign in again.");
   await expect(
     page.getByRole("heading", { name: "Confirm share-order reversal" }),
   ).toBeVisible();

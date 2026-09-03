@@ -99,6 +99,8 @@ export const straightReviewDetails = (entry: Pick<ReviewEntry, "item" | "quote">
   return { matchup: `${leg.awayTeam ?? "Away"} at ${leg.homeTeam ?? "Home"}`, pick: `${market} — ${selection}${line}`, odds: formatAmericanOdds(entry.quote.acceptedOdds), risk: `${entry.item.risk} shares`, toWin: `${ticketReturns(entry.quote.riskMicros, entry.quote.acceptedOdds).profit} shares` };
 };
 type Batch = { tag: "quoting" } | { tag: "reviewing"; entries: ReviewEntry[]; quoteFailures: FailedEntry[] } | { tag: "placing"; entries: ReviewEntry[]; quoteFailures: FailedEntry[] } | { tag: "results"; placed: string[]; failed: FailedEntry[]; retryPlacements: ReviewEntry[] };
+/** The review-history entry is transient UI state, including its post-placement results. */
+export const batchAfterPopState = (current: Batch | undefined): Batch | undefined => current?.tag === "reviewing" || current?.tag === "results" ? undefined : current;
 const placeEntries = async (slug: string, entries: ReviewEntry[], maxSideBetMicros?: string): Promise<{ placed: ReviewEntry[]; failed: Array<FailedEntry & { entry: ReviewEntry }>; retry: ReviewEntry[] }> => {
   const placed: ReviewEntry[] = []; const failed: Array<FailedEntry & { entry: ReviewEntry }> = []; const retry: ReviewEntry[] = [];
   for (const entry of entries) {
@@ -128,7 +130,7 @@ export function OddsPage() {
   useEffect(() => { void api.poolView(slug).then(setView).catch(e => setError(errorMessage(e))); }, [slug]);
   useEffect(() => { setTray([]); }, [slug]);
   const persist = (next: TrayItem[]) => setTray(next);
-  useEffect(() => { const backToBoard = () => setBatch((current) => current?.tag === "reviewing" ? undefined : current); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
+  useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
   const pending = batch?.tag === "quoting" || batch?.tag === "placing";
   const currentWeek = weekStartOf(new Date()).toISOString();
