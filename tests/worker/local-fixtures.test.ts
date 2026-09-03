@@ -3,6 +3,7 @@ import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import oddsPollGeneration from "../../src/db/migrations/0002_odds_poll_generation.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { localFixtureControls, refreshLocalFixtures } from "../../src/worker/test-controls";
+import { offerIsStale } from "../../src/odds/ingestion";
 
 const bindings = env as unknown as { DB: D1Database };
 let migrated = false;
@@ -57,6 +58,7 @@ describe("local fixture lifecycle", () => {
 
     expect((await bindings.DB.prepare("SELECT cursor FROM odds_ingestion WHERE provider = 'local-fixture-mode'").first<{ cursor: string }>())?.cursor).toBe("manual");
     expect((await bindings.DB.prepare("SELECT retrieved_at FROM market_offer WHERE event_id = 'local-nfl-upcoming' AND market = 'spread'").first<{ retrieved_at: string }>())?.retrieved_at).toMatch(/^20\d\d-/);
-    expect(new Date((await bindings.DB.prepare("SELECT retrieved_at FROM market_offer WHERE event_id = 'local-nfl-upcoming' AND market = 'spread'").first<{ retrieved_at: string }>())!.retrieved_at).getTime()).toBeLessThan(Date.now() - 5 * 60_000);
+    const retrievedAt = (await bindings.DB.prepare("SELECT retrieved_at FROM market_offer WHERE event_id = 'local-nfl-upcoming' AND market = 'spread'").first<{ retrieved_at: string }>())!.retrieved_at;
+    expect(offerIsStale(retrievedAt, new Date())).toBe(true);
   });
 });
