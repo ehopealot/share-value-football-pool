@@ -192,23 +192,24 @@ describe("authenticated pool HTTP boundary", () => {
 
   it("revalidates moneyline placement terms against the canonical D1 offer with vig-free ticket pricing", async () => {
     const startsAt = "2099-09-10T20:00:00.000Z";
-    const retrievedAt = new Date().toISOString();
+    const now = new Date();
+    const retrievedAt = new Date(now.getTime() - 29 * 60 * 1000).toISOString();
     await bindings.DB.exec("DELETE FROM market_offer; DELETE FROM sports_event; DELETE FROM odds_ingestion;");
     await bindings.DB.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL)").bind(retrievedAt, retrievedAt).run();
     await bindings.DB.prepare("INSERT INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, correction_version) VALUES (?, ?, 'nfl', 'Fixture Home', 'Fixture Away', ?, 'scheduled', '1')").bind("trusted-event", "trusted-event", startsAt).run();
     await bindings.DB.prepare("INSERT INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, 'moneyline', 'DraftKings', ?, 'trusted-v1', ?)").bind("trusted-event", retrievedAt, JSON.stringify({ policyVersion: CANONICAL_BOOK_POLICY_VERSION, outcomes: [{ name: "Fixture Home", price: -135 }, { name: "Fixture Away", price: 115 }] })).run();
     // Ticket economics use the vig-free line: implied probabilities normalized by the overround.
     const command: any = { type: "PlaceStraightWager", commandId: "moneyline", actorId: "member", wagerId: "moneyline", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -124, rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "trusted-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt, policyVersion: CANONICAL_BOOK_POLICY_VERSION, offerVersion: "trusted-v1", canonicalOfferProof: { offerId: "trusted-event:moneyline:home", eventId: "trusted-event", offerVersion: "trusted-v1", canonicalBook: "DraftKings", market: "moneyline", selection: "home", odds: -135, line: null }, market: "moneyline", selection: "home", originalLine: null, adjustedLine: null, originalOdds: -124, eventStartsAt: startsAt, homeTeam: "Fixture Home", awayTeam: "Fixture Away" } };
-    await expect(revalidateWagerOffers(bindings.DB, command)).resolves.toEqual(command);
+    await expect(revalidateWagerOffers(bindings.DB, command, now)).resolves.toEqual(command);
     // The book price itself is no longer a valid strike: the ticket must use the vig-free line.
     const bookPriced = { ...command, acceptedOdds: -135, leg: { ...command.leg, originalOdds: -135 } };
-    await expect(revalidateWagerOffers(bindings.DB, bookPriced)).rejects.toThrow("LINE_CHANGED");
-    const quoted = await canonicalizeWagerQuote(bindings.DB, { ...command, acceptedOdds: 100 } as any);
+    await expect(revalidateWagerOffers(bindings.DB, bookPriced, now)).rejects.toThrow("LINE_CHANGED");
+    const quoted = await canonicalizeWagerQuote(bindings.DB, { ...command, acceptedOdds: 100 } as any, now);
     expect(quoted.acceptedOdds).toBe(-124);
     expect((quoted as Extract<typeof quoted, { type: "PlaceStraightWager" }>).leg.originalOdds).toBe(-124);
     expect((quoted as Extract<typeof quoted, { type: "PlaceStraightWager" }>).leg.canonicalOfferProof.odds).toBe(-135);
     const forged = { ...command, leg: { ...command.leg, canonicalBook: "FanDuel", offerVersion: "forged-v9", originalOdds: 200, canonicalOfferProof: { ...command.leg.canonicalOfferProof, canonicalBook: "FanDuel", offerVersion: "forged-v9", odds: 200 } } };
-    await expect(revalidateWagerOffers(bindings.DB, forged)).rejects.toThrow("LINE_CHANGED");
+    await expect(revalidateWagerOffers(bindings.DB, forged, now)).rejects.toThrow("LINE_CHANGED");
 
     const duplicateTeaser = {
       ...command,
@@ -217,8 +218,12 @@ describe("authenticated pool HTTP boundary", () => {
       acceptedOdds: -110,
       legs: [command.leg, { ...command.leg }]
     } as any;
-    await expect(canonicalizeWagerQuote(bindings.DB, duplicateTeaser)).rejects.toThrow("MARKET_UNAVAILABLE");
-    await expect(revalidateWagerOffers(bindings.DB, duplicateTeaser)).rejects.toThrow("MARKET_UNAVAILABLE");
+    await expect(canonicalizeWagerQuote(bindings.DB, duplicateTeaser, now)).rejects.toThrow("MARKET_UNAVAILABLE");
+    await expect(revalidateWagerOffers(bindings.DB, duplicateTeaser, now)).rejects.toThrow("MARKET_UNAVAILABLE");
+
+    await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ? WHERE event_id = ?").bind(new Date(now.getTime() - 30 * 60 * 1000 - 1).toISOString(), "trusted-event").run();
+    await expect(canonicalizeWagerQuote(bindings.DB, { ...command, acceptedOdds: 100 } as any, now)).rejects.toThrow("MARKET_STALE");
+    await expect(revalidateWagerOffers(bindings.DB, command, now)).rejects.toThrow("MARKET_STALE");
   });
 
   it("uses shared contracts and treats both unavailable pool states as retryable", async () => {
