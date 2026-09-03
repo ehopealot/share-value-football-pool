@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PoolNavigation, PoolNavigationCache, PoolViewLoadGeneration, SessionLoadGeneration } from "../src/web/components/Layout";
-import { api, onPoolViewInvalidated } from "../src/web/api";
+import { api, onPoolBoardRead, onPoolViewInvalidated } from "../src/web/api";
 import { MessageBoardThreads, createMessageBoardPostAndInvalidate, readMessageBoardAndInvalidate, replyToMessageBoardPostAndInvalidate, scrollMessageBoardFragment, shouldScrollMessageBoardFragment } from "../src/web/pages/MessageBoardPage";
 
 const root = resolve(import.meta.dirname, "..");
@@ -56,12 +56,13 @@ describe("Message board presentation and nav state", () => {
     expect(loads.current(current)).toBe(true);
   });
 
-  it("retains a cached pool ribbon only for its authenticated member while clearing a locally read New marker", () => {
+  it("retains a cached pool ribbon only for its authenticated member while isolating generic and board-read invalidations", () => {
     const cache = new PoolNavigationCache();
     cache.setSession({ id: "member-a" });
     cache.store("pool", view);
     expect(cache.get("pool")).toEqual(view);
-    expect(cache.markBoardRead("pool")).toMatchObject({ currentMember: { hasUnreadBoard: false } });
+    expect(cache.applyInvalidation("pool", "refresh")).toMatchObject({ currentMember: { hasUnreadBoard: true } });
+    expect(cache.applyInvalidation("pool", "board-read")).toMatchObject({ currentMember: { hasUnreadBoard: false } });
     expect(cache.get("pool")).toMatchObject({ currentMember: { hasUnreadBoard: false } });
     cache.setSession({ id: "member-b" });
     expect(cache.get("pool")).toBeUndefined();
@@ -120,10 +121,12 @@ describe("Message board presentation and nav state", () => {
     expect(pageSource()).toContain("Commissioner announcement");
   });
 
-  it("invalidates the authoritative pool view after successful reads and mutations", async () => {
+  it("uses board-read invalidation only after successful reads and mutations", async () => {
     vi.stubGlobal("window", new EventTarget());
-    const invalidated = vi.fn();
-    const unsubscribe = onPoolViewInvalidated(invalidated);
+    const genericInvalidated = vi.fn();
+    const boardReadInvalidated = vi.fn();
+    const unsubscribeGeneric = onPoolViewInvalidated(genericInvalidated);
+    const unsubscribeBoardRead = onPoolBoardRead(boardReadInvalidated);
     const read = vi.spyOn(api, "readMessageBoard").mockResolvedValue(board);
     const post = vi.spyOn(api, "createMessageBoardPost").mockResolvedValue({ commandVersion: "9", postId: "post-2", isAnnouncement: false, replayed: false });
     const reply = vi.spyOn(api, "replyToMessageBoardPost").mockResolvedValue({ commandVersion: "10" });
@@ -134,9 +137,11 @@ describe("Message board presentation and nav state", () => {
       expect(read).toHaveBeenCalledWith("pool");
       expect(post).toHaveBeenCalledWith("pool", { text: "Post", idempotencyKey: "post-key", announcement: false });
       expect(reply).toHaveBeenCalledWith("pool", "post-1", { text: "Reply", idempotencyKey: "reply-key" });
-      expect(invalidated).toHaveBeenCalledTimes(3);
+      expect(genericInvalidated).not.toHaveBeenCalled();
+      expect(boardReadInvalidated).toHaveBeenCalledTimes(3);
     } finally {
-      unsubscribe();
+      unsubscribeGeneric();
+      unsubscribeBoardRead();
       vi.unstubAllGlobals();
     }
   });

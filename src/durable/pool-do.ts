@@ -28,8 +28,10 @@ const now = () => new Date().toISOString();
 const actorId = (command: PoolCommand) => command.type === "InitializePool" ? command.creatorId : command.actorId;
 const isReadCommand = (command: PoolCommand) => command.type === "ReadPoolGate" || command.type === "ReadPoolView" || command.type === "ReadMessageBoard" || command.type === "ReadStandings" || command.type === "ReadActivity" || command.type === "ReadSeasonHistory" || command.type === "ReadWagers" || command.type === "ReadMyWagers" || command.type === "ReadAuditExport" || command.type === "ProbePlacementReplay" || command.type === "ReplayWagerQuote";
 const isQuoteCommand = (command: PoolCommand) => command.type === "QuoteShareOrder" || command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager";
-/** Board conversation is authoritative-only and deliberately has no D1 projection or alarm work. */
-const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost";
+/** A standalone commissioner notice is informational and must not affect wagering or projections. */
+const isNoticeOnlySettingsCommand = (command: PoolCommand) => command.type === "UpdatePoolSettings" && command.commissionerNotice !== undefined && command.poolName === undefined && command.password === undefined && command.signupsOpen === undefined && command.maxSideBetMicros === undefined;
+/** Board conversation and standalone commissioner notices are authoritative-only, without D1 projection or alarm work. */
+const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost" && !isNoticeOnlySettingsCommand(command);
 const canonical = (value: unknown) => JSON.stringify(value);
 /** The durable quote binding intentionally excludes snapshot and envelope metadata. */
 const placementTerms = (value: { wagerId: string; quoteKey: string; seasonId: string; riskMicros: string; acceptedOdds: number; rulesetVersion: string; leg?: unknown; teaserPoints?: number; legs?: unknown }) => value.leg !== undefined
@@ -325,7 +327,7 @@ export class PoolDO {
       if (command.poolName !== undefined && command.poolName.trim().length === 0) throw new Error("INVALID_POOL_NAME");
       const passwordHash = command.password === undefined ? pool.password_hash : hashPoolPassword(command.password);
       sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?, max_side_bet_micros = ?, commissioner_notice = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0, command.maxSideBetMicros ?? String(pool.max_side_bet_micros), command.commissionerNotice === undefined ? pool.commissioner_notice ?? null : command.commissionerNotice);
-      return { commandVersion: this.bumpVersion(sql) };
+      return { commandVersion: isNoticeOnlySettingsCommand(command) ? String(pool.command_version) : this.bumpVersion(sql) };
     }
     if (command.type === "CreateSeason") {
       if (first(sql, "SELECT id FROM season WHERE state IN ('draft', 'active')")) throw new Error("OVERLAPPING_SEASON");

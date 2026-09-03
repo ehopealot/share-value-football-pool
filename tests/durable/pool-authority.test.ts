@@ -101,6 +101,15 @@ describe("PoolDO authority", () => {
     expect(migrated.columns).toContainEqual(expect.objectContaining({ name: "commissioner_notice" }));
     expect(migrated.firstPass).toEqual([{ commissioner_notice: null }]);
     expect(migrated.secondPass).toEqual(migrated.firstPass);
+    const rejectsMalformedNotice = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      try {
+        state.storage.sql.exec("UPDATE pool SET commissioner_notice = '   '");
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(rejectsMalformedNotice).toBe(true);
     expect((await send(slug, { type: "ReadPoolView", commandId: "read", actorId: "owner" })).body).toMatchObject({ pool: { commissionerNotice: null } });
   }, 90_000);
 

@@ -47,7 +47,7 @@ export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
   const poolColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")];
   if (!poolColumns.some((column) => column.name === "max_side_bet_micros")) sql.exec("ALTER TABLE pool ADD COLUMN max_side_bet_micros TEXT NOT NULL DEFAULT '800000000'");
   sql.exec("UPDATE pool SET max_side_bet_micros = '800000000' WHERE max_side_bet_micros IS NULL OR max_side_bet_micros = ''");
-  if (!poolColumns.some((column) => column.name === "commissioner_notice")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_notice TEXT");
+  if (!poolColumns.some((column) => column.name === "commissioner_notice")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500)");
   const boardColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(message_board_entry)")];
   if (!boardColumns.some((column) => column.name === "is_announcement")) sql.exec("ALTER TABLE message_board_entry ADD COLUMN is_announcement INTEGER NOT NULL DEFAULT 0");
   sql.exec("UPDATE message_board_entry SET is_announcement = 0 WHERE is_announcement IS NULL");

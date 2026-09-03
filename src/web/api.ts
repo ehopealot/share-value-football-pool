@@ -126,11 +126,18 @@ export const onSessionInvalidated = (listener: () => void) => {
   return () => window.removeEventListener(sessionInvalidated, listener);
 };
 const poolViewInvalidated = "share-pool:pool-view-invalidated";
-/** Board reads and successful board mutations use this local event to refresh the authoritative nav marker. */
+const poolBoardRead = "share-pool:pool-board-read";
+/** Generic pool-view refreshes preserve cached member-specific board-read state until the server responds. */
 export const invalidatePoolView = () => window.dispatchEvent(new Event(poolViewInvalidated));
+/** Only successful board reads and mutations may optimistically clear the unread marker. */
+export const invalidatePoolViewForBoardRead = () => window.dispatchEvent(new Event(poolBoardRead));
 export const onPoolViewInvalidated = (listener: () => void) => {
   window.addEventListener(poolViewInvalidated, listener);
   return () => window.removeEventListener(poolViewInvalidated, listener);
+};
+export const onPoolBoardRead = (listener: () => void) => {
+  window.addEventListener(poolBoardRead, listener);
+  return () => window.removeEventListener(poolBoardRead, listener);
 };
 
 const REQUEST_TIMEOUT_MS = 5_000;

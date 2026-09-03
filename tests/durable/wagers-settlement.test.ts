@@ -129,6 +129,29 @@ describe("PoolDO wagers and settlement", () => {
     expect(JSON.parse(String((await snapshot()).processed_command))).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "matrix-malformed-mutation" })]));
   }, 30_000);
 
+  it("keeps straight wager quotes and projection state unchanged across notice set and clear", async () => {
+    const slug = await fundedPool();
+    const snapshot = () => storage(slug, async (state) => ({
+      pool: [...state.storage.sql.exec("SELECT command_version FROM pool")][0],
+      activeSeason: [...state.storage.sql.exec("SELECT command_version FROM season WHERE id = 's1'")][0],
+      outbox: [...state.storage.sql.exec("SELECT id, event_type, version, payload_json FROM outbox ORDER BY rowid")],
+      alarm: await state.storage.getAlarm()
+    }));
+    const setCommand: any = { type: "PlaceStraightWager", commandId: "notice-set-place", actorId: "member", wagerId: "notice-set-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("notice-set-event") };
+    const setQuote = await quoteWager(slug, setCommand, "notice-set-quote");
+    const beforeSet = await snapshot();
+    expect(await send(slug, { type: "UpdatePoolSettings", commandId: "notice-set", actorId: "owner", commissionerNotice: "Lines lock at noon." })).toMatchObject({ commandVersion: setQuote.commandVersion });
+    expect(await snapshot()).toEqual(beforeSet);
+    expect(await direct(slug, placementFromQuote(setCommand, "notice-set-quote", setQuote))).toMatchObject({ wagerId: "notice-set-wager" });
+
+    const clearCommand: any = { ...setCommand, commandId: "notice-clear-place", wagerId: "notice-clear-wager", leg: leg("notice-clear-event") };
+    const clearQuote = await quoteWager(slug, clearCommand, "notice-clear-quote");
+    const beforeClear = await snapshot();
+    expect(await send(slug, { type: "UpdatePoolSettings", commandId: "notice-clear", actorId: "owner", commissionerNotice: null })).toMatchObject({ commandVersion: clearQuote.commandVersion });
+    expect(await snapshot()).toEqual(beforeClear);
+    expect(await direct(slug, placementFromQuote(clearCommand, "notice-clear-quote", clearQuote))).toMatchObject({ wagerId: "notice-clear-wager" });
+  }, 30_000);
+
   it("serializes concurrent wagers so they cannot overspend the same shares", async () => {
     const slug = await fundedPool();
     const command = (id: string): any => ({ type: "PlaceStraightWager", commandId: `overspend-${id}`, actorId: "member", wagerId: id, seasonId: "s1", riskMicros: "2000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg(`overspend-event-${id}`) });
