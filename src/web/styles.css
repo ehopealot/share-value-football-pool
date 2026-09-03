@@ -138,6 +138,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-table th[scope="rowgroup"] small { display: block; font-weight: 700; white-space: nowrap; }
 .activity-wager-lines > span { display: block; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
+.activity-wager-not-started { color: #6e7780; }
 .activity-picked-won, .activity-performance-won { color: #137333; }
 .activity-picked-lost, .activity-performance-lost { color: #b42318; }
 .activity-staked { display: flex; justify-content: space-between; align-items: baseline; gap: 0.3rem; }

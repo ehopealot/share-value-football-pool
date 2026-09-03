@@ -32,11 +32,13 @@ export function formatActivityPerformance(performanceMicros: string): string {
   return performanceMicros === "0" ? "" : formatWeeklyPerformance(performanceMicros);
 }
 
-export function formatActivityWagerPerformance(wager: Pick<Wager, "performanceMicros" | "outcome">): string {
+type WagerOutcome = { status: string; outcome?: "won" | "lost" | "refunded" };
+
+export function formatActivityWagerPerformance(wager: WagerOutcome & Pick<Wager, "performanceMicros">): string {
   return wager.performanceMicros === "0" && wager.outcome === "refunded" ? "0.00 shares" : formatActivityPerformance(wager.performanceMicros);
 }
 
-export function activityWagerPerformanceClass(wager: Pick<Wager, "outcome">): string {
+export function activityWagerPerformanceClass(wager: WagerOutcome): string {
   return wager.outcome === "won" ? "activity-performance-won" : wager.outcome === "lost" ? "activity-performance-lost" : "";
 }
 
@@ -47,8 +49,13 @@ export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedO
 }
 
 /** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
-export function activitySelectedOutcomeClass(wager: Pick<Wager, "outcome">): string {
+export function activitySelectedOutcomeClass(wager: WagerOutcome): string {
   return wager.outcome === "won" ? "activity-picked-won" : wager.outcome === "lost" ? "activity-picked-lost" : "";
+}
+
+/** The available feed has kickoff, but no live/finished game-state signal. */
+export function activityLegTimingClass(leg: Pick<Leg, "eventStartsAt">, now = Date.now()): string {
+  return Date.parse(leg.eventStartsAt) > now ? "activity-wager-not-started" : "";
 }
 
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";

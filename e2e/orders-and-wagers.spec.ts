@@ -142,7 +142,7 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   await expect(page).toHaveURL(/\/p\/orders-pool\/my-wagers$/);
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
-  await expect(openBets.getByRole("row", { name: /Local Away at Local Home.*Local Away \+3.*1\.00.*2\.00/ }).first()).toBeVisible();
+  await expect(openBets.getByRole("row", { name: /Local Away at Local Home.*Local Away \+3.*1 \+100.*2\.00/ }).first()).toBeVisible();
   await expect(page.getByText("Bets cannot be canceled after placement.")).toBeVisible();
   // The browser renders the real durable balance without ever converting its
   // canonical integer micros through Number.

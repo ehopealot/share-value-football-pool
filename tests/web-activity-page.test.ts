@@ -20,6 +20,7 @@ describe("Activity page", () => {
   it("uses semantic selected-pick rendering and preserves hidden tickets", () => {
     expect(source).toContain('formatActivityLeg');
     expect(source).toContain('className={activitySelectedOutcomeClass(wager)}');
+    expect(source).toContain('className={activityLegTimingClass(leg)}');
     expect(source).toContain('<strong key={index} className={activitySelectedOutcomeClass(wager)}>{segment.text}</strong>');
     expect(source).toContain('Selection hidden until the game starts.');
   });
