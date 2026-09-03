@@ -74,6 +74,40 @@ export function groupBoardByEvent(offers: any[]): GameRow[] {
   return [...rows.values()];
 }
 
+const normalizeTeamFilter = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const maxTeamTypoDistance = (token: string) => token.length >= 7 ? 2 : token.length >= 3 ? 1 : 0;
+const hasBoundedTypo = (query: string, candidate: string, maximum: number) => {
+  if (Math.abs(query.length - candidate.length) > maximum) return false;
+  let previous = Array.from({ length: candidate.length + 1 }, (_, index) => index);
+  let twoRowsBack: number[] | undefined;
+  for (let row = 1; row <= query.length; row++) {
+    const current = [row];
+    let lowest = row;
+    for (let column = 1; column <= candidate.length; column++) {
+      const substitution = previous[column - 1] + (query[row - 1] === candidate[column - 1] ? 0 : 1);
+      const insertion = current[column - 1] + 1;
+      const deletion = previous[column] + 1;
+      const transposition = twoRowsBack && column > 1 && query[row - 1] === candidate[column - 2] && query[row - 2] === candidate[column - 1] ? twoRowsBack[column - 2] + 1 : Number.POSITIVE_INFINITY;
+      current[column] = Math.min(substitution, insertion, deletion, transposition);
+      lowest = Math.min(lowest, current[column]);
+    }
+    if (lowest > maximum) return false;
+    twoRowsBack = previous;
+    previous = current;
+  }
+  return previous[candidate.length] <= maximum;
+};
+const teamMatchesFilter = (teamName: string, terms: string[]) => {
+  const normalized = normalizeTeamFilter(teamName);
+  const tokens = normalized.split(" ").filter(Boolean);
+  return terms.every((term) => tokens.some((token) => token.includes(term) || hasBoundedTypo(term, token, maxTeamTypoDistance(term))));
+};
+/** Filters only the rendered game rows; input order remains the kickoff order from groupBoardByEvent. */
+export const filterGamesByTeam = (games: GameRow[], filter: string): GameRow[] => {
+  const terms = normalizeTeamFilter(filter).split(" ").filter(Boolean);
+  return terms.length === 0 ? games : games.filter((game) => teamMatchesFilter(game.awayTeam, terms) || teamMatchesFilter(game.homeTeam, terms));
+};
+
 /** Builds the single-leg straight quote request for one tray item against its resolved pick. */
 export function straightQuoteRequest(semantic: { pick: BoardPick; risk: string; wagerId: string; quoteKey: string }, seasonId: string) {
   const { offer } = semantic.pick; const selection = selectionForOutcome(offer, semantic.pick.outcome);
@@ -121,7 +155,7 @@ export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any
 
 export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
-  const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState("");
+  const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState(""); const [teamFilter, setTeamFilter] = useState("");
   const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState("");
   const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
@@ -142,7 +176,9 @@ export function OddsPage() {
   }, [board, currentWeek]);
   // Default to the earliest week with games (future weeks count); the current week is the fallback.
   const week = useMemo(() => selectedWeek || weekOptions.find((option) => (board?.offers ?? []).some((offer: any) => inWeek(offer.startsAt, option))) || currentWeek, [board, currentWeek, selectedWeek, weekOptions]);
-  const games = useMemo(() => groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week))), [board, week]);
+  const weekGames = useMemo(() => groupBoardByEvent((board?.offers ?? []).filter((offer: any) => !week || inWeek(offer.startsAt, week))), [board, week]);
+  // Team filtering only changes the rendered rows; risk edits retain this memoized game list.
+  const games = useMemo(() => filterGamesByTeam(weekGames, teamFilter), [weekGames, teamFilter]);
   const selectedPickIds = tray.map(pickId);
   const toggle = useCallback((cell: MarketCell) => {
     setTray((current) => toggleMarketExclusive(current, { eventId: cell.offer.eventId, market: cell.offer.market, selection: cell.selection, wagerId: crypto.randomUUID(), risk: "" } as TrayItem));
@@ -237,8 +273,9 @@ export function OddsPage() {
     {notice && <p role="status">{notice}</p>}
     <label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
+    <label>Filter teams <input type="search" value={teamFilter} placeholder="Search team names" onChange={e => setTeamFilter(e.target.value)} /></label>
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} onToggle={toggle}/>
-    {board && games.length === 0 && <p>No games to show for this week.</p>}
+    {board && games.length === 0 && <p>{teamFilter.trim() ? "No teams match this filter." : "No games to show for this week."}</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
       {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></span><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
