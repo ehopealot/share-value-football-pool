@@ -63,7 +63,7 @@ export function straightBatchRiskError(items: TrayItem[], limits: { maxSideBetMi
 }
 
 /** A teaser has one total-risk cap; the server separately enforces shared per-side exposure. */
-export function teaserRiskError(risk: string, limits: { maxSideBetMicros?: string; availableMicros?: string } = {}): string {
+const multiLegRiskError = (kind: "Teaser" | "Parlay", risk: string, limits: { maxSideBetMicros?: string; availableMicros?: string } = {}): string => {
   if (!/^\d+$/.test(risk) || BigInt(risk) <= 0n) return "Whole shares required.";
   const riskMicros = BigInt(risk) * MICROS_PER_UNIT;
   if (limits.maxSideBetMicros !== undefined) {
@@ -72,7 +72,11 @@ export function teaserRiskError(risk: string, limits: { maxSideBetMicros?: strin
   }
   if (limits.availableMicros !== undefined) {
     const available = parseIntegerText(limits.availableMicros);
-    if (riskMicros > available) return `Teaser risk ${risk} shares; only ${(available / MICROS_PER_UNIT).toString()} shares are available.`;
+    if (riskMicros > available) return `${kind} risk ${risk} shares; only ${(available / MICROS_PER_UNIT).toString()} shares are available.`;
   }
   return "";
-}
+};
+/** A teaser has one total-risk cap; the server separately enforces shared per-side exposure. */
+export const teaserRiskError = (risk: string, limits: { maxSideBetMicros?: string; availableMicros?: string } = {}) => multiLegRiskError("Teaser", risk, limits);
+/** A parlay shares the teaser's one-ticket risk UI; server terms remain authoritative. */
+export const parlayRiskError = (risk: string, limits: { maxSideBetMicros?: string; availableMicros?: string } = {}) => multiLegRiskError("Parlay", risk, limits);

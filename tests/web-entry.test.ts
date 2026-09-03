@@ -4,7 +4,7 @@ import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
 import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
-import { addTeaserLeg, teaserLegForOutcome } from "../src/web/teaser-slip";
+import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
 import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserRecoveryTransition, teaserTerminalTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
@@ -68,6 +68,15 @@ describe("entry redirects", () => {
     expect(addTeaserLeg([home], home).error).toBe("Duplicate selections are not allowed.");
     expect(addTeaserLeg([home], teaserLegForOutcome(offer, { point: 3.5, price: -110 }, "away")).error).toBe("Opposing selections are not allowed.");
   });
+  it("caps new teaser slips at six legs without changing legacy server envelopes", () => {
+    const leg = (index: number) => ({ eventId: `event-${index}`, league: "nfl" as const, canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: {}, market: "spread" as const, selection: "home" as const, originalLine: -3.5, originalOdds: -110, eventStartsAt: "2030-09-01T12:00:00.000Z" });
+    const six = Array.from({ length: 6 }, (_, index) => leg(index));
+    expect(addTeaserLeg(six.slice(0, 5), six[5]!).error).toBe("");
+    expect(addTeaserLeg(six, leg(6)).error).toBe("Choose no more than six legs.");
+    expect(validateTeaser(six, 6)).toBe("");
+    expect(validateTeaser([...six, leg(6)], 6)).toBe("Choose two to six legs.");
+  });
+
   it("re-resolves stale teaser semantics from current offers without accepting a replacement payload", async () => {
     const offer = { eventId: "event-1", league: "nfl" as const, homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread" as const, canonicalBook: "CurrentBook", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v2", policyVersion: "CANONICAL_BOOKS_2026_V1" as const, outcomes: [{ name: "Home", price: -105, point: -2.5 }] };
     const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [offer], feed: { status: "current", message: "Odds are up to date.", lastPolledAt: "2030-09-01T10:00:00.000Z", lastSuccessAt: "2030-09-01T10:00:00.000Z" } });

@@ -4,6 +4,7 @@ import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage } f
 import { Layout } from "../components/Layout";
 import { selectableOutcomes, selectionForOutcome } from "../selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, writeTeaserSlip } from "../teaser-slip";
+import { buildParlaySlip, writeParlaySlip } from "../parlay-slip";
 import { resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketExclusive, type TrayItem } from "../selection-tray";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatAmericanOdds, formatSignedLine } from "../odds-format";
@@ -213,6 +214,16 @@ export function OddsPage() {
     setNotice(added ? `${added} selection${added === 1 ? "" : "s"} added to the teaser slip.` : "");
   };
 
+  const addToParlay = () => {
+    // Validate every selected board identity before moving any one of them into the dedicated slip.
+    const next = buildParlaySlip(tray, board ?? {});
+    if (next.error) return setError(next.error);
+    writeParlaySlip(slug, next.legs);
+    persist([]);
+    setError("");
+    nav(`/p/${slug}/parlay`);
+  };
+
   const backToBoard = () => window.history.state?.sharePoolBetReview ? window.history.back() : setBatch(undefined);
 
   if (batch?.tag === "reviewing" || batch?.tag === "placing") {
@@ -240,8 +251,9 @@ export function OddsPage() {
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} onToggle={toggle}/>
     {board && games.length === 0 && <p>No games to show for this week.</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Your shares: Total <strong>{formatMicros(total, 2)}</strong> · Available to bet <strong>{formatMicros(available, 2)}</strong> · Current share value <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length === 0 ? <p>Check options on the board to build straight wagers or a teaser.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></span><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
+      {tray.length === 0 ? <p>Check options on the board to build straight wagers, a teaser, or a parlay.</p> : <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate))} /></span><button className="selection-tray-remove" onClick={() => persist(removeItem(tray, item))}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
+        <button disabled={tray.length < 2 || tray.length > 6} onClick={addToParlay}>Build parlay</button>
         <button className="primary-action" disabled={!view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
         <p className="bet-slip-error" aria-live="polite">{riskError}</p></>}
     </section>

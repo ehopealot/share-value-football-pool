@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, teaserRiskError, toggleMarketExclusive, toggleTrayItem, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
+import { parlayRiskError, readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, teaserRiskError, toggleMarketExclusive, toggleTrayItem, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
 
 vi.stubGlobal("sessionStorage", (() => { let store: Record<string, string> = {}; return { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = String(v); }, removeItem: (k: string) => { delete store[k]; }, clear: () => { store = {}; } }; })());
 
@@ -72,5 +72,11 @@ describe("selection tray", () => {
     expect(teaserRiskError("801", { maxSideBetMicros: "800000000", availableMicros: "3000000000" })).toBe("Max bet per side: 800 shares.");
     expect(teaserRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "799000000" })).toBe("Teaser risk 800 shares; only 799 shares are available.");
     expect(teaserRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "800000000" })).toBe("");
+  });
+
+  it("caps one whole-share parlay risk against the same limits", () => {
+    expect(parlayRiskError("801", { maxSideBetMicros: "800000000", availableMicros: "3000000000" })).toBe("Max bet per side: 800 shares.");
+    expect(parlayRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "799000000" })).toBe("Parlay risk 800 shares; only 799 shares are available.");
+    expect(parlayRiskError("800", { maxSideBetMicros: "800000000", availableMicros: "800000000" })).toBe("");
   });
 });
