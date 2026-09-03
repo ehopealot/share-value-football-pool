@@ -79,8 +79,17 @@ describe("PARLAY_2026_V1 pricing and validation", () => {
     ])).toEqual({ outcome: "win", odds: 100, winningLegs: 1 });
   });
 
+  it("accepts inclusive safe American inputs and preserves them after repricing", () => {
+    for (const odds of [Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]) {
+      expect(gradeParlay(grades("win", "void"), [
+        leg("one", "moneyline", "home", odds),
+        leg("two", "total", "over")
+      ])).toEqual({ outcome: "win", odds, winningLegs: 1 });
+    }
+  });
+
   it("rejects zero, fractional, unsafe input, and unsafe output odds with the canonical error", () => {
-    for (const odds of [0, 100.5, Number.MAX_SAFE_INTEGER + 1]) {
+    for (const odds of [0, 100.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1]) {
       expect(() => parlayOdds([
         leg("one", "moneyline", "home", odds),
         leg("two", "moneyline", "away", -110)
