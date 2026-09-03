@@ -31,7 +31,7 @@ export function AdminSettingsPage() {
     <section className="pool-settings-section" aria-labelledby="pool-name-settings-heading">
       <h2 id="pool-name-settings-heading">Pool name</h2>
       <div className="share-order-form">
-        <label>Pool name <input disabled={settings.pending} value={name} onChange={(e) => { edit(); setName(e.target.value); }} /></label>
+        <input className="pool-settings-control" aria-labelledby="pool-name-settings-heading" disabled={settings.pending} value={name} onChange={(e) => { edit(); setName(e.target.value); }} />
         <button disabled={settings.pending} onClick={() => void save("rename", () => ({ poolName: name }))}>Rename pool</button>
       </div>
     </section>
@@ -47,9 +47,9 @@ export function AdminSettingsPage() {
       </div>
     </section>
     <section className="pool-settings-section" aria-labelledby="join-password-settings-heading">
-      <h2 id="join-password-settings-heading">Join password</h2>
+      <h2 id="join-password-settings-heading">Change join password</h2>
       <div className="share-order-form">
-        <label>New join password <input disabled={settings.pending} type="password" value={password} onChange={(e) => { edit(); setPassword(e.target.value); }} /></label>
+        <input className="pool-settings-control" aria-labelledby="join-password-settings-heading" disabled={settings.pending} type="password" value={password} onChange={(e) => { edit(); setPassword(e.target.value); }} />
         <button disabled={!password || settings.pending} onClick={() => void save("rotate-password", () => ({ password }))}>Rotate password</button>
       </div>
       <p className="pool-settings-help">Password rotation requires recent authentication.</p>
@@ -57,7 +57,7 @@ export function AdminSettingsPage() {
     <section className="pool-settings-section" aria-labelledby="max-bet-settings-heading">
       <h2 id="max-bet-settings-heading">Max bet per side</h2>
       <div className="share-order-form">
-        <label>Max bet per side <input disabled={settings.pending} type="number" min="1" step="1" value={maxSideBet} onChange={(e) => { edit(); setMaxSideBet(e.target.value); }} /></label>
+        <input className="pool-settings-control" aria-labelledby="max-bet-settings-heading" disabled={settings.pending} type="number" min="1" step="1" value={maxSideBet} onChange={(e) => { edit(); setMaxSideBet(e.target.value); }} />
         <button disabled={!/^\d+$/.test(maxSideBet) || BigInt(maxSideBet || "0") < 1n || settings.pending} onClick={() => void save(`max-side-bet:${maxSideBet}`, () => ({ maxSideBet }))}>Save max bet</button>
       </div>
       <p className="pool-settings-help">Teaser risk is split evenly across its sides for this limit.</p>

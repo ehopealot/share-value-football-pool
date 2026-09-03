@@ -111,7 +111,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .pool-settings-section { display: grid; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); background: #f6f8fa; }
 .pool-settings-section h2 { margin: 0; font-size: 1.1rem; }
 .pool-settings .share-order-form { margin: 0; }
-.pool-settings .share-order-form > label { flex: 1 1 16rem; min-width: 0; }
+.pool-settings-control { flex: 1 1 16rem; min-width: 0; }
 .pool-settings-notice-controls { align-items: flex-end; }
 .pool-settings-notice-field { flex: 1 1 min(100%, 65ch); min-width: 0; display: grid; gap: var(--space-1); }
 .pool-settings-notice-field label, .pool-settings-help, .pool-settings-signups p { margin: 0; }
@@ -119,7 +119,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .pool-settings-help { color: #3b4046; }
 .pool-settings-signups { align-items: center; }
 .pool-settings-signups p { flex: 1 1 16rem; }
-@media (max-width: 600px) { .pool-settings-section { padding: var(--space-2); } .pool-settings .share-order-form > label, .pool-settings-notice-field { flex-basis: 100%; } .pool-settings .share-order-form input, .pool-settings .share-order-form button { height: 44px; min-height: 44px; } }
+@media (max-width: 600px) { .pool-settings-section { padding: var(--space-2); } .pool-settings-control, .pool-settings-notice-field { flex-basis: 100%; } .pool-settings .share-order-form input, .pool-settings .share-order-form button { height: 44px; min-height: 44px; } }
 .confirmation-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .confirmation-actions button { margin: 0; }
 .reversal-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }

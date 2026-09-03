@@ -56,4 +56,17 @@ describe("commissioner banner notice", () => {
     expect(css()).toMatch(/\.pool-settings\s*\{[^}]*display:\s*grid[^}]*gap:/s);
     expect(css()).toMatch(/\.pool-settings-notice-field\s*\{[^}]*flex:\s*1 1 min\(100%, 65ch\)/s);
   });
+
+  it("uses each settings section title instead of repeating field labels", () => {
+    const source = settings();
+
+    expect(source).toContain('<h2 id="join-password-settings-heading">Change join password</h2>');
+    expect(source).toContain('aria-labelledby="pool-name-settings-heading"');
+    expect(source).toContain('aria-labelledby="join-password-settings-heading"');
+    expect(source).toContain('aria-labelledby="max-bet-settings-heading"');
+    expect(source).not.toContain("<label>Pool name");
+    expect(source).not.toContain("<label>New join password");
+    expect(source).not.toContain("<label>Max bet per side");
+    expect(css()).toMatch(/\.pool-settings-control\s*\{[^}]*flex:\s*1 1 16rem/s);
+  });
 });
