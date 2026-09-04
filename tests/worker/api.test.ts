@@ -180,6 +180,32 @@ describe("later wager and member HTTP API", () => {
     expect(memberPending).toEqual([]);
   }, 90_000);
 
+  it("paces commissioner announcement emails below Resend's request limit", async () => {
+    const poolId = `api-announcement-pacing-${crypto.randomUUID()}`;
+    const slug = `api-announcement-pacing-${crypto.randomUUID()}`;
+    await bindings.DB.prepare("INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('member-two', 'Member Two', 'member-two-api@example.test', 1, 0, 0), ('member-three', 'Member Three', 'member-three-api@example.test', 1, 0, 0)").run();
+    await setupPool(poolId, slug);
+    await send(poolId, { type: "JoinPool", commandId: `join-member-two-${poolId}`, actorId: "member-two", displayName: "Member Two", password: "correct-password" });
+    await send(poolId, { type: "JoinPool", commandId: `join-member-three-${poolId}`, actorId: "member-three", displayName: "Member Three", password: "correct-password" });
+    const deliveryStartedAt: number[] = [];
+    const app = createWorkerApp({
+      db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY,
+      currentUser: async () => ({ id: "owner", name: "Owner" }),
+      poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => { deliveryStartedAt.push(Date.now()); } }
+    });
+    const pending: Promise<unknown>[] = [];
+    const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
+
+    expect((await app.fetch(request(`/api/p/${slug}/board/posts`, { text: "Paced announcement", idempotencyKey: "paced-announcement", announcement: true }), {}, executionContext)).status).toBe(200);
+    await pending[0];
+
+    expect(deliveryStartedAt).toHaveLength(3);
+    expect(deliveryStartedAt[1]! - deliveryStartedAt[0]!).toBeGreaterThanOrEqual(200);
+    expect(deliveryStartedAt[1]! - deliveryStartedAt[0]!).toBeLessThan(800);
+    expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeGreaterThanOrEqual(200);
+    expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeLessThan(800);
+  }, 90_000);
+
   it("accepts a legacy ordinary post replay without scheduling an announcement blast", async () => {
     const poolId = `api-legacy-board-${crypto.randomUUID()}`;
     const slug = `api-legacy-board-${crypto.randomUUID()}`;
