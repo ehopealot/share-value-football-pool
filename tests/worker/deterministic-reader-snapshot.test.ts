@@ -180,13 +180,15 @@ describe("deterministic D1 reader snapshots", () => {
     const placement = { ...terms, wagerId: `wager-${boundary}`, commandId: `mutation-${boundary}`, mutationKey: `mutation-${boundary}`, quotedCommandVersion: commandVersion };
     const snapshot = () => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => Object.fromEntries(["pool", "processed_command", "wager_quote", "wager", "wager_leg", "wager_leg_snapshot", "share_account", "ledger_entry", "event_reconciliation", "outbox", "administration_audit"].map((table) => [table, JSON.stringify([...state.storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`)])])));
     const before = await snapshot();
-    const barrier = readerBarrier(bindings.DB, boundary, () => poll([event(eventId, "new")], NEW_AT), boundary === "after" ? 2 : 1);
+    // Placement has one authoritative market snapshot: PoolCommandRouter revalidates
+    // immediately before dispatch, with no duplicate route-level offer read.
+    const barrier = readerBarrier(bindings.DB, boundary, () => poll([event(eventId, "new")], NEW_AT));
     const app = createWorkerApp({ db: barrier.db, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
     const placementStartedAt = Date.now();
     const response = await app.fetch(http(`/api/p/${slug}/wagers/straight/place`, placement));
     const placementCompletedAt = Date.now();
     const responseBody = await response.json() as any;
-    expect(barrier.proof()).toEqual({ fired: true, targetBatchStatements: 2, targetReads: boundary === "after" ? 2 : 1 });
+    expect(barrier.proof()).toEqual({ fired: true, targetBatchStatements: 2, targetReads: 1 });
     if (boundary === "after") {
       expect(response.status).toBe(200);
       expect(responseBody).toEqual({ wagerId: "wager-after", commandVersion: "6" });

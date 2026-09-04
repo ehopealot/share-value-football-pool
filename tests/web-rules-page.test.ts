@@ -35,10 +35,15 @@ describe("truthful rules and feed presentation", () => {
     expect(render(view(false, false), board("no-offer"))).toContain("No active or closed season is available");
   });
 
-  it("publishes the complete fixed teaser policy", () => {
+  it("publishes the complete fixed teaser and parlay policies", () => {
     const html = render(view(true, false), board("current"));
     expect(html).toContain("10-point teasers require exactly 3 legs");
+    expect(html).toContain("Regular teasers allow 2–6 legs");
+    expect(html).toContain("7 (legacy only)");
+    expect(html).toContain("seven-leg row applies only to previously accepted legacy tickets");
+    expect(html).toContain("New teaser tickets are capped at six legs");
     for (const price of ["-120", "+150", "+235", "+350", "+550", "+800"]) expect(html).toContain(price);
+    for (const text of ["PARLAY_2026_V1", "2–6 legs", "spreads, totals, and moneylines", "one spread or moneyline", "-133", "settles as soon as any final leg loses", "Wins and refunds wait until all legs are final", "Pushes and voids are removed and surviving legs are repriced"]) expect(html).toContain(text);
   });
 
   it("renders the persisted selected-season ruleset and refuses an unknown table", () => {

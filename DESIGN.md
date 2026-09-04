@@ -34,4 +34,4 @@ The masthead identifies the product; the blue ribbon carries account and pool na
 
 ## Responsive and accessibility
 
-Visible three-pixel focus outlines cover links, buttons, inputs, and selects. The ribbon uses its light dark-surface focus token. At widths up to 600px, ribbon and action controls have 44px minimum touch targets. Reduced-motion preferences disable transitions and smooth scrolling. Table overflow is localized, keyboard controls remain semantic, and the documented palette meets the tested AA contrast combinations.
+Visible three-pixel focus outlines cover links, buttons, inputs, and selects. The ribbon uses its light dark-surface focus token. At widths up to 600px, ribbon controls have 36px minimum touch targets and action controls retain 44px minimum targets. Reduced-motion preferences disable transitions and smooth scrolling. Table overflow is localized, keyboard controls remain semantic, and the documented palette meets the tested AA contrast combinations.

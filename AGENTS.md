@@ -1,9 +1,17 @@
 # AGENTS.md
 
+## Guiding philosophy
+- We build quickly and correctly.
+- Lean with documented residuals is preferred over gold-plated and overengineered. YAGNI
+- Lean does not mean unhandled edge cases. We DO take care to define and preserve invariants for critical code. Any unhandled edge cases are documented as residuals.
+
 ## Development
-- work on feature branches in worktrees
-- make pull requests when you are ready
+- Work on feature branches in worktrees
+- Make pull requests against main when you are ready
 
 ## Testing
-- if the change seems low risk, let CI run the test suite. we require a green build to merge and deploy.
-- dont run the e2e tests unless there is a failure in CI and even then, only if it seems related or you are asked to.
+- If the change seems low risk, let CI run the test suite. we require a green build to merge and deploy.
+- Don't run the e2e tests unless there is a failure in CI and even then, only if it seems related or you are asked to.
+
+## Subagents
+- Always instruct subagents NOT to run e2e tests themselves.

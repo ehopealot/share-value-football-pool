@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router";
-import { ApiError, api, invalidateSession, onPoolViewInvalidated, onSessionInvalidated } from "../api";
+import { ApiError, api, invalidateSession, onPoolBoardRead, onPoolViewInvalidated, onSessionInvalidated } from "../api";
 import type { ReadPoolView } from "../../contracts/http";
 
 /** Prevents superseded pool-view reads from restoring stale navigation state. */
@@ -36,6 +36,9 @@ export class PoolNavigationCache {
     this.views.set(slug, next);
     return next;
   }
+  applyInvalidation(slug: string, type: "refresh" | "board-read") {
+    return type === "board-read" ? this.markBoardRead(slug) : this.get(slug);
+  }
   clearViews() { this.views.clear(); }
   clear() { this.clearViews(); this.signedIn = undefined; this.userId = undefined; }
 }
@@ -46,12 +49,18 @@ export function PoolNavigation({ slug, view }: { slug: string; view: ReadPoolVie
   return <><NavLink to={`/p/${slug}/overview`}>{view.pool.name}</NavLink><NavLink to={`/p/${slug}/odds`}>Odds board</NavLink><NavLink to={`/p/${slug}/my-wagers`}>My bets</NavLink><NavLink to={`/p/${slug}/standings`}>Standings</NavLink><NavLink to={`/p/${slug}/activity`}>Activity</NavLink><NavLink to={`/p/${slug}/rules`}>Rules</NavLink><NavLink to={`/p/${slug}/board`}>Message board{view.currentMember.hasUnreadBoard && <><span aria-hidden="true"> </span><span className="nav-new">New</span></>}</NavLink></>;
 }
 
+/** A member-authorized notice is informative, not an interrupting live alert. */
+export function CommissionerNotice({ notice }: { notice: string }) {
+  return <aside className="commissioner-notice" aria-label="Commissioner notice"><strong>Commissioner notice</strong><span>{notice.toUpperCase()}</span></aside>;
+}
+
 export function Layout({ children }: { children: React.ReactNode; signedIn?: boolean }) {
   const navigate = useNavigate(); const { slug } = useParams();
   const [signedIn, setSignedIn] = useState<boolean | undefined>(() => poolNavigationCache.getSignedIn()); const [refresh, setRefresh] = useState(0); const [poolViewRefresh, setPoolViewRefresh] = useState(0);
   const [view, setView] = useState<ReadPoolView | undefined>(() => slug ? poolNavigationCache.get(slug) : undefined); const viewLoads = useState(() => new PoolViewLoadGeneration())[0]; const sessionLoads = useState(() => new SessionLoadGeneration())[0];
   useEffect(() => onSessionInvalidated(() => { poolNavigationCache.clear(); viewLoads.invalidate(); sessionLoads.invalidate(); setSignedIn(false); setView(undefined); setRefresh((version) => version + 1); }), [sessionLoads, viewLoads]);
-  useEffect(() => onPoolViewInvalidated(() => { viewLoads.invalidate(); const current = slug ? poolNavigationCache.markBoardRead(slug) : undefined; setView(current); setPoolViewRefresh((version) => version + 1); }), [slug, viewLoads]);
+  useEffect(() => onPoolViewInvalidated(() => { viewLoads.invalidate(); const current = slug ? poolNavigationCache.applyInvalidation(slug, "refresh") : undefined; setView(current); setPoolViewRefresh((version) => version + 1); }), [slug, viewLoads]);
+  useEffect(() => onPoolBoardRead(() => { viewLoads.invalidate(); const current = slug ? poolNavigationCache.applyInvalidation(slug, "board-read") : undefined; setView(current); setPoolViewRefresh((version) => version + 1); }), [slug, viewLoads]);
   useEffect(() => {
     const generation = sessionLoads.start();
     let active = true;
@@ -81,6 +90,7 @@ export function Layout({ children }: { children: React.ReactNode; signedIn?: boo
   const logout = async () => { await api.signOut(); setSignedIn(false); invalidateSession(); navigate("/"); };
   return <div className="site-shell">
     <header className="masthead"><p className="site-name">Office Pool Reborn</p></header>
+    {signedIn && view && slug && view.pool.commissionerNotice !== null && <CommissionerNotice notice={view.pool.commissionerNotice}/>}
     <nav aria-label="Primary navigation" className="nav-bar"><Link to="/">Home</Link>{signedIn === undefined ? null : signedIn ? <button className="nav-button" onClick={logout}>Log out</button> : <><Link to="/login">Log in</Link><Link to="/sign-up">Create account</Link></>}{signedIn && view && slug && <><span aria-hidden="true">•</span><PoolNavigation slug={slug} view={view}/></>}</nav>
     <main className="main-content">{children}</main>
   </div>;

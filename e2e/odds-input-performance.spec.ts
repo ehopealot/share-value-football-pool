@@ -48,3 +48,30 @@ test("typing a risk stays responsive on an 80-game odds board", async ({ page, w
   const delays = await page.evaluate(() => (window as Window & { delays: number[] }).delays);
   expect(Math.max(...delays)).toBeLessThan(200);
 });
+
+test("filters odds board teams locally with fuzzy matching", async ({ page, worker }) => {
+  const slug = `team-filter-${crypto.randomUUID()}`;
+  let oddsRequests = 0;
+  await page.route("**/api/p/*/odds*", async (route) => {
+    if (new URL(route.request().url()).pathname !== `/api/p/${slug}/odds`) return route.continue();
+    oddsRequests++;
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(board()) });
+  });
+  await createPool(page, worker.baseURL, slug);
+  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
+  await expect(page.locator("tr.odds-game-top")).toHaveCount(80);
+  const filter = page.getByLabel("Filter teams");
+  await expect(filter).toBeVisible();
+  const loadedRequests = oddsRequests;
+
+  await filter.fill("Awy 12");
+  await expect(page.locator("tr.odds-game-top")).toHaveCount(1);
+  await expect(page.getByRole("rowheader", { name: /Away 12/ })).toBeVisible();
+  expect(oddsRequests).toBe(loadedRequests);
+
+  await filter.fill("zzzz");
+  await expect(page.getByText("No teams match this filter.")).toBeVisible();
+  await filter.fill("");
+  await expect(page.locator("tr.odds-game-top")).toHaveCount(80);
+  expect(oddsRequests).toBe(loadedRequests);
+});

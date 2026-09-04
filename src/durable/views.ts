@@ -12,8 +12,8 @@ export function redactRecursively(value: unknown): unknown {
 type LegRevealPolicy = "owner-or-started" | "started-only";
 
 /** Commissioner status is deliberately irrelevant: only a ticket owner sees an unstarted selection. */
-export function shapeWagers(sql: SqlStorage, viewerId: string, now = new Date(), ownerOnly = false, seasonId?: string): { wagers: unknown[] } {
-  return shapeWagersWithPolicy(sql, viewerId, now, ownerOnly, seasonId, "owner-or-started");
+export function shapeWagers(sql: SqlStorage, viewerId: string, now = new Date(), ownerOnly = false, seasonId?: string, exposeStartedTerms = false): { wagers: unknown[] } {
+  return shapeWagersWithPolicy(sql, viewerId, now, ownerOnly, seasonId, "owner-or-started", exposeStartedTerms);
 }
 
 /** Member exports keep owner financial fields but reveal every ticket's legs only as each leg starts. */
@@ -21,7 +21,7 @@ export function shapeAuditExportWagers(sql: SqlStorage, requesterId: string, now
   return shapeWagersWithPolicy(sql, requesterId, now, false, undefined, "started-only");
 }
 
-function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, ownerOnly: boolean, seasonId: string | undefined, legRevealPolicy: LegRevealPolicy): { wagers: unknown[] } {
+function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, ownerOnly: boolean, seasonId: string | undefined, legRevealPolicy: LegRevealPolicy, exposeStartedTerms = false): { wagers: unknown[] } {
   // This read powers My Wagers: unlike the member-visible activity ledger it never returns another member's ticket.
   const conditions = [ownerOnly ? "owner_id = ?" : undefined, seasonId ? "season_id = ?" : undefined].filter((condition): condition is string => Boolean(condition));
   const query = `SELECT wager.id, wager.season_id, wager.owner_id, member.display_name AS owner_display_name, wager.type, wager.risk_micros, wager.accepted_odds, wager.status, wager.ruleset_version, wager.confirmed_at, (SELECT MIN(event_starts_at) FROM wager_leg WHERE wager_id = wager.id) AS activity_week_start FROM wager JOIN member ON member.user_id = wager.owner_id${conditions.length ? ` WHERE ${conditions.join(" AND ")}` : ""} ORDER BY wager.confirmed_at, wager.rowid`;
@@ -32,14 +32,15 @@ function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, own
       .map((leg) => ({ eventId: String(leg.event_id), league: String(leg.league), canonicalBook: String(leg.canonical_book), retrievedAt: String(leg.retrieved_at), policyVersion: String(leg.policy_version), offerVersion: String(leg.offer_version), market: String(leg.market), selection: String(leg.selection), originalLine: leg.original_line === null ? undefined : String(leg.original_line), originalOdds: Number(leg.original_odds), teaserAdjustment: leg.teaser_adjustment === null ? undefined : String(leg.teaser_adjustment), adjustedLine: leg.adjusted_line === null ? undefined : String(leg.adjusted_line), eventStartsAt: String(leg.event_starts_at), ...(leg.home_team === null ? {} : { homeTeam: String(leg.home_team), awayTeam: String(leg.away_team) }), grade: leg.grade === null ? undefined : String(leg.grade), resultVersion: leg.result_version === null ? undefined : String(leg.result_version) }));
     const settlement = firstSettlement(sql, String(wager.id));
     const performanceMicros = settlement?.outcome === "won" ? settlement.profitMicros : settlement?.outcome === "lost" ? (-BigInt(String(wager.risk_micros))).toString() : "0";
-    return redactRecursively({ wagerId: String(wager.id), seasonId: String(wager.season_id), memberId: String(wager.owner_id), memberDisplayName: String(wager.owner_display_name), type: String(wager.type), status: String(wager.status), confirmedAt: String(wager.confirmed_at), weekStart: weekStartOf(new Date(String(wager.activity_week_start))).toISOString(), performanceMicros, ...(ownsTicket ? { riskMicros: String(wager.risk_micros), acceptedOdds: Number(wager.accepted_odds), rulesetVersion: String(wager.ruleset_version), ...(settlement ?? {}) } : {}), ...(revealed.length ? { legs: revealed } : {}) });
+    const termsAreVisible = ownsTicket || (exposeStartedTerms && (revealed.length > 0 || settlement !== undefined));
+    return redactRecursively({ wagerId: String(wager.id), seasonId: String(wager.season_id), memberId: String(wager.owner_id), memberDisplayName: String(wager.owner_display_name), type: String(wager.type), status: String(wager.status), confirmedAt: String(wager.confirmed_at), weekStart: weekStartOf(new Date(String(wager.activity_week_start))).toISOString(), performanceMicros, ...(termsAreVisible ? { riskMicros: String(wager.risk_micros), acceptedOdds: Number(wager.accepted_odds) } : {}), ...(ownsTicket ? { rulesetVersion: String(wager.ruleset_version), ...(settlement ?? {}) } : {}), ...(revealed.length ? { legs: revealed } : {}) });
   });
   return { wagers };
 }
 
 function firstSettlement(sql: SqlStorage, wagerId: string) {
-  const row = [...sql.exec<Row>("SELECT s.outcome, s.return_micros, s.profit_micros, s.created_at FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement reversal WHERE reversal.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wagerId)][0];
+  const row = [...sql.exec<Row>("SELECT s.outcome, s.return_micros, s.profit_micros, s.settled_odds, s.created_at FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement reversal WHERE reversal.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wagerId)][0];
   // Settlement rows keep the internal win/loss/refund vocabulary; member reads publish won/lost/refunded.
   const outcome = { win: "won", loss: "lost", refund: "refunded" }[String(row?.outcome)] as "won" | "lost" | "refunded";
-  return row ? { outcome, returnMicros: String(row.return_micros), profitMicros: String(row.profit_micros), settledAt: String(row.created_at) } : undefined;
+  return row ? { outcome, returnMicros: String(row.return_micros), profitMicros: String(row.profit_micros), settledOdds: row.settled_odds === null ? null : Number(row.settled_odds), settledAt: String(row.created_at) } : undefined;
 }

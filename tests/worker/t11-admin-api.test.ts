@@ -108,6 +108,25 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect((await app({ id: "stranger", name: "Stranger" }).fetch(request(`/api/p/${slug}/standings`, undefined, "GET"))).status).toBe(403);
   }, 120_000);
 
+  it("keeps legacy winning settlements without recorded odds available in export and history", async () => {
+    const poolId = `t11-legacy-settled-odds-${crypto.randomUUID()}`; const slug = "t11-legacy-settled-odds-pool";
+    await setupPool(poolId, slug);
+    await fund(poolId);
+    await placeWager(poolId, "member", "legacy-win");
+    await storage(poolId, (state) => state.storage.sql.exec(`
+      UPDATE wager SET status = 'won', settled_result_version = '[["legacy-win","legacy-final"]]' WHERE id = 'legacy-win';
+      INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, settled_odds, source_result_json, reversal_of, actor_id, reason, created_at) VALUES ('legacy-win-settlement', 'legacy-win', '[["legacy-win","legacy-final"]]', 'win', '2000000', '1000000', NULL, '[{"eventId":"legacy-win","league":"nfl","status":"final","homeScore":24,"awayScore":17,"correctionVersion":"legacy-final"}]', NULL, 'system', NULL, '2026-01-02T00:00:00.000Z');
+    `));
+    const member = app({ id: "member", name: "Member" });
+    const exported = await member.fetch(request(`/api/p/${slug}/export`, undefined, "GET"));
+    expect(exported.status).toBe(200);
+    expect((await exported.json() as any).settlements).toEqual([expect.objectContaining({ wagerId: "legacy-win", outcome: "win", settledOdds: null })]);
+    await command(poolId, { type: "CloseSeason", commandId: "close-legacy-win", actorId: "owner", seasonId: "s1", reason: "archived" });
+    const history = await member.fetch(request(`/api/p/${slug}/history/s1`, undefined, "GET"));
+    expect(history.status).toBe(200);
+    expect((await history.json() as any).settlements).toEqual([expect.objectContaining({ wagerId: "legacy-win", outcome: "win", settledOdds: null })]);
+  }, 120_000);
+
   it("carries a binding-valid same-game teaser through Worker quote, settlement, export, manual regrade, and provider correction", async () => {
     const poolId = `t11-same-game-${crypto.randomUUID()}`; const slug = "t11-same-game-pool";
     await setupPool(poolId, slug);
@@ -156,7 +175,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     const automatic = await authenticatedExport(member);
     expect(automatic).toMatchObject({
       accounts: expect.arrayContaining([{ seasonId: "s1", memberId: "member", availableMicros: "2833333", lockedMicros: "0", rowVersion: expect.any(String) }]),
-      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
+      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", settledOdds: -120, sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
       wagerCorrections: [], administrationAudit: [],
       wagers: [expect.objectContaining({ wagerId: "same-game-wager", status: "won", riskMicros: "1000000", acceptedOdds: -120, outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ eventId, market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ eventId, market: "total", grade: "win", resultVersion: "provider-1" })] })]
     });
@@ -273,15 +292,29 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     const poolId = `t11-settings-${crypto.randomUUID()}`; const slug = "t11-settings-pool";
     await setupPool(poolId, slug);
     expect((await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/admin/settings`, { poolName: "Nope", idempotencyKey: "member" })))).toMatchObject({ status: 403 });
+    expect((await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Forged", idempotencyKey: "member-notice" })))).toMatchObject({ status: 403 });
     const owner = app({ id: "owner", name: "Owner" });
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "  Draft starts at noon.  ", idempotencyKey: "notice" })))).toMatchObject({ status: 200 });
+    const noticedView = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
+    expect(noticedView.pool.commissionerNotice).toBe("Draft starts at noon.");
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Kickoff moved to one.", idempotencyKey: "replace-notice" })))).toMatchObject({ status: 200 });
+    expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerNotice).toBe("Kickoff moved to one.");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { poolName: "Renamed Pool", idempotencyKey: "rename" })))).toMatchObject({ status: 200 });
     const view = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
     expect(view.pool.name).toBe("Renamed Pool");
+    expect(view.pool.commissionerNotice).toBe("Kickoff moved to one.");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { maxSideBet: "900", idempotencyKey: "max-side-bet" })))).toMatchObject({ status: 200 });
     const updatedView = await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json() as any;
     expect(updatedView.pool.maxSideBetMicros).toBe("900000000");
+    expect(updatedView.pool.commissionerNotice).toBe("Kickoff moved to one.");
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { signupsOpen: false, idempotencyKey: "close-signups" })))).toMatchObject({ status: 200 });
     expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.signupsOpen).toBe(false);
+    for (const [commissionerNotice, idempotencyKey] of [["", "blank-notice"], ["   ", "whitespace-notice"], ["x".repeat(501), "overlong-notice"]] as const) {
+      expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice, idempotencyKey })))).toMatchObject({ status: 400 });
+    }
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Unexpected", idempotencyKey: "unknown-notice", unexpected: true })))).toMatchObject({ status: 400 });
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: null, idempotencyKey: "clear-notice" })))).toMatchObject({ status: 200 });
+    expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerNotice).toBeNull();
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate" })))).toMatchObject({ status: 403 });
     expect((await app({ id: "owner", name: "Owner" }, async () => true).fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate-recent" })))).toMatchObject({ status: 200 });
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { idempotencyKey: "empty" })))).toMatchObject({ status: 400 });

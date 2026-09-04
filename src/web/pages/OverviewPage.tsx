@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { divideRoundHalfEven, formatMicros, parseIntegerText } from "../../domain/fixed-point";
+import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
+import { formatCurrentShareValue } from "../share-value";
 
 const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
 
@@ -53,12 +54,12 @@ export function OverviewPage() {
   const commissioner = view.currentMember.role === "commissioner";
   const season = view.activeSeason ?? view.nextDraftSeason;
   const balance = view.currentMember.seasonBalances.find((item) => item.seasonId === season?.id) ?? { availableMicros: "0", lockedMicros: "0" };
-  const price = season && BigInt(season.floatMicros) !== 0n ? formatMicros(divideRoundHalfEven(parseIntegerText(season.notionalValueMicros) * 1000000n, parseIntegerText(season.floatMicros)), 4) : "1.0000";
+  const price = season && BigInt(season.floatMicros) !== 0n ? formatCurrentShareValue(season.floatMicros, season.notionalValueMicros) : "$1.000";
 
   return <Layout signedIn><h1>{view.pool.name}</h1>
     {season && <p className="pool-context">{view.pool.name} · {season.label} ({season.state})</p>}
     {commissioner && <nav className="pool-nav" aria-label="Commissioner navigation"><Link to={`/p/${slug}/admin/season`}>Season</Link><Link to={`/p/${slug}/admin/orders`}>Share orders</Link><Link to={`/p/${slug}/admin/members`}>Members</Link><Link to={`/p/${slug}/admin/corrections`}>Corrections</Link><Link to={`/p/${slug}/admin/settings`}>Settings</Link></nav>}
-    <table><caption>Current account</caption><tbody><tr><th scope="row">Available shares</th><td>{shares(balance.availableMicros)}</td></tr><tr><th scope="row">Locked shares</th><td>{shares(balance.lockedMicros)}</td></tr><tr><th scope="row">Season</th><td>{season ? `${season.label} (${season.state})` : "No active season"}</td></tr>{season && <><tr><th scope="row">Season float</th><td>{shares(season.floatMicros)} shares</td></tr><tr><th scope="row">Notional value</th><td>{shares(season.notionalValueMicros)}</td></tr><tr><th scope="row">Share price</th><td>{price} per share</td></tr></>}</tbody></table>
+    <section className="table-ribbon-section"><h2 className="table-ribbon">Current account</h2><table><tbody><tr><th scope="row">Available shares</th><td>{shares(balance.availableMicros)}</td></tr><tr><th scope="row">Locked shares</th><td>{shares(balance.lockedMicros)}</td></tr><tr><th scope="row">Season</th><td>{season ? `${season.label} (${season.state})` : "No active season"}</td></tr>{season && <><tr><th scope="row">Season float</th><td>{shares(season.floatMicros)} shares</td></tr><tr><th scope="row">Notional value</th><td>{shares(season.notionalValueMicros)}</td></tr><tr><th scope="row">Share price</th><td>{price} per share</td></tr></>}</tbody></table></section>
     <section className="pool-nickname" aria-labelledby="pool-nickname-heading"><h2 id="pool-nickname-heading">Pool nickname</h2><p>This name appears to the other members of this pool.</p><form onSubmit={(event) => void saveNickname(event)} aria-busy={nicknamePending}><label>Nickname <input value={nickname} maxLength={100} disabled={nicknamePending} onChange={(event) => setNickname(event.target.value)} /></label><button className="primary-action" disabled={nicknamePending}>{nicknamePending ? "Saving…" : "Save nickname"}</button></form>{nicknameNotice && <p role="status">{nicknameNotice}</p>}{nicknameError && <p role="alert" className="error-summary">{nicknameError}</p>}</section>
     {!season && <p>No active season. {commissioner ? <Link to={`/p/${slug}/admin/season`}>Create a season</Link> : "Wait for the commissioner to open one."}</p>}
     {view.nextDraftSeason && <p role="status">Draft {view.nextDraftSeason.label} is ready to configure and open.</p>}

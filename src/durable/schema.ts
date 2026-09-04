@@ -2,7 +2,7 @@ import { TEASER_RULESET_ID } from "../domain/teaser-table";
 
 /** PoolDO-local authority schema. Accounting amounts are canonical integer TEXT, never REAL. */
 export const poolSchema = [
-  `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', active_season_id TEXT, command_version TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500), active_season_id TEXT, command_version TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS member (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('commissioner','member')), status TEXT NOT NULL CHECK(status IN ('active','suspended')), joined_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS message_board_entry (id TEXT PRIMARY KEY, parent_post_id TEXT, author_id TEXT NOT NULL, text TEXT NOT NULL CHECK(length(trim(text)) BETWEEN 1 AND 1000), created_at TEXT NOT NULL, activity_at TEXT NOT NULL, is_announcement INTEGER NOT NULL DEFAULT 0 CHECK(is_announcement IN (0, 1)))`,
   `CREATE TABLE IF NOT EXISTS message_board_read (member_id TEXT PRIMARY KEY, last_read_at TEXT NOT NULL)`,
@@ -12,10 +12,10 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS share_account (season_id TEXT NOT NULL, member_id TEXT NOT NULL, available_micros TEXT NOT NULL, locked_micros TEXT NOT NULL, row_version TEXT NOT NULL, PRIMARY KEY(season_id, member_id))`,
   `CREATE TABLE IF NOT EXISTS share_order (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, member_id TEXT NOT NULL, actor_id TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('shares','value')), requested_micros TEXT NOT NULL, shares_micros TEXT NOT NULL, value_micros TEXT NOT NULL, price_micros TEXT NOT NULL, reversal_of TEXT, reason TEXT NOT NULL, command_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ledger_entry (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, member_id TEXT NOT NULL, actor_id TEXT NOT NULL, available_delta TEXT NOT NULL, locked_delta TEXT NOT NULL, float_delta TEXT NOT NULL, notional_delta TEXT NOT NULL, causation_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS wager (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, owner_id TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('straight','teaser')), risk_micros TEXT NOT NULL, accepted_odds INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','won','lost','refunded')), ruleset_version TEXT NOT NULL, settled_result_version TEXT, confirmed_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS wager (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, owner_id TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('straight','teaser','parlay')), risk_micros TEXT NOT NULL, accepted_odds INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','won','lost','refunded')), ruleset_version TEXT NOT NULL, settled_result_version TEXT, confirmed_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS wager_leg (id TEXT PRIMARY KEY, wager_id TEXT NOT NULL, event_id TEXT NOT NULL, league TEXT NOT NULL, canonical_book TEXT NOT NULL, retrieved_at TEXT NOT NULL, policy_version TEXT NOT NULL, offer_version TEXT NOT NULL, canonical_offer_id TEXT, canonical_proof_json TEXT, market TEXT NOT NULL, selection TEXT NOT NULL, original_line TEXT, original_odds INTEGER NOT NULL, teaser_adjustment TEXT, adjusted_line TEXT, event_starts_at TEXT NOT NULL, is_super_bowl INTEGER NOT NULL DEFAULT 0, grade TEXT, result_version TEXT)`,
   `CREATE TABLE IF NOT EXISTS wager_leg_snapshot (wager_leg_id TEXT PRIMARY KEY, home_team TEXT NOT NULL, away_team TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS settlement (id TEXT PRIMARY KEY, wager_id TEXT NOT NULL, result_version TEXT NOT NULL, outcome TEXT NOT NULL, return_micros TEXT NOT NULL, profit_micros TEXT NOT NULL, source_result_json TEXT NOT NULL, reversal_of TEXT, actor_id TEXT NOT NULL DEFAULT 'system', reason TEXT, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS settlement (id TEXT PRIMARY KEY, wager_id TEXT NOT NULL, result_version TEXT NOT NULL, outcome TEXT NOT NULL, return_micros TEXT NOT NULL, profit_micros TEXT NOT NULL, settled_odds INTEGER, source_result_json TEXT NOT NULL, reversal_of TEXT, actor_id TEXT NOT NULL DEFAULT 'system', reason TEXT, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS wager_correction (id TEXT PRIMARY KEY, wager_id TEXT NOT NULL, actor_id TEXT NOT NULL, reason TEXT NOT NULL, source_result_json TEXT NOT NULL, replacement_result_json TEXT NOT NULL, command_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS administration_audit (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, action TEXT NOT NULL, subject_id TEXT NOT NULL, reason TEXT NOT NULL, command_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
   /** One durable polling lifecycle per referenced event: normal polls never exhaust; provider failures use bounded backoff before coverage resumes. */
@@ -35,6 +35,19 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS wager_quote (actor_id TEXT NOT NULL, quote_key TEXT NOT NULL, fingerprint TEXT NOT NULL, wager_id TEXT NOT NULL, kind TEXT NOT NULL, terms_json TEXT NOT NULL, command_version TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(actor_id, quote_key))`
 ] as const;
 
+/** Rebuilds only the legacy wager CHECK and adds effective settlement odds. Caller owns the transaction. */
+export const migratePoolStorage = (sql: SqlStorage): void => {
+  const wagerDdl = [...sql.exec<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wager'")][0]?.sql ?? "";
+  if (wagerDdl && !wagerDdl.includes("'parlay'")) {
+    sql.exec("CREATE TABLE wager_parlay_migration (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, owner_id TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('straight','teaser','parlay')), risk_micros TEXT NOT NULL, accepted_odds INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','won','lost','refunded')), ruleset_version TEXT NOT NULL, settled_result_version TEXT, confirmed_at TEXT NOT NULL)");
+    sql.exec("INSERT INTO wager_parlay_migration (rowid,id,season_id,owner_id,type,risk_micros,accepted_odds,status,ruleset_version,settled_result_version,confirmed_at) SELECT rowid,id,season_id,owner_id,type,risk_micros,accepted_odds,status,ruleset_version,settled_result_version,confirmed_at FROM wager ORDER BY rowid");
+    sql.exec("DROP TABLE wager");
+    sql.exec("ALTER TABLE wager_parlay_migration RENAME TO wager");
+  }
+  const settlementColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(settlement)")];
+  if (settlementColumns.length && !settlementColumns.some((column) => column.name === "settled_odds")) sql.exec("ALTER TABLE settlement ADD COLUMN settled_odds INTEGER");
+};
+
 /** Idempotently upgrades existing PoolDO SQLite files without depending on wall-clock time. */
 export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
   const columns = [...sql.exec<{ name: string }>("PRAGMA table_info(season)")];
@@ -47,6 +60,7 @@ export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
   const poolColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")];
   if (!poolColumns.some((column) => column.name === "max_side_bet_micros")) sql.exec("ALTER TABLE pool ADD COLUMN max_side_bet_micros TEXT NOT NULL DEFAULT '800000000'");
   sql.exec("UPDATE pool SET max_side_bet_micros = '800000000' WHERE max_side_bet_micros IS NULL OR max_side_bet_micros = ''");
+  if (!poolColumns.some((column) => column.name === "commissioner_notice")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500)");
   const boardColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(message_board_entry)")];
   if (!boardColumns.some((column) => column.name === "is_announcement")) sql.exec("ALTER TABLE message_board_entry ADD COLUMN is_announcement INTEGER NOT NULL DEFAULT 0");
   sql.exec("UPDATE message_board_entry SET is_announcement = 0 WHERE is_announcement IS NULL");

@@ -18,7 +18,7 @@ A pool has exactly one commissioner. The commissioner remains a normal betting m
 
 ## Product Purpose
 
-Office Pool Reborn is a private football competition in which members wager virtual shares on real NFL and college-football lines. It recreates the appeal of OfficeFootballPool's former True Share format while adding straight moneylines and fixed-rule teasers.
+Office Pool Reborn is a private football competition in which members wager virtual shares on real NFL and college-football lines. It recreates the appeal of OfficeFootballPool's former True Share format while adding straight moneylines, fixed-rule teasers, and versioned-rule parlays.
 
 The product succeeds when a private group can create and join a reusable pool, run a complete season without spreadsheet bookkeeping, understand the changing value of its shares, place and settle wagers fairly, and review an auditable history afterward.
 
@@ -28,7 +28,7 @@ Unlike a pick'em pool, each member manages a virtual share position against a pa
 
 ## Operating Context
 
-Members check a shared odds board throughout football season, place whole-share straight wagers or teasers before kickoff, and follow standings and revealed selections as games begin. NFL and NCAA football coexist in one season and may be mixed in a teaser. The season can run from a commissioner-selected opening through the Super Bowl.
+Members check a shared odds board throughout football season, place whole-share straight wagers, parlays, or teasers before kickoff, and follow standings and revealed selections as games begin. NFL and NCAA football coexist in one season and may be mixed in a parlay or teaser. The season can run from a commissioner-selected opening through the Super Bowl.
 
 Pool membership is private. A pool URL admits existing members directly and gives nonmembers a password join flow only while the commissioner has signups open. Members join with zero shares and cannot wager until the commissioner issues shares.
 
@@ -40,10 +40,11 @@ Pool membership is private. A pool URL admits existing members directly and give
 - The commissioner opens a season. It closes after the Super Bowl is final and all wagers settle, or earlier if every outstanding share is lost.
 - Members begin with zero shares. Only the commissioner issues shares, using a virtual-dollar or share-quantity order at the current share price. A season may define a default initial-order amount for commissioner convenience, but joining never issues it automatically.
 - Straight wager markets are sides, totals, and moneylines. Sides and totals pay even money; moneylines use the accepted American price.
-- Teasers support 6, 6.5, 7, 7.5, and 10 points under one fixed, versioned system-wide ruleset. Teasers may mix NFL/NCAA sides and totals; moneylines are ineligible.
+- Parlays support 2–6 NFL/NCAA spread, total, and moneyline legs under `PARLAY_2026_V1`. A game may contribute one spread or moneyline and one total; the paired total uses the published same-game adjustment. Pushes and voids remove a leg and reprice surviving legs from their accepted snapshots.
+- Teasers support 6, 6.5, 7, 7.5, and 10 points under one fixed, versioned system-wide ruleset. Newly quoted or placed teasers have 2–6 legs; 10-point teasers require exactly three legs. Historical seven-leg tickets retain their accepted terms for replay, settlement, and regrade. Teasers may mix NFL/NCAA sides and totals; moneylines are ineligible.
 - Wager stakes are whole shares with a minimum of one. Fractional winnings and order remainders remain in balances and float but are not independently wagerable.
 - Accepted lines and prices are immutable snapshots. Confirmed wagers cannot be canceled by a member. Administrative voids and regrades are reversing audit events, never edits or deletions.
-- Unstarted selections are hidden from every human, including the commissioner. A teaser reveals each leg only when that leg starts.
+- Unstarted selections are hidden from every human, including the commissioner. A teaser or parlay reveals each leg only when that leg starts.
 - Pool data, standings, orders, and revealed selections are visible only to authenticated pool members.
 - One system-wide canonical odds-source policy applies to every pool. The first provider is a documented odds API behind an adapter; undocumented public endpoints are not a launch dependency.
 
@@ -64,7 +65,7 @@ The historical OfficeFootballPool site is a behavioral and era reference, not a 
 
 1. **Accounting must explain itself.** Every share and price change traces to an immutable order or wager event.
 2. **No privileged picks.** Administrative power never reveals a member's unstarted selection.
-3. **Accepted terms stay accepted.** A locked line, moneyline, or teaser ruleset never changes after confirmation.
+3. **Accepted terms stay accepted.** A locked line, moneyline, teaser ruleset, or parlay ruleset never changes after confirmation.
 4. **Private-group simplicity.** Joining, funding, betting, and following standings should remain understandable without sportsbook expertise.
 5. **Period character, current reliability.** The interface may look like 2007, but security, accessibility, responsiveness, testing, and operational behavior must be contemporary.
 
