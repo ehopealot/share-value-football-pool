@@ -12,7 +12,7 @@ The React application is served as Worker assets. `src/web/api.ts` owns typed br
 
 ## Odds and settlement
 
-Odds ingestion writes normalized events and offers to D1. The current board includes only scheduled events that have not started. Wager quotes are rechecked against D1 immediately before Durable Object placement. Pool alarms poll provider result versions and settle immutable ticket snapshots; browser routes cannot invoke settlement.
+Odds ingestion writes normalized events and offers to D1. The current board includes only scheduled events that have not started. Wager quotes are rechecked against D1 immediately before Durable Object placement. Terminal events are refreshed in D1 at five minutes, two hours, and 24 hours after first finalization. Pool alarms settle immutable ticket snapshots on the first terminal observation, then reconcile retained results at 15 minutes, two hours, and 24 hours before completing the event lifecycle; browser routes cannot invoke settlement.
 
 ## Share accounting
 

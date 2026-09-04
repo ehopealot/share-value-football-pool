@@ -23,7 +23,7 @@ export function pollInterval(event: ProviderEvent, now: Date): number {
   return 5 * MINUTE;
 }
 export function finalReconciliationDue(finalizedAt: Date, lastPollAt: Date | undefined, now: Date): boolean {
-  return [5 * MINUTE, 24 * HOUR].some((delay) => { const target = new Date(finalizedAt.getTime() + delay); return target <= now && (!lastPollAt || lastPollAt < target); });
+  return [5 * MINUTE, 2 * HOUR, 24 * HOUR].some((delay) => { const target = new Date(finalizedAt.getTime() + delay); return target <= now && (!lastPollAt || lastPollAt < target); });
 }
 export function shouldPollEvent(event: ProviderEvent, lastPollAt: Date | undefined, now: Date, quotaBackoffMs = 0, finalizedAt?: Date): boolean {
   if (terminal(event.status ?? "scheduled") && finalizedAt) {

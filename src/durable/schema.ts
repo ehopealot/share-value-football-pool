@@ -1,5 +1,7 @@
 import { TEASER_RULESET_ID } from "../domain/teaser-table";
 
+const eventReconciliationSchema = (table: string) => `CREATE TABLE IF NOT EXISTS ${table} (event_id TEXT PRIMARY KEY, event_starts_at TEXT NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('open','final_15','final_2h','final_24','complete')), attempts INTEGER NOT NULL DEFAULT 0, error_attempts INTEGER NOT NULL DEFAULT 0, deadline_at TEXT, next_attempt_at TEXT, final_observed_at TEXT, last_error TEXT)`;
+
 /** PoolDO-local authority schema. Accounting amounts are canonical integer TEXT, never REAL. */
 export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500), active_season_id TEXT, command_version TEXT NOT NULL)`,
@@ -19,7 +21,7 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS wager_correction (id TEXT PRIMARY KEY, wager_id TEXT NOT NULL, actor_id TEXT NOT NULL, reason TEXT NOT NULL, source_result_json TEXT NOT NULL, replacement_result_json TEXT NOT NULL, command_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS administration_audit (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, action TEXT NOT NULL, subject_id TEXT NOT NULL, reason TEXT NOT NULL, command_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
   /** One durable polling lifecycle per referenced event: normal polls never exhaust; provider failures use bounded backoff before coverage resumes. */
-  `CREATE TABLE IF NOT EXISTS event_reconciliation (event_id TEXT PRIMARY KEY, event_starts_at TEXT NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('open','final_15','final_24','complete')), attempts INTEGER NOT NULL DEFAULT 0, error_attempts INTEGER NOT NULL DEFAULT 0, deadline_at TEXT, next_attempt_at TEXT, final_observed_at TEXT, last_error TEXT)`,
+  eventReconciliationSchema("event_reconciliation"),
   `CREATE TABLE IF NOT EXISTS event_result_snapshot (event_id TEXT PRIMARY KEY, result_json TEXT NOT NULL, correction_version TEXT NOT NULL, observed_at TEXT NOT NULL)`,
   /** Frozen provider evidence actually applied to one season. Rows are append-only and ordered within that season. */
   `CREATE TABLE IF NOT EXISTS season_provider_result (season_id TEXT NOT NULL, event_id TEXT NOT NULL, league TEXT NOT NULL, correction_version TEXT NOT NULL, result_json TEXT NOT NULL, observed_at TEXT NOT NULL, append_order INTEGER NOT NULL, PRIMARY KEY(season_id, event_id, league, correction_version), UNIQUE(season_id, append_order))`,
@@ -35,8 +37,23 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS wager_quote (actor_id TEXT NOT NULL, quote_key TEXT NOT NULL, fingerprint TEXT NOT NULL, wager_id TEXT NOT NULL, kind TEXT NOT NULL, terms_json TEXT NOT NULL, command_version TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(actor_id, quote_key))`
 ] as const;
 
-/** Rebuilds only the legacy wager CHECK and adds effective settlement odds. Caller owns the transaction. */
+/** Rebuilds legacy CHECK constraints and adds effective settlement odds. Caller owns the transaction. */
 export const migratePoolStorage = (sql: SqlStorage): void => {
+  const reconciliationDdl = [...sql.exec<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'event_reconciliation'")][0]?.sql ?? "";
+  if (reconciliationDdl && !reconciliationDdl.includes("'final_2h'")) {
+    sql.exec("DROP TABLE IF EXISTS event_reconciliation_final_2h_migration");
+    sql.exec(eventReconciliationSchema("event_reconciliation_final_2h_migration"));
+    sql.exec(`INSERT INTO event_reconciliation_final_2h_migration (rowid,event_id,event_starts_at,phase,attempts,error_attempts,deadline_at,next_attempt_at,final_observed_at,last_error)
+      SELECT rowid,event_id,event_starts_at,
+        CASE phase WHEN 'final_24' THEN 'final_2h' ELSE phase END,
+        attempts,error_attempts,
+        CASE WHEN phase = 'final_24' THEN COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ', final_observed_at, '+2 hours'), deadline_at) ELSE deadline_at END,
+        CASE WHEN phase = 'final_24' THEN COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ', final_observed_at, '+2 hours'), next_attempt_at) ELSE next_attempt_at END,
+        final_observed_at,last_error
+      FROM event_reconciliation ORDER BY rowid`);
+    sql.exec("DROP TABLE event_reconciliation");
+    sql.exec("ALTER TABLE event_reconciliation_final_2h_migration RENAME TO event_reconciliation");
+  }
   const wagerDdl = [...sql.exec<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wager'")][0]?.sql ?? "";
   if (wagerDdl && !wagerDdl.includes("'parlay'")) {
     sql.exec("CREATE TABLE wager_parlay_migration (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, owner_id TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('straight','teaser','parlay')), risk_micros TEXT NOT NULL, accepted_odds INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','won','lost','refunded')), ruleset_version TEXT NOT NULL, settled_result_version TEXT, confirmed_at TEXT NOT NULL)");

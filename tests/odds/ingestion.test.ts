@@ -363,7 +363,10 @@ describe("odds ingestion", () => {
     const finalized = new Date("2026-09-09T00:00:00.000Z");
     expect(finalReconciliationDue(finalized, undefined, new Date("2026-09-09T00:04:00.000Z"))).toBe(false);
     expect(finalReconciliationDue(finalized, undefined, new Date("2026-09-09T00:05:00.000Z"))).toBe(true);
-    expect(finalReconciliationDue(finalized, new Date("2026-09-09T00:06:00.000Z"), new Date("2026-09-10T00:00:00.000Z"))).toBe(true);
+    expect(finalReconciliationDue(finalized, new Date("2026-09-09T00:06:00.000Z"), new Date("2026-09-09T01:59:00.000Z"))).toBe(false);
+    expect(finalReconciliationDue(finalized, new Date("2026-09-09T00:06:00.000Z"), new Date("2026-09-09T02:00:00.000Z"))).toBe(true);
+    expect(finalReconciliationDue(finalized, new Date("2026-09-09T02:01:00.000Z"), new Date("2026-09-09T23:59:00.000Z"))).toBe(false);
+    expect(finalReconciliationDue(finalized, new Date("2026-09-09T02:01:00.000Z"), new Date("2026-09-10T00:00:00.000Z"))).toBe(true);
   });
 
   it("uses a fixed 30-minute stale boundary for upcoming offers", () => {
@@ -381,7 +384,7 @@ describe("odds ingestion", () => {
     await expect(quotes.current(distant, "spread", new Date(at.getTime() + 30 * 60 * 1000 + 1))).resolves.toBeNull();
   });
 
-  it("runs terminal reconciliation at five minutes and 24 hours when discovery is not due", async () => {
+  it("runs terminal reconciliation at five minutes, two hours, and 24 hours when discovery is not due", async () => {
     const at = new Date("2026-09-09T00:00:00.000Z");
     const terminalEvent = event({ status: "final", homeScore: 21, awayScore: 17 });
     const provider = new Provider([terminalEvent]);
@@ -394,6 +397,16 @@ describe("odds ingestion", () => {
     provider.calls.length = 0;
     await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 6 * 60 * 1000) }).poll();
     expect(provider.calls).toEqual([]);
+
+    await db.prepare("UPDATE odds_league_poll SET last_discovery_at = ?").bind(new Date(at.getTime() + 118 * 60 * 1000).toISOString()).run();
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 119 * 60 * 1000) }).poll();
+    expect(provider.calls).toEqual([]);
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 2 * 60 * 60 * 1000) }).poll();
+    expect(provider.calls).toEqual(["nfl"]);
+    provider.calls.length = 0;
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 2 * 60 * 60 * 1000 + 60 * 1000) }).poll();
+    expect(provider.calls).toEqual([]);
+
     await db.prepare("UPDATE odds_league_poll SET last_discovery_at = ?").bind(new Date(at.getTime() + 24 * 60 * 60 * 1000 - 60 * 1000).toISOString()).run();
     await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 24 * 60 * 60 * 1000) }).poll();
     expect(provider.calls).toEqual(["nfl"]);

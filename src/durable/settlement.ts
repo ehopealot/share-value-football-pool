@@ -93,7 +93,7 @@ export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], o
     const version = JSON.stringify(source.map((result) => [result.eventId, result.correctionVersion]));
     // Provider observation identity lives on each immutable leg. A manual
     // settlement has its own effective identity and must not make an unchanged
-    // final_15/final_24 observation look new.
+    // final_15/final_2h/final_24 observation look new.
     const observedLegs = legs.filter((leg) => byEvent.has(resultKey(String(leg.event_id), String(leg.league))));
     if (observedLegs.every((leg) => String(leg.result_version ?? "") === byEvent.get(resultKey(String(leg.event_id), String(leg.league)))!.correctionVersion)) continue;
     const grades = gradesFor(legs, byEvent);

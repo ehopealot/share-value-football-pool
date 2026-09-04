@@ -23,7 +23,7 @@ Use `npm run build:local` only for a local Wrangler dry-run build. It does not p
 
 A started event is intentionally excluded from the current odds board. If local manual fixtures have expired, reseed them or use the local controls to finalize the intended fixture; do not modify production provider data to repair a local test state.
 
-Durable Object alarms retry settlement. Repeated service delivery is safe because commands and result versions are idempotent. Use the authorized audit export to inspect immutable accounting evidence before any commissioner correction. Correct an order only with a reversing order and correct a graded wager only with the constrained void/regrade flow.
+Durable Object alarms retry settlement. A terminal provider event is refreshed into D1 at five minutes, two hours, and 24 hours after first finalization; each PoolDO settles its first terminal snapshot immediately and checks for corrections at 15 minutes, two hours, and 24 hours. Existing PoolDOs migrate old post-15-minute lifecycle rows to the two-hour checkpoint and move a later registered alarm forward on their next activation. Repeated service delivery is safe because commands and result versions are idempotent. Use the authorized audit export to inspect immutable accounting evidence before any commissioner correction. Correct an order only with a reversing order and correct a graded wager only with the constrained void/regrade flow.
 
 ## Provider limits
 

@@ -61,7 +61,7 @@ async function fundedPool(slug = `wagers-${crypto.randomUUID()}`) {
 const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 const leg = (eventId: string, eventStartsAt = future()) => ({ eventId, league: "nfl" as const, canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "offer-v1", canonicalOfferProof: { offerId: `${eventId}:spread:home`, eventId, offerVersion: "offer-v1", canonicalBook: "DraftKings", market: "spread" as const, selection: "home" as const, odds: -110, line: -3 }, market: "spread" as const, selection: "home" as const, originalLine: -3, adjustedLine: -3, originalOdds: -110, eventStartsAt, homeTeam: "Home", awayTeam: "Away" });
 const parlayLeg = (eventId: string, market: "spread" | "total" = "spread", line = market === "spread" ? -3 : 40, selection: "home" | "over" = market === "spread" ? "home" : "over") => ({ ...leg(eventId), market, selection, originalLine: line, adjustedLine: line, canonicalOfferProof: { ...leg(eventId).canonicalOfferProof, offerId: `${eventId}:${market}:${selection}`, market, selection, line } });
-const reconciliation = (slug: string, eventId: string) => storage(slug, (state) => [...state.storage.sql.exec("SELECT phase, attempts, error_attempts, deadline_at, next_attempt_at, last_error FROM event_reconciliation WHERE event_id = ?", eventId)][0]);
+const reconciliation = (slug: string, eventId: string) => storage(slug, (state) => [...state.storage.sql.exec("SELECT phase, attempts, error_attempts, deadline_at, next_attempt_at, final_observed_at, last_error FROM event_reconciliation WHERE event_id = ?", eventId)][0]);
 const final = (eventId: string, correctionVersion = "1", homeScore = 24, awayScore = 17): FinalResultVersion => ({ eventId, league: "nfl", status: "final", homeScore, awayScore, correctionVersion });
 const correctionEvidence = (eventId: string, correctionVersion: string, homeScore = 24, awayScore = 17, status: FinalResultVersion["status"] = "final"): FinalResultVersion => ({ eventId, league: "nfl", status, homeScore: status === "final" ? homeScore : null, awayScore: status === "final" ? awayScore : null, correctionVersion });
 
@@ -680,7 +680,11 @@ describe("PoolDO wagers and settlement", () => {
       season: [...state.storage.sql.exec("SELECT state FROM season WHERE id = 's1'")][0],
       snapshot: [...state.storage.sql.exec("SELECT correction_version FROM event_result_snapshot WHERE event_id = 'super-event'")][0],
       lifecycle: [...state.storage.sql.exec("SELECT phase FROM event_reconciliation WHERE event_id = 'super-event'")][0]
-    }))).toEqual({ season: { state: "active" }, snapshot: { correction_version: "2" }, lifecycle: { phase: "final_24" } });
+    }))).toEqual({ season: { state: "active" }, snapshot: { correction_version: "2" }, lifecycle: { phase: "final_2h" } });
+
+    const twoHourAt = new Date(String((await reconciliation(slug, "super-event")).next_attempt_at)).getTime();
+    await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, twoHourAt));
+    expect(await reconciliation(slug, "super-event")).toMatchObject({ phase: "final_24", next_attempt_at: expect.any(String) });
 
     expect(await send(slug, { type: "VoidWager", commandId: "void-ordinary", actorId: "owner", wagerId: "ordinary", reason: "Official cancellation" })).toMatchObject({ commandVersion: expect.any(String) });
     expect(await storage(slug, (state) => ({ season: [...state.storage.sql.exec("SELECT state, close_reason FROM season WHERE id = 's1'")][0], closures: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM outbox WHERE event_type = 'SeasonClosed'")][0] }))).toEqual({ season: { state: "closed", close_reason: "super_bowl_final" }, closures: { count: 1 } });
@@ -691,6 +695,50 @@ describe("PoolDO wagers and settlement", () => {
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, final24At));
     expect(await reconciliation(slug, "super-event")).toMatchObject({ phase: "complete", next_attempt_at: null });
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM outbox WHERE event_type = 'SeasonClosed'")][0])).toEqual({ count: 1 });
+  }, 90_000);
+
+  it("waits for each scheduled D1 refresh before advancing or completing a final lifecycle", async () => {
+    const slug = await fundedPool();
+    const eventId = "refresh-ordered-final";
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await send(slug, { type: "PlaceStraightWager", commandId: "refresh-order-place", actorId: "member", wagerId: "refresh-order-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg(eventId, startsAt) });
+    await bindings.DB.prepare("INSERT OR REPLACE INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, home_score, away_score, correction_version, finalized_at, last_polled_at) VALUES (?, ?, 'nfl', 'Home', 'Away', ?, 'final', '24', '17', '1', ?, ?)").bind(`id-${slug}`, eventId, startsAt, startsAt, startsAt).run();
+    const stub = bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug));
+    const pollAt = (current: number) => runInDurableObject(stub, async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, current));
+
+    await pollAt(new Date(startsAt).getTime());
+    let row = await reconciliation(slug, eventId);
+    expect(row).toMatchObject({ phase: "final_15" });
+
+    let checkpoint = new Date(String(row.next_attempt_at)).getTime();
+    await pollAt(checkpoint);
+    row = await reconciliation(slug, eventId);
+    expect(row).toMatchObject({ phase: "final_15", last_error: "RESULT_REFRESH_PENDING", next_attempt_at: new Date(checkpoint + 2 * 60 * 1000).toISOString() });
+    await bindings.DB.prepare("UPDATE sports_event SET home_score='10', away_score='17', correction_version='2', last_polled_at=? WHERE provider_event_id=?").bind(new Date(new Date(startsAt).getTime() + 5 * 60 * 1000).toISOString(), eventId).run();
+    await pollAt(new Date(String(row.next_attempt_at)).getTime());
+    row = await reconciliation(slug, eventId);
+    expect(row).toMatchObject({ phase: "final_2h", last_error: null });
+
+    checkpoint = new Date(String(row.next_attempt_at)).getTime();
+    await pollAt(checkpoint);
+    row = await reconciliation(slug, eventId);
+    expect(row).toMatchObject({ phase: "final_2h", last_error: "RESULT_REFRESH_PENDING", next_attempt_at: new Date(checkpoint + 2 * 60 * 1000).toISOString() });
+    await bindings.DB.prepare("UPDATE sports_event SET home_score='24', away_score='17', correction_version='3', last_polled_at=? WHERE provider_event_id=?").bind(new Date(new Date(startsAt).getTime() + 2 * 60 * 60 * 1000).toISOString(), eventId).run();
+    await pollAt(new Date(String(row.next_attempt_at)).getTime());
+    row = await reconciliation(slug, eventId);
+    expect(row).toMatchObject({ phase: "final_24", last_error: null });
+
+    checkpoint = new Date(String(row.next_attempt_at)).getTime();
+    await pollAt(checkpoint);
+    row = await reconciliation(slug, eventId);
+    expect(row).toMatchObject({ phase: "final_24", last_error: "RESULT_REFRESH_PENDING", next_attempt_at: new Date(checkpoint + 2 * 60 * 1000).toISOString() });
+    await bindings.DB.prepare("UPDATE sports_event SET home_score='10', away_score='17', correction_version='4', last_polled_at=? WHERE provider_event_id=?").bind(new Date(new Date(startsAt).getTime() + 24 * 60 * 60 * 1000).toISOString(), eventId).run();
+    await pollAt(new Date(String(row.next_attempt_at)).getTime());
+    expect(await storage(slug, (state) => ({
+      lifecycle: [...state.storage.sql.exec("SELECT phase,next_attempt_at,last_error FROM event_reconciliation WHERE event_id=?", eventId)][0],
+      snapshot: [...state.storage.sql.exec("SELECT correction_version FROM event_result_snapshot WHERE event_id=?", eventId)][0],
+      wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='refresh-order-wager'")][0]
+    }))).toEqual({ lifecycle: { phase: "complete", next_attempt_at: null, last_error: null }, snapshot: { correction_version: "4" }, wager: { status: "lost" } });
   }, 90_000);
 
   it("keeps scoreless finals pending and durably reconciles two later corrections", async () => {
@@ -704,14 +752,22 @@ describe("PoolDO wagers and settlement", () => {
     await bindings.DB.prepare("UPDATE sports_event SET home_score = '24', away_score = '17', correction_version = '1' WHERE provider_event_id = 'event-final'").run();
     dueAt = new Date(String((await reconciliation(slug, "event-final")).next_attempt_at)).getTime();
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, dueAt));
-    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id = 'w1'")][0], reconciliation: [...state.storage.sql.exec("SELECT phase, deadline_at FROM event_reconciliation WHERE event_id = 'event-final'")][0] }))).toMatchObject({ wager: { status: "won" }, reconciliation: { phase: "final_15" } });
+    const finalObservedAt = dueAt;
+    expect(await reconciliation(slug, "event-final")).toMatchObject({ phase: "final_15", final_observed_at: new Date(finalObservedAt).toISOString(), deadline_at: new Date(finalObservedAt + 15 * 60 * 1000).toISOString(), next_attempt_at: new Date(finalObservedAt + 15 * 60 * 1000).toISOString() });
+
     await bindings.DB.prepare("UPDATE sports_event SET home_score = '10', away_score = '17', correction_version = '2' WHERE provider_event_id = 'event-final'").run();
     dueAt = new Date(String((await reconciliation(slug, "event-final")).next_attempt_at)).getTime();
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, dueAt));
+    expect(await reconciliation(slug, "event-final")).toMatchObject({ phase: "final_2h", deadline_at: new Date(finalObservedAt + 2 * 60 * 60 * 1000).toISOString(), next_attempt_at: new Date(finalObservedAt + 2 * 60 * 60 * 1000).toISOString() });
+
     await bindings.DB.prepare("UPDATE sports_event SET home_score = '24', away_score = '17', correction_version = '3' WHERE provider_event_id = 'event-final'").run();
     dueAt = new Date(String((await reconciliation(slug, "event-final")).next_attempt_at)).getTime();
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, dueAt));
-    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id = 'w1'")][0], settlements: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement WHERE wager_id = 'w1'")][0], account: [...state.storage.sql.exec("SELECT available_micros, locked_micros FROM share_account WHERE season_id = 's1' AND member_id = 'member'")][0], reconciliation: [...state.storage.sql.exec("SELECT phase FROM event_reconciliation WHERE event_id = 'event-final'")][0] }))).toEqual({ wager: { status: "won" }, settlements: { count: 5 }, account: { available_micros: "4000000", locked_micros: "0" }, reconciliation: { phase: "complete" } });
+    expect(await reconciliation(slug, "event-final")).toMatchObject({ phase: "final_24", deadline_at: new Date(finalObservedAt + 24 * 60 * 60 * 1000).toISOString(), next_attempt_at: new Date(finalObservedAt + 24 * 60 * 60 * 1000).toISOString() });
+
+    dueAt = new Date(String((await reconciliation(slug, "event-final")).next_attempt_at)).getTime();
+    await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, undefined, dueAt));
+    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id = 'w1'")][0], settlements: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement WHERE wager_id = 'w1'")][0], account: [...state.storage.sql.exec("SELECT available_micros, locked_micros FROM share_account WHERE season_id = 's1' AND member_id = 'member'")][0], reconciliation: [...state.storage.sql.exec("SELECT phase, next_attempt_at FROM event_reconciliation WHERE event_id = 'event-final'")][0] }))).toEqual({ wager: { status: "won" }, settlements: { count: 5 }, account: { available_micros: "4000000", locked_micros: "0" }, reconciliation: { phase: "complete", next_attempt_at: null } });
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT event_id, correction_version, append_order FROM season_provider_result WHERE season_id = 's1' ORDER BY append_order")])).toEqual([
       { event_id: "event-final", correction_version: "1", append_order: 1 },
       { event_id: "event-final", correction_version: "2", append_order: 2 },

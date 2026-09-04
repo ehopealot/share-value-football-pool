@@ -7,7 +7,7 @@ import type { TeaserLeg } from "../domain/types";
 import { OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
 import { placeWager } from "./wager-commands";
-import { runSettlementAlarm } from "./alarm";
+import { nextSettlementAlarm, runSettlementAlarm } from "./alarm";
 import { correctWager, voidWager } from "./settlement";
 import { enqueueOutbox, drainOutbox, nextOutboxAttempt, type PoolOutboxMessage } from "./outbox";
 import { shapeWagers } from "./views";
@@ -65,6 +65,11 @@ export class PoolDO {
     this.state.storage.transactionSync(() => {
       migrateSeasonCreatedAt(this.state.storage.sql);
       migratePoolStorage(this.state.storage.sql);
+    });
+    const persistedDeadline = nextSettlementAlarm(this.state.storage.sql);
+    if (persistedDeadline !== null) void this.state.blockConcurrencyWhile(async () => {
+      const currentAlarm = await this.state.storage.getAlarm();
+      if (currentAlarm === null || persistedDeadline < currentAlarm) await this.state.storage.setAlarm(persistedDeadline);
     });
   }
 

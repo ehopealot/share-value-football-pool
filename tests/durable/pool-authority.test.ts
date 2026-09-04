@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PoolCommand } from "../../src/durable/pool-commands";
 import { migrateSeasonCreatedAt } from "../../src/durable/schema";
@@ -55,6 +55,40 @@ describe("PoolDO authority", () => {
       expect(() => state.storage.sql.exec("INSERT INTO wager VALUES ('bad-type','s1','owner','unknown','1000000',100,'open','x',NULL,'2026-01-01T00:00:00.000Z')")).toThrow();
       expect(() => state.storage.sql.exec("INSERT INTO wager VALUES ('bad-status','s1','owner','straight','1000000',100,'pending','x',NULL,'2026-01-01T00:00:00.000Z')")).toThrow();
     })).resolves.toBeUndefined();
+  }, 90_000);
+
+  it("migrates legacy final reconciliation to two hours and re-arms its alarm on activation", async () => {
+    const slug = `final-reconciliation-migration-${crypto.randomUUID()}`;
+    await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Final reconciliation migration", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
+    const stub = pools.get(pools.idFromName(slug));
+    const observedAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
+    const twoHourDeadline = new Date(observedAt.getTime() + 2 * 60 * 60 * 1000).toISOString();
+    const oldDeadline = new Date(observedAt.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("DROP TABLE event_reconciliation");
+      sql.exec("CREATE TABLE event_reconciliation (event_id TEXT PRIMARY KEY, event_starts_at TEXT NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('open','final_15','final_24','complete')), attempts INTEGER NOT NULL DEFAULT 0, error_attempts INTEGER NOT NULL DEFAULT 0, deadline_at TEXT, next_attempt_at TEXT, final_observed_at TEXT, last_error TEXT)");
+      sql.exec("INSERT INTO event_reconciliation (rowid,event_id,event_starts_at,phase,attempts,error_attempts,deadline_at,next_attempt_at,final_observed_at,last_error) VALUES (17,'legacy-final','2026-01-01T00:00:00.000Z','final_24',4,1,?,?,?,'provider retry')", oldDeadline, oldDeadline, observedAt.toISOString());
+      await state.storage.setAlarm(new Date(oldDeadline).getTime());
+    });
+
+    await evictDurableObject(stub);
+    expect((await send(slug, { type: "ReadPoolView", commandId: "activate-once", actorId: "owner" })).status).toBe(200);
+    const snapshot = () => runInDurableObject(stub, async (_instance, state) => ({
+      rows: [...state.storage.sql.exec("SELECT rowid,* FROM event_reconciliation ORDER BY rowid")],
+      ddl: [...state.storage.sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_reconciliation'")][0]!.sql,
+      alarm: await state.storage.getAlarm()
+    }));
+    const first = await snapshot();
+    expect(first.rows).toEqual([{ rowid: 17, event_id: "legacy-final", event_starts_at: "2026-01-01T00:00:00.000Z", phase: "final_2h", attempts: 4, error_attempts: 1, deadline_at: twoHourDeadline, next_attempt_at: twoHourDeadline, final_observed_at: observedAt.toISOString(), last_error: "provider retry" }]);
+    expect(first.ddl).toContain("'final_2h'");
+    expect(first.ddl).toContain("'final_24'");
+    expect(first.alarm).toBe(new Date(twoHourDeadline).getTime());
+
+    await evictDurableObject(stub);
+    expect((await send(slug, { type: "ReadPoolView", commandId: "activate-twice", actorId: "owner" })).status).toBe(200);
+    expect(await snapshot()).toEqual(first);
   }, 90_000);
 
   it("repairs historical created_at values deterministically across legacy and current schemas", async () => {
