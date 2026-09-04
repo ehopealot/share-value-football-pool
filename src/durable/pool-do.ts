@@ -271,8 +271,9 @@ export class PoolDO {
       if (!quote) throw new Error("LINE_CHANGED");
       const kind = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";
       if (quote.kind !== kind || String(quote.wager_id) !== command.wagerId) throw new Error("LINE_CHANGED");
-      if (command.quotedCommandVersion !== String(quote.command_version) || command.quotedCommandVersion !== String(pool.command_version)) throw new Error("ORDER_QUOTE_STALE");
+      if (command.quotedCommandVersion !== String(quote.command_version)) throw new Error("ORDER_QUOTE_STALE");
       if (canonical(placementTerms(command)) !== String(quote.terms_json)) throw new Error("LINE_CHANGED");
+      // Exact immutable terms can be atomically rebased onto current pool state; placeWager rechecks every mutable constraint.
       const result = placeWager(sql, command);
       return { ...result, commandVersion: this.bumpVersion(sql) };
     }

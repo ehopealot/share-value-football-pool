@@ -206,7 +206,24 @@ describe("PoolDO wagers and settlement", () => {
     expect((await send(mixedSlug, { type: "PlaceParlayWager", commandId: "mixed-parlay", actorId: "member", wagerId: "mixed-parlay", seasonId: "s1", riskMicros: "4000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [leg("mixed-side"), leg("mixed-other")] })).code).toBe("SIDE_BET_LIMIT");
   }, 30_000);
 
-  it("rejects altered, version-stale, and malformed placements without any durable mutation", async () => {
+  it("places identical straight, teaser, and parlay quotes after the pool command version advances", async () => {
+    const cases = [
+      { name: "straight", command: { type: "PlaceStraightWager", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("rebased-straight") } },
+      { name: "teaser", command: { type: "PlaceTeaserWager", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("rebased-teaser-one"), adjustedLine: 3 }, { ...leg("rebased-teaser-two"), adjustedLine: 3 }] } },
+      { name: "parlay", command: { type: "PlaceParlayWager", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("rebased-parlay", "spread", -3, "home"), parlayLeg("rebased-parlay", "total", 40, "over")] } }
+    ];
+    for (const testCase of cases) {
+      const slug = await fundedPool(`rebase-${testCase.name}-${crypto.randomUUID()}`);
+      const command = { ...testCase.command, commandId: `${testCase.name}-place`, actorId: "member", wagerId: `${testCase.name}-wager`, seasonId: "s1", riskMicros: "1000000" };
+      const quoteKey = `${testCase.name}-quote`;
+      const quote = await quoteWager(slug, command, quoteKey);
+      const advanced = await direct(slug, { type: "UpdatePoolSettings", commandId: `${testCase.name}-advance`, actorId: "owner", poolName: `Wagers after ${testCase.name} quote` });
+      expect(BigInt(String(advanced.commandVersion))).toBeGreaterThan(BigInt(String(quote.commandVersion)));
+      expect(await direct(slug, placementFromQuote(command, quoteKey, quote))).toMatchObject({ wagerId: command.wagerId, commandVersion: expect.any(String) });
+    }
+  }, 30_000);
+
+  it("rejects altered, forged-version, and malformed placements without any durable mutation", async () => {
     const slug = await fundedPool();
     const snapshot = () => storage(slug, (state) => Object.fromEntries([
       "wager_quote", "share_account", "wager", "wager_leg", "wager_leg_snapshot", "event_reconciliation", "ledger_entry", "outbox", "processed_command", "pool"
@@ -220,13 +237,12 @@ describe("PoolDO wagers and settlement", () => {
     expect(await snapshot()).toEqual(beforeAltered);
     expect(JSON.parse(String((await snapshot()).processed_command))).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "matrix-altered-mutation" })]));
 
-    const staleQuote = await quoteWager(slug, { ...command, wagerId: "matrix-stale-wager" }, "matrix-stale-quote");
-    await direct(slug, { type: "UpdatePoolSettings", commandId: "matrix-version-advance", actorId: "owner", poolName: "Wagers after quote", signupsOpen: true });
-    const stale = placementFromQuote({ ...command, wagerId: "matrix-stale-wager" }, "matrix-stale-quote", staleQuote, "matrix-stale-mutation");
-    const beforeStale = await snapshot();
-    expect((await direct(slug, stale)).code).toBe("ORDER_QUOTE_STALE");
-    expect(await snapshot()).toEqual(beforeStale);
-    expect(JSON.parse(String((await snapshot()).processed_command))).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "matrix-stale-mutation" })]));
+    const versionQuote = await quoteWager(slug, { ...command, wagerId: "matrix-version-wager" }, "matrix-version-quote");
+    const forgedVersion = { ...placementFromQuote({ ...command, wagerId: "matrix-version-wager" }, "matrix-version-quote", versionQuote, "matrix-version-mutation"), quotedCommandVersion: (BigInt(String(versionQuote.commandVersion)) + 1n).toString() };
+    const beforeVersion = await snapshot();
+    expect((await direct(slug, forgedVersion)).code).toBe("ORDER_QUOTE_STALE");
+    expect(await snapshot()).toEqual(beforeVersion);
+    expect(JSON.parse(String((await snapshot()).processed_command))).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "matrix-version-mutation" })]));
 
     const malformedQuote = await quoteWager(slug, { ...command, wagerId: "matrix-malformed-wager" }, "matrix-malformed-quote");
     const malformed = { ...placementFromQuote({ ...command, wagerId: "matrix-malformed-wager" }, "matrix-malformed-quote", malformedQuote, "matrix-malformed-mutation"), riskMicros: "01" };

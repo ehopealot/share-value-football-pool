@@ -368,7 +368,7 @@ Implementation follows test-driven development.
 ### 14.2 Durable Object integration tests
 
 - Concurrent wager attempts cannot overspend.
-- Concurrent order/wager quote versions force reconfirmation.
+- Concurrent order quote versions force reconfirmation; wager quotes with identical terms rebase onto current pool state.
 - Idempotent placement and settlement retries mint/burn exactly once.
 - Regrade reverses precisely.
 - Commissioner permissions and transfer uniqueness.
