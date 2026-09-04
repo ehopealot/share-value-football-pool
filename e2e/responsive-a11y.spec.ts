@@ -54,7 +54,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
     [`/p/${pool.slug}/overview`, pool.name],
     [`/p/${pool.slug}/odds`, "Odds board"],
     [`/p/${pool.slug}/teaser`, "Teaser builder"],
-    [`/p/${pool.slug}/my-wagers`, "My wagers"],
+    [`/p/${pool.slug}/my-wagers`, "Open bets"],
     [`/p/${pool.slug}/standings`, "Standings"],
     [`/p/${pool.slug}/activity`, "Activity"],
     [`/p/${pool.slug}/rules`, "Pool rules"],
