@@ -28,7 +28,7 @@ describe("Activity member ribbons", () => {
     expect(html).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th>');
     expect(html).not.toContain('<th>Member</th>');
     expect(styles).toMatch(/\.activity-table\s*\{[^}]*table-layout:\s*fixed/);
-    expect(styles).toMatch(/\.activity-start-column\s*\{[^}]*width:\s*8rem/);
+    expect(styles).toMatch(/\.activity-start-column\s*\{[^}]*width:\s*7rem/);
     expect(styles).toMatch(/\.activity-wager-column\s*\{[^}]*width:\s*52%/);
     expect(styles).toMatch(/\.activity-staked-column\s*\{[^}]*width:\s*16%/);
     expect(styles).toMatch(/\.activity-pnl-column\s*\{[^}]*width:\s*12%/);
