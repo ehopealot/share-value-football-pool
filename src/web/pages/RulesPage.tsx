@@ -13,16 +13,16 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
   const supported = selectedRuleset === TEASER_RULESET_ID;
   return <>
     <h1>Pool rules</h1>
-    <section aria-labelledby="season-rules-heading">
-      <h2 id="season-rules-heading">Applicable season</h2>
+    <section className="table-ribbon-section" aria-labelledby="season-rules-heading">
+      <h2 className="table-ribbon" id="season-rules-heading">Applicable season</h2>
       {season
         ? <table><tbody><tr><th scope="row">Season</th><td>{season.label}</td></tr><tr><th scope="row">State</th><td>{season.state}</td></tr><tr><th scope="row">Ruleset</th><td>{selectedRuleset}</td></tr></tbody></table>
         : <p className="state-notice">No active or closed season is available. The fixed system rules are shown below.</p>}
       {!supported && <p role="alert" className="error-summary">Unsupported ruleset: {selectedRuleset}. No matching immutable rules table is available.</p>}
     </section>
-    {supported && <section aria-labelledby="teaser-rules-heading">
-      <h2 id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>
-      <div className="table-scroll" tabIndex={0}><table><caption>Fixed system teaser prices (American odds)</caption><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell === 7 ? "7 (legacy only)" : cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
+    {supported && <section className="table-ribbon-section" aria-labelledby="teaser-rules-heading">
+      <h2 className="table-ribbon" id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>
+      <div className="table-scroll" tabIndex={0}><table><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell === 7 ? "7 (legacy only)" : cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
       <p>Regular teasers allow 2–6 legs. New teaser tickets are capped at six legs. 10-point teasers require exactly 3 legs. Moneylines are ineligible. NFL and NCAA sides and totals may be mixed.</p>
       <p>The seven-leg row applies only to previously accepted legacy tickets.</p>
       <p>A teaser settles as soon as any final leg loses. Wins and refunds wait until all legs are final; pushed or void legs are then removed and the remaining valid leg count is repriced from this table. If every leg pushes or voids, or too few winning legs remain, the risk is refunded.</p>
@@ -36,8 +36,8 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
     <section aria-labelledby="source-policy-heading">
       <h2 id="source-policy-heading">Odds sources</h2>
       <p>DraftKings, then FanDuel, then BetMGM, then Caesars. The service uses the first source supplying a complete market; members cannot select a provider and the service does not selection-shop.</p>
-      <h3>Feed status</h3>
-      <table><tbody><tr><th scope="row">State</th><td>{board.feed.status}</td></tr><tr><th scope="row">Detail</th><td>{board.feed.message}</td></tr><tr><th scope="row">Last polled</th><td>{board.feed.lastPolledAt ?? "No provider poll recorded"}</td></tr><tr><th scope="row">Last successful poll</th><td>{board.feed.lastSuccessAt ?? "No successful provider poll recorded"}</td></tr></tbody></table>
+      <section className="table-ribbon-section"><h3 className="table-ribbon">Feed status</h3>
+      <table><tbody><tr><th scope="row">State</th><td>{board.feed.status}</td></tr><tr><th scope="row">Detail</th><td>{board.feed.message}</td></tr><tr><th scope="row">Last polled</th><td>{board.feed.lastPolledAt ?? "No provider poll recorded"}</td></tr><tr><th scope="row">Last successful poll</th><td>{board.feed.lastSuccessAt ?? "No successful provider poll recorded"}</td></tr></tbody></table></section>
     </section>
     <p><Link to={`/p/${slug}/overview`}>Pool home</Link></p>
   </>;
