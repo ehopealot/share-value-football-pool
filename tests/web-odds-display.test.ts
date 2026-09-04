@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds } from "../src/web/odds-format";
-import { oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails } from "../src/web/pages/OddsPage";
+import { OddsBoardTable, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
+const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
 
 describe("member-facing odds display", () => {
   it("always prefixes a positive American price with +", () => {
@@ -33,6 +36,23 @@ describe("member-facing odds display", () => {
     expect(selectionTrayDisplayLabel({ market: "spread", selection: "away" } as any, { offer: { ...offer, market: "spread" }, outcome: { name: "Away", point: 3, price: -110 } })).toBe("Away at Home: Away +3");
     expect(selectionTrayDisplayLabel({ market: "total", selection: "over" } as any, { offer: { ...offer, market: "total" }, outcome: { name: "Over", point: 44.5, price: -110 } })).toBe("Away at Home: Over 44.5");
     expect(selectionTrayDisplayLabel({ market: "moneyline", selection: "home" } as any, { offer: { ...offer, market: "moneyline" }, outcome: { name: "Home", price: 125 } })).toBe("Away at Home: Home +125");
+  });
+
+  it("separates bold odds-board team names with a normal-weight at", () => {
+    const markup = renderToStaticMarkup(createElement(OddsBoardTable, {
+      games: [{ eventId: "game", startsAt: "2030-09-01T12:00:00.000Z", awayTeam: "Away", homeTeam: "Home", markets: { spread: {}, total: {}, moneyline: {} } }],
+      currentWeek: "2030-09-01T04:00:00.000Z",
+      selectedPickIds: [],
+      onToggle: () => undefined
+    }));
+
+    expect(markup).toContain('<strong>Away</strong><span class="odds-matchup-at"> at </span><strong>Home</strong>');
+    expect(styles).toMatch(/\.odds-matchup-at\s*\{[^}]*font-weight:\s*400/);
+  });
+
+  it("keeps the two odds-board sub-rows equal beneath row-spanning matchup cells", () => {
+    expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.8rem/);
+    expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.2rem/);
   });
 
   it("keeps the odds table memoized while only a bet amount changes", () => {
