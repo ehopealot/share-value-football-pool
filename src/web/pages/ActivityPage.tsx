@@ -9,13 +9,15 @@ import { displayWagerStartTimes } from "../wager-presentation";
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
 
+function WagerLine({ leg }: { leg: Leg }) {
+  const line = formatActivityLeg(leg);
+  const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";
+  return <span className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
+}
+
 export function WagerLines({ wager }: { wager: Wager }) {
   if (!wager.legs?.length) return <>Selection hidden until the game starts.</>;
-  return <div className="activity-wager-lines">{wager.legs.map((leg) => {
-    const line = formatActivityLeg(leg);
-    const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";
-    return <span key={`${leg.eventId}:${leg.market}:${leg.selection}`} className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
-  })}</div>;
+  return <div className="activity-wager-lines">{wager.legs.map((leg) => <WagerLine key={`${leg.eventId}:${leg.market}:${leg.selection}`} leg={leg}/>)}</div>;
 }
 
 function Staked({ wager }: { wager: Wager }) {
@@ -23,13 +25,17 @@ function Staked({ wager }: { wager: Wager }) {
   return stake ? <span className="activity-staked">{stake.amount}{stake.odds && <> <small className="activity-staked-odds">{stake.odds}</small></>}</span> : null;
 }
 
-function WagerStartTimes({ wager }: { wager: Wager }) {
-  return <div className="activity-wager-lines wager-start-times">{displayWagerStartTimes(wager).map((start, index) => <span className="wager-start-time" key={index}>{start}</span>)}</div>;
+function WagerRows({ wager }: { wager: Wager }) {
+  const legs = wager.legs ?? [];
+  const starts = displayWagerStartTimes(wager);
+  const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < legs.length - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
+  if (!legs.length) return <tr><td></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;
+  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span></td><td><WagerLine leg={leg}/></td>{index === 0 && <><td rowSpan={legs.length}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}</>;
 }
 
 export function MemberActivitySection({ member }: { member: ReturnType<typeof groupActivityMembersForWeek>[number] }) {
   const performance = formatActivityPerformance(member.performanceMicros);
-  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}{performance && <small>{performance}</small>}</h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{member.wagers.map((wager) => <tr key={wager.wagerId}><td><WagerStartTimes wager={wager}/></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>)}</tbody></table></div></section>;
+  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}{performance && <small>{performance}</small>}</h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{member.wagers.map((wager) => <WagerRows key={wager.wagerId} wager={wager}/>)}</tbody></table></div></section>;
 }
 
 export function ActivityPage() {

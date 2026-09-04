@@ -439,16 +439,16 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(hiddenCommissioner).toBe(hiddenViewer);
     expect(teaserFrom(hiddenViewer).legs).toBeUndefined();
     for (const protectedText of [...forbiddenFutureFields, "local-nfl-upcoming", "local-nfl-super-bowl", "Local Home", "Local Away", "T11 Super Home", "T11 Super Away", "riskMicros"]) expect(hiddenViewer).not.toContain(protectedText);
-    const teaserRow = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: ticketOwnerName }).locator(".activity-table tbody tr");
-    const teaserPAndL = (actor: Page) => teaserRow(actor).locator("td").last();
+    const teaserRows = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: ticketOwnerName }).locator(".activity-table tbody tr");
+    const teaserPAndL = (actor: Page) => teaserRows(actor).locator("td").last();
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRow(viewer)).toContainText("Selection hidden until the game starts.");
+    await expect(teaserRows(viewer)).toContainText("Selection hidden until the game starts.");
     await expect(teaserPAndL(viewer)).toHaveText("");
-    await expect(teaserRow(viewer)).not.toContainText(commissionerName);
+    await expect(teaserRows(viewer)).not.toContainText(commissionerName);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRow(page)).toContainText("Selection hidden until the game starts.");
+    await expect(teaserRows(page)).toContainText("Selection hidden until the game starts.");
     await ticketOwner.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRow(ticketOwner)).toHaveCount(1);
+    await expect(teaserRows(ticketOwner)).toHaveCount(2);
 
     // Between accepted starts, only the first leg exists in each nonowner response. No second-event
     // identity, team, line, market, selection, or hidden/future count leaks through JSON or the UI.
@@ -463,12 +463,12 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(firstViewer).toContain('"riskMicros":"1000000"');
     expect(firstViewer).toContain('"acceptedOdds":');
     await viewer.reload();
-    const firstRendered = teaserRow(viewer);
+    const firstRendered = teaserRows(viewer);
     await expect(firstRendered).toContainText("Local Away (+9) at Local Home");
     await expect(firstRendered.locator("strong")).toHaveText("Local Away (+9)");
-    await expect(teaserRow(viewer)).not.toContainText(secondLeg.eventId);
+    await expect(teaserRows(viewer)).not.toContainText(secondLeg.eventId);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRow(page)).toContainText("Local Away (+9) at Local Home");
+    await expect(teaserRows(page)).toContainText("Local Away (+9) at Local Home");
 
     // Crossing only the second accepted start reveals the complete immutable ticket to both nonowners.
     expect(await controlStatus(page, "/__local-test/current-time", { poolSlug: slug, currentTime: new Date(new Date(secondLeg.eventStartsAt).getTime() + 1_000).toISOString() })).toBe(200);
@@ -479,10 +479,9 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(bothLegs).toHaveLength(2);
     expect(bothLegs.map((leg) => `${leg.eventId}:${leg.market}:${leg.selection}:${leg.originalLine}:${leg.adjustedLine}`).sort()).toEqual(["local-nfl-super-bowl:spread:away:4:10", "local-nfl-upcoming:spread:away:3:9"]);
     await viewer.reload();
-    await expect(teaserRow(viewer)).toContainText("Local Away (+9) at Local Home");
-    await expect(teaserRow(viewer)).toContainText("T11 Super Away (+10) at T11 Super Home");
+    await expect(teaserRows(viewer)).toContainText(["Local Away (+9) at Local Home", "T11 Super Away (+10) at T11 Super Home"]);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRow(page)).toHaveCount(1);
+    await expect(teaserRows(page)).toHaveCount(2);
   } finally { await ticketOwnerContext.close(); await viewerContext.close(); }
 });
 

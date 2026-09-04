@@ -32,19 +32,20 @@ describe("Activity member ribbons", () => {
     expect(styles).toMatch(/\.activity-wager-column\s*\{[^}]*width:\s*52%/);
     expect(styles).toMatch(/\.activity-staked-column\s*\{[^}]*width:\s*16%/);
     expect(styles).toMatch(/\.activity-pnl-column\s*\{[^}]*width:\s*12%/);
-    expect(styles).toMatch(/\.activity-member-section \.activity-wager-lines > span\s*\{[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/);
+    expect(styles).toContain('.activity-table .activity-leg-loss, .activity-table .activity-leg-win, .activity-table .activity-leg-neutral { display: block; white-space: normal; overflow-wrap: anywhere; }');
     expect(styles).toContain('@media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } .activity-wager-column { width: 50%; } .activity-pnl-column { width: 14%; } }');
     expect(html).toContain("UCLA");
   });
 
-  it("keeps multi-leg matchups in one table row while showing a kickoff for each leg", () => {
+  it("keeps multi-leg matchups visually grouped while aligning each kickoff", () => {
     const multiLegMember = { ...member, wagers: [{ ...member.wagers[0], type: "parlay", legs: [...member.wagers[0].legs, { ...member.wagers[0].legs[0], eventId: "game-2", awayTeam: "Oregon", homeTeam: "Washington", eventStartsAt: "2026-09-07T20:00:00.000Z" }] }] };
     const html = render(createElement(MemberActivitySection, { member: multiLegMember as any }));
 
-    expect(html.match(/<tr/g)).toHaveLength(2);
-    expect(html).not.toContain("activity-wager-leg-row");
-    expect(html).toContain('<td><div class="activity-wager-lines wager-start-times">');
+    expect(html.match(/<tr/g)).toHaveLength(3);
+    expect(html).toContain('<tr class="activity-wager-leg-row">');
     expect(html.match(/class="wager-start-time"/g)).toHaveLength(2);
-    expect(styles).toContain('.activity-member-section .wager-start-times > .wager-start-time { white-space: nowrap; overflow-wrap: normal; }');
+    expect(html).toContain('<td rowSpan="2"><span class="activity-staked">');
+    expect(styles).toContain('.activity-table .activity-wager-leg-row > td { border-top: 0; padding-top: 0; }');
+    expect(styles).toContain('.activity-wager-leg-row-leading > td:not([rowspan]) { border-bottom: 0; padding-bottom: 0; }');
   });
 });

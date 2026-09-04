@@ -20,12 +20,10 @@ describe("My wagers page", () => {
     expect(source).not.toContain('activitySelectedOutcomeClass(wager)');
     expect(source).not.toContain('activityLegTimingClass(leg)');
     expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
-    expect(source).toContain('function WagerStartTimes({ wager }: { wager: Wager })');
     expect(source).toContain('className="wager-start-time"');
-    expect(source).toContain('return <tr><td><WagerStartTimes wager={wager}/></td><td><WagerLines wager={wager}/></td>');
-    expect(source).not.toContain('rowSpan={legs.length}');
-    expect(source).not.toContain('activity-wager-leg-row');
-    expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
+    expect(source).toContain('rowSpan={legs.length}');
+    expect(source).toContain('activity-wager-leg-row-leading');
+    expect(source).toContain('<td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td>');
   });
 
   it("uses a My Bets page title while section names appear only in their ribbons", () => {
@@ -36,7 +34,7 @@ describe("My wagers page", () => {
 
   it("keeps My Bets kickoffs aligned with their wager lines", () => {
     expect(styles).toContain('.wager-start-time { display: block; white-space: nowrap; }');
-    expect(styles).toContain('.wager-legs > span { display: block; white-space: nowrap; }');
+    expect(styles).toContain('.my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-neutral { white-space: nowrap; }');
     expect(styles).toContain('.activity-start-column { width: 7rem; }');
     expect(styles).not.toContain('.my-wagers-page .activity-start-column');
     expect(styles).toContain('.my-wagers-page .activity-wager-column { width: 52%; }');
