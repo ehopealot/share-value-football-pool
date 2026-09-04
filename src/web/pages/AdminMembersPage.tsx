@@ -21,10 +21,10 @@ export function AdminMembersPage() {
     catch (e) { setError(errorMessage(e)); }
   };
   return <Layout signedIn><h1>Member administration</h1>{error && <p role="alert" className="error-summary">{error}</p>}
-    <table><caption>Active and suspended members</caption><tbody>{view.members.map((member) => {
+    <section className="table-ribbon-section"><h2 className="table-ribbon">Active and suspended members</h2><table><tbody>{view.members.map((member) => {
       const statusAction = member.status === "active" ? "suspend" : "restore";
       return <tr key={member.memberId}><th scope="row">{member.displayName}</th><td>{member.role}</td><td>{member.status}</td><td>{member.memberId !== view.currentMember.memberId && <button disabled={memberCommand.pending} onClick={() => void command(`${statusAction}:${member.memberId}`, `/admin/members/${member.memberId}/${statusAction}`, () => ({ idempotencyKey: crypto.randomUUID() }))}>{statusAction === "suspend" ? "Suspend" : "Restore"}</button>}</td><td>{member.role !== "commissioner" && member.status === "active" && <button disabled={memberCommand.pending} onClick={() => void command(`transfer:${member.memberId}`, "/admin/transfer", () => ({ memberId: member.memberId, reason: "Commissioner transfer", idempotencyKey: crypto.randomUUID() }))}>Make commissioner</button>}</td></tr>;
-    })}</tbody></table>
+    })}</tbody></table></section>
     <p>Changing commissioners requires a recent sign-in.</p><Link to={`/p/${slug}/overview`}>Pool home</Link>
   </Layout>;
 }

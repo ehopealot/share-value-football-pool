@@ -139,8 +139,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 /* Activity groups each member's week under one ribbon and compact wager table. */
 .main-content:has(.activity-page) { max-width: none; }
 .activity-page > section > label { margin: 0 0 var(--space-1); }
-.activity-member-section { margin: var(--space-2) 0 var(--space-3); }
-.activity-member-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }
+.table-ribbon-section, .activity-member-section { margin: var(--space-2) 0 var(--space-3); }
+.table-ribbon, .activity-member-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }
+.table-ribbon-section > table, .table-ribbon-section > .table-scroll > table { margin: 0 0 var(--space-2); }
 .activity-member-ribbon small { display: block; font-size: 0.85rem; }
 .activity-member-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
 .activity-start-column { width: 16%; }

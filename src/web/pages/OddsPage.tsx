@@ -30,7 +30,7 @@ const samePickIds = (left: string[], right: string[]) => left.length === right.l
 export const oddsBoardTablePropsAreEqual = (previous: OddsBoardTableProps, next: OddsBoardTableProps) => previous.games === next.games && previous.currentWeek === next.currentWeek && previous.selectionDisabled === next.selectionDisabled && previous.onToggle === next.onToggle && samePickIds(previous.selectedPickIds, next.selectedPickIds);
 export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek, selectedPickIds, selectionDisabled = false, onToggle }: OddsBoardTableProps) {
   const selected = new Set(selectedPickIds);
-  return <div className="table-scroll" tabIndex={0}><table className="odds-board"><caption>Current odds</caption><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
+  return <section className="table-ribbon-section"><h2 className="table-ribbon">Current odds</h2><div className="table-scroll" tabIndex={0}><table className="odds-board"><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
     const top: Array<MarketCell | undefined> = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away];
     const bottom: Array<MarketCell | undefined> = [game.markets.spread.home, game.markets.total.under, game.markets.moneyline.home];
     const cell = (option: MarketCell | undefined, index: number) => {
@@ -41,7 +41,7 @@ export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek,
     };
     const kickoff = formatKickoff(game.startsAt);
     return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><strong className="odds-matchup-team">{displayTeamName(game.league, game.awayTeam)}</strong><span className="odds-matchup-at">at</span><strong className="odds-matchup-team">{displayTeamName(game.league, game.homeTeam)}</strong><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
-  })}</tbody></table></div>;
+  })}</tbody></table></div></section>;
 }, oddsBoardTablePropsAreEqual);
 /** Compact board grouping: a two-row game block — away/Over on top, home/Under underneath, one market per column. */
 export function groupBoardByEvent(offers: any[]): GameRow[] {
