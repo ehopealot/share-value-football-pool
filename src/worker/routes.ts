@@ -173,14 +173,17 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!parsed.success || !slug || !postId) return jsonError(c, "INVALID_REQUEST");
     const raw = await router.send(slug, { type: "ReplyToMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, postId, text: parsed.data.text });
     const reply = internalMessageBoardReplyResponse.safeParse(raw);
-    const legacyReplay = legacyMessageBoardReplyReplayResponse.safeParse(raw);
-    if (!reply.success && !legacyReplay.success) throw new z.ZodError([]);
-    const result = MessageBoardMutationResponse.parse({ commandVersion: reply.success ? reply.data.commandVersion : legacyReplay.data.commandVersion });
-    if (reply.success && !reply.data.replayed && reply.data.postAuthorId !== user.id && dependencies.poolJoinNotifier?.notifyMessageBoardReply) {
-      const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}`, c.req.url).toString();
-      c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, postId, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+    if (reply.success) {
+      const result = MessageBoardMutationResponse.parse({ commandVersion: reply.data.commandVersion });
+      if (!reply.data.replayed && reply.data.postAuthorId !== user.id && dependencies.poolJoinNotifier?.notifyMessageBoardReply) {
+        const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}`, c.req.url).toString();
+        c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, postId, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+      }
+      return c.json(result);
     }
-    return c.json(result);
+    const legacyReplay = legacyMessageBoardReplyReplayResponse.safeParse(raw);
+    if (!legacyReplay.success) throw new z.ZodError([]);
+    return c.json(MessageBoardMutationResponse.parse({ commandVersion: legacyReplay.data.commandVersion }));
   }));
 
   /** D1 supplies only canonical public offers; the prior PoolDO member read above is the access boundary. */

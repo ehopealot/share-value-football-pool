@@ -212,7 +212,7 @@ describe("later wager and member HTTP API", () => {
     const postId = String((await post.json() as { postId: string }).postId);
     let release!: () => void;
     const deferred = new Promise<void>((resolve) => { release = resolve; });
-    const notifyMessageBoardReply = vi.fn(async () => await deferred);
+    const notifyMessageBoardReply = vi.fn(async (_message: { to: string; poolName: string; replierName: string; text: string; boardUrl: string; idempotencyKey: string }) => await deferred);
     const notifier = { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => {}, notifyMessageBoardReply };
     const memberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolJoinNotifier: notifier });
     const pending: Promise<unknown>[] = [];

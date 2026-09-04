@@ -115,7 +115,7 @@ export class PoolDO {
       const response = JSON.parse(String(previous.response_json)) as Record<string, unknown>;
       // External notifications need to distinguish newly committed actions from idempotent replays.
       if (command.type === "CreateMessageBoardPost") return { ...response, ...(typeof response.postId === "string" ? {} : { isAnnouncement: false }), replayed: true } as unknown as PoolCommandResult;
-      if (command.type === "ReplyToMessageBoardPost") return { ...response, replayed: true } as PoolCommandResult;
+      if (command.type === "ReplyToMessageBoardPost") return { ...response, replayed: true } as unknown as PoolCommandResult;
       return (command.type === "JoinPool" || command.type === "ExecuteShareOrder" ? { ...response, replayed: true } : response) as PoolCommandResult;
     }
 
