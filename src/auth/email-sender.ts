@@ -9,6 +9,7 @@ export interface PoolJoinNotifier {
   notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>;
   notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>;
   notifyCommissionerAnnouncement(message: { to: string; poolName: string; authorName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
+  notifyMessageBoardReply(message: { to: string; poolName: string; replierName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
 }
 
 const resendEndpoint = "https://api.resend.com/emails";
@@ -68,6 +69,13 @@ export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions):
         subject: `Commissioner announcement — ${message.poolName}`,
         text: `${message.authorName} posted a commissioner announcement in ${message.poolName}:\n\n${message.text}\n\nView announcement: ${message.boardUrl}`,
         html: `<p><strong>${escapeHtmlAttribute(message.authorName)}</strong> posted a commissioner announcement in <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p><p>${escapeHtmlAttribute(message.text)}</p><p><a href="${escapeHtmlAttribute(message.boardUrl)}">View announcement</a></p>`
+      }, message.idempotencyKey);
+    },
+    async notifyMessageBoardReply(message) {
+      await sendResend(options, message.to, {
+        subject: `New reply in ${message.poolName}`,
+        text: `${message.replierName} replied to your post in ${message.poolName}:\n\n${message.text}\n\nView reply: ${message.boardUrl}`,
+        html: `<p><strong>${escapeHtmlAttribute(message.replierName)}</strong> replied to your post in <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p><p>${escapeHtmlAttribute(message.text)}</p><p><a href="${escapeHtmlAttribute(message.boardUrl)}">View reply</a></p>`
       }, message.idempotencyKey);
     },
     async notifyShareOrderFulfilled(message) {

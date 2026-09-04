@@ -4,7 +4,7 @@ import type { EmailSender } from "../../src/auth/email-sender";
 
 type ResendSenderFactory = (options: { apiKey: string; from: string; fetcher?: typeof fetch }) => EmailSender;
 const createResendEmailSender = (emailSenderModule as unknown as { createResendEmailSender?: ResendSenderFactory }).createResendEmailSender;
-type PoolJoinNotifierFactory = (options: { apiKey: string; from: string; fetcher?: typeof fetch }) => { notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>; notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>; notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>; notifyCommissionerAnnouncement(message: { to: string; poolName: string; authorName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void> };
+type PoolJoinNotifierFactory = (options: { apiKey: string; from: string; fetcher?: typeof fetch }) => { notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>; notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>; notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>; notifyCommissionerAnnouncement(message: { to: string; poolName: string; authorName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>; notifyMessageBoardReply(message: { to: string; poolName: string; replierName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void> };
 const createResendPoolJoinNotifier = (emailSenderModule as unknown as { createResendPoolJoinNotifier?: PoolJoinNotifierFactory }).createResendPoolJoinNotifier;
 
 describe("Resend email sender", () => {
@@ -47,6 +47,21 @@ describe("Resend email sender", () => {
       from: "Office Pool Reborn <noreply@officepool.football>", to: ["member@example.test"], subject: "Commissioner announcement — Sunday & Pool",
       text: "Alex <A> posted a commissioner announcement in Sunday & Pool:\n\nDraft <noon> & bring snacks.\n\nView announcement: https://officepool.football/p/sunday/board#post-post-1",
       html: "<p><strong>Alex &lt;A&gt;</strong> posted a commissioner announcement in <strong>Sunday &amp; Pool</strong>.</p><p>Draft &lt;noon&gt; &amp; bring snacks.</p><p><a href=\"https://officepool.football/p/sunday/board#post-post-1\">View announcement</a></p>"
+    });
+  });
+
+  it("sends an individually addressed message-board reply notification with escaped content and a provider idempotency key", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
+    const notifier = createResendPoolJoinNotifier!({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
+    await notifier.notifyMessageBoardReply({ to: "author@example.test", poolName: "Sunday & Pool", replierName: "Taylor <T>", text: "Reply <text> & more.", boardUrl: "https://officepool.football/p/sunday/board#post-post-1", idempotencyKey: "reply/reply-1/owner" });
+
+    const [endpoint, request] = fetcher.mock.calls[0]!;
+    expect(endpoint).toBe("https://api.resend.com/emails");
+    expect(request).toMatchObject({ headers: { authorization: "Bearer resend-test-key", "content-type": "application/json", "user-agent": "office-pool-reborn/1.0", "idempotency-key": "reply/reply-1/owner" } });
+    expect(JSON.parse(String(request?.body))).toEqual({
+      from: "Office Pool Reborn <noreply@officepool.football>", to: ["author@example.test"], subject: "New reply in Sunday & Pool",
+      text: "Taylor <T> replied to your post in Sunday & Pool:\n\nReply <text> & more.\n\nView reply: https://officepool.football/p/sunday/board#post-post-1",
+      html: "<p><strong>Taylor &lt;T&gt;</strong> replied to your post in <strong>Sunday &amp; Pool</strong>.</p><p>Reply &lt;text&gt; &amp; more.</p><p><a href=\"https://officepool.football/p/sunday/board#post-post-1\">View reply</a></p>"
     });
   });
 
