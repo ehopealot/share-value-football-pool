@@ -1,10 +1,9 @@
 # AGENTS.md
 
 ## Guiding philosophy
-- We build quickly and correctly
+- We build quickly and correctly.
 - Lean with documented residuals is preferred over gold-plated and overengineered. YAGNI
-- No mistakes
-- No bugs
+- Lean does not mean unhandled edge cases. We DO take care to define and preserve invariants for critical code. Any unhandled edge cases are documented as residuals.
 
 ## Development
 - Work on feature branches in worktrees
