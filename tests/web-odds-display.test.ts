@@ -62,7 +62,7 @@ describe("member-facing odds display", () => {
     expect(batchAfterPopState(placing)).toEqual(placing);
   });
 
-  it("separates bold odds-board team names with a normal-weight at", () => {
+  it("stacks bold odds-board team names around a normal-weight at", () => {
     const markup = renderToStaticMarkup(createElement(OddsBoardTable, {
       games: [{ eventId: "game", league: "nfl", startsAt: "2030-09-01T12:00:00.000Z", awayTeam: "Away", homeTeam: "Home", markets: { spread: {}, total: {}, moneyline: {} } }],
       currentWeek: "2030-09-01T04:00:00.000Z",
@@ -70,8 +70,9 @@ describe("member-facing odds display", () => {
       onToggle: () => undefined
     }));
 
-    expect(markup).toContain('<strong>Away</strong><span class="odds-matchup-at"> at </span><strong>Home</strong>');
-    expect(styles).toMatch(/\.odds-matchup-at\s*\{[^}]*font-weight:\s*400/);
+    expect(markup).toContain('<strong class="odds-matchup-team">Away</strong><span class="odds-matchup-at">at</span><strong class="odds-matchup-team">Home</strong>');
+    expect(styles).toMatch(/\.odds-matchup-team\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap[^}]*line-height:\s*1\.15/);
+    expect(styles).toMatch(/\.odds-matchup-at\s*\{[^}]*display:\s*block[^}]*font-weight:\s*400[^}]*line-height:\s*1/);
   });
 
   it("keeps the two odds-board sub-rows equal beneath row-spanning matchup cells", () => {
