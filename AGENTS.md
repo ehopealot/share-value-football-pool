@@ -6,7 +6,7 @@
 
 ## Development
 - Work on feature branches in worktrees
-- Make pull requests when you are ready
+- Make pull requests against main when you are ready
 
 ## Testing
 - If the change seems low risk, let CI run the test suite. we require a green build to merge and deploy.
