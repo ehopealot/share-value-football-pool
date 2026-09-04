@@ -89,7 +89,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   };
 
   /** Best-effort only: a reply remains committed even when delivery fails or its original author is no longer active. */
-  const dispatchMessageBoardReply = async (input: { slug: string; actor: AuthenticatedUser; postId: string; replyId: string; postAuthorId: string; text: string; boardUrl: string }) => {
+  const dispatchMessageBoardReply = async (input: { slug: string; actor: AuthenticatedUser; replyId: string; postAuthorId: string; text: string; boardUrl: string }) => {
     const notify = dependencies.poolJoinNotifier?.notifyMessageBoardReply;
     if (!notify) return;
     const view = ReadPoolView.parse(await router.send(input.slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: input.actor.id }));
@@ -177,7 +177,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       const result = MessageBoardMutationResponse.parse({ commandVersion: reply.data.commandVersion });
       if (!reply.data.replayed && reply.data.postAuthorId !== user.id && dependencies.poolJoinNotifier?.notifyMessageBoardReply) {
         const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}`, c.req.url).toString();
-        c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, postId, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+        c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
       }
       return c.json(result);
     }

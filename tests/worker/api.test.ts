@@ -278,6 +278,28 @@ describe("later wager and member HTTP API", () => {
     expect(pending).toEqual([]);
   }, 90_000);
 
+  it("accepts a legacy reply replay without scheduling a notification", async () => {
+    const poolId = `api-legacy-board-reply-${crypto.randomUUID()}`;
+    const slug = `api-legacy-board-reply-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => state.storage.sql.exec(
+      "INSERT INTO processed_command (id, type, actor_id, request_json, response_json, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+      "legacy-reply", "ReplyToMessageBoardPost", "member",
+      JSON.stringify({ type: "ReplyToMessageBoardPost", commandId: "legacy-reply", actorId: "member", postId: "legacy-post", text: "Legacy reply" }),
+      JSON.stringify({ commandVersion: "5" }), "2099-01-01T00:00:00.000Z"
+    ));
+    const notifyMessageBoardReply = vi.fn(async () => {});
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => {}, notifyMessageBoardReply } });
+    const pending: Promise<unknown>[] = [];
+    const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
+
+    const response = await app.fetch(request(`/api/p/${slug}/board/posts/legacy-post/replies`, { text: "Legacy reply", idempotencyKey: "legacy-reply" }), {}, executionContext);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ commandVersion: "5" });
+    expect(notifyMessageBoardReply).not.toHaveBeenCalled();
+    expect(pending).toEqual([]);
+  }, 90_000);
+
   it("rejects malformed board Durable Object responses at the Worker boundary", async () => {
     const poolId = `api-board-contract-${crypto.randomUUID()}`;
     const slug = `api-board-contract-${crypto.randomUUID()}`;
