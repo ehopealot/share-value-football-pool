@@ -13,11 +13,11 @@ const now = () => new Date().toISOString();
 const gcd = (a: bigint, b: bigint): bigint => b === 0n ? a : gcd(b, a % b);
 const lcm = (a: bigint, b: bigint): bigint => a / gcd(a, b) * b;
 
-/** Enforces the pool-wide limit with exact fractional teaser exposure, never rounded shares. */
+/** Enforces each member's limit with exact fractional teaser exposure, never rounded shares. */
 function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): void {
   const legCount = BigInt(legs.length);
   for (const leg of legs) {
-    const prior = [...sql.exec("SELECT w.risk_micros, COUNT(all_legs.id) AS leg_count FROM wager w JOIN wager_leg matched ON matched.wager_id = w.id JOIN wager_leg all_legs ON all_legs.wager_id = w.id WHERE w.season_id = ? AND w.status = 'open' AND matched.event_id = ? AND matched.market = ? AND matched.selection = ? GROUP BY w.id", command.seasonId, leg.eventId, leg.market, leg.selection)];
+    const prior = [...sql.exec("SELECT w.risk_micros, COUNT(all_legs.id) AS leg_count FROM wager w JOIN wager_leg matched ON matched.wager_id = w.id JOIN wager_leg all_legs ON all_legs.wager_id = w.id WHERE w.season_id = ? AND w.owner_id = ? AND w.status = 'open' AND matched.event_id = ? AND matched.market = ? AND matched.selection = ? GROUP BY w.id", command.seasonId, command.actorId, leg.eventId, leg.market, leg.selection)];
     const denominators = [legCount, ...prior.map((row) => BigInt(String(row.leg_count)))];
     const denominator = denominators.reduce(lcm, 1n);
     const existing = prior.reduce((total, row) => total + parseIntegerText(String(row.risk_micros)) * (denominator / BigInt(String(row.leg_count))), 0n);

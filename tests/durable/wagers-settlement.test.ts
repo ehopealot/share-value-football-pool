@@ -99,6 +99,18 @@ describe("PoolDO wagers and settlement", () => {
     expect((await send(teaserSlug, { ...teaser, commandId: "side-limit-exposure-over", wagerId: "side-limit-exposure-over", riskMicros: "2000000" })).code).toBe("SIDE_BET_LIMIT");
   }, 30_000);
 
+  it("applies side exposure per member", async () => {
+    const slug = await fundedPool(`member-side-limit-${crypto.randomUUID()}`);
+    await send(slug, { type: "JoinPool", commandId: "join-other", actorId: "other", displayName: "Other", password: "correct-password" });
+    await storage(slug, (state) => state.storage.sql.exec("UPDATE share_account SET available_micros = '5000000000' WHERE season_id = 's1'"));
+    const sharedLeg = leg("member-limited-side");
+    const other: any = { type: "PlaceStraightWager", commandId: "other-limit", actorId: "other", wagerId: "other-limit", seasonId: "s1", riskMicros: "800000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: sharedLeg };
+    const member: any = { ...other, commandId: "member-limit", actorId: "member", wagerId: "member-limit" };
+    expect(await send(slug, other)).toMatchObject({ wagerId: "other-limit" });
+    expect(await send(slug, member)).toMatchObject({ wagerId: "member-limit" });
+    expect((await send(slug, { ...member, commandId: "member-limit-over", wagerId: "member-limit-over", riskMicros: "1000000" })).code).toBe("SIDE_BET_LIMIT");
+  }, 30_000);
+
   it("rejects altered, version-stale, and malformed placements without any durable mutation", async () => {
     const slug = await fundedPool();
     const snapshot = () => storage(slug, (state) => Object.fromEntries([
