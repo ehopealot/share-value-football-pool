@@ -62,7 +62,8 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .odds-board { margin: var(--space-2) 0; }
 .odds-board th, .odds-board td { padding: var(--space-1) var(--space-2); }
 .odds-matchup { width: 16ch; }
-.odds-matchup-at { font-weight: 400; white-space: nowrap; }
+.odds-matchup-team { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
+.odds-matchup-at { display: block; font-weight: 400; line-height: 1; }
 .odds-empty { background: var(--table-gray); }
 .odds-option { display: inline-flex; flex-direction: row; align-items: center; gap: 0.35rem; margin: 0; white-space: nowrap; }
 .selection-tray-list { list-style: none; margin: var(--space-1) 0; padding: 0; }
@@ -164,7 +165,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
   .odds-board thead th:first-child, .odds-board .odds-start { display: none; }
   .odds-board thead th { overflow-wrap: anywhere; }
   .odds-board thead th:nth-child(2) { width: 5.5rem; }
-  .odds-board .odds-matchup { width: auto; padding-inline: var(--space-1); overflow-wrap: anywhere; }
+  .odds-board .odds-matchup { width: auto; padding-inline: var(--space-1); }
   .odds-mobile-start { display: block; margin-top: 0.2rem; color: #3b4046; font-size: 0.72rem; font-weight: 400; }
   .odds-board .odds-cell { padding: 0.25rem 0.1rem; text-align: center; }
   .odds-board .odds-game-top, .odds-board .odds-game-bottom { height: 2.1rem; }
