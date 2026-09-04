@@ -75,6 +75,11 @@ describe("member-facing odds display", () => {
     expect(styles).toMatch(/\.odds-matchup-at\s*\{[^}]*display:\s*block[^}]*font-weight:\s*400[^}]*line-height:\s*1/);
   });
 
+  it("gives the mobile matchup column more room than the market columns", () => {
+    expect(styles).toMatch(/\.odds-board thead th:nth-child\(2\)\s*\{[^}]*width:\s*5\.5rem/);
+    expect(styles).toMatch(/th:nth-child\(3\),\s*\.odds-board thead th:nth-child\(4\),\s*\.odds-board thead th:nth-child\(5\)\s*\{[^}]*width:\s*4\.25rem/);
+  });
+
   it("keeps the two odds-board sub-rows equal beneath row-spanning matchup cells", () => {
     expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.8rem/);
     expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.2rem/);
