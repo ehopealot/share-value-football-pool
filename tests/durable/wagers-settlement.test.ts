@@ -60,6 +60,7 @@ async function fundedPool(slug = `wagers-${crypto.randomUUID()}`) {
 }
 const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 const leg = (eventId: string, eventStartsAt = future()) => ({ eventId, league: "nfl" as const, canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "offer-v1", canonicalOfferProof: { offerId: `${eventId}:spread:home`, eventId, offerVersion: "offer-v1", canonicalBook: "DraftKings", market: "spread" as const, selection: "home" as const, odds: -110, line: -3 }, market: "spread" as const, selection: "home" as const, originalLine: -3, adjustedLine: -3, originalOdds: -110, eventStartsAt, homeTeam: "Home", awayTeam: "Away" });
+const parlayLeg = (eventId: string, market: "spread" | "total" = "spread", line = market === "spread" ? -3 : 40, selection: "home" | "over" = market === "spread" ? "home" : "over") => ({ ...leg(eventId), market, selection, originalLine: line, adjustedLine: line, canonicalOfferProof: { ...leg(eventId).canonicalOfferProof, offerId: `${eventId}:${market}:${selection}`, market, selection, line } });
 const reconciliation = (slug: string, eventId: string) => storage(slug, (state) => [...state.storage.sql.exec("SELECT phase, attempts, error_attempts, deadline_at, next_attempt_at, last_error FROM event_reconciliation WHERE event_id = ?", eventId)][0]);
 const final = (eventId: string, correctionVersion = "1", homeScore = 24, awayScore = 17): FinalResultVersion => ({ eventId, league: "nfl", status: "final", homeScore, awayScore, correctionVersion });
 const correctionEvidence = (eventId: string, correctionVersion: string, homeScore = 24, awayScore = 17, status: FinalResultVersion["status"] = "final"): FinalResultVersion => ({ eventId, league: "nfl", status, homeScore: status === "final" ? homeScore : null, awayScore: status === "final" ? awayScore : null, correctionVersion });
@@ -85,7 +86,6 @@ describe("PoolDO wagers and settlement", () => {
 
   it("settles and regrades immutable parlays with effective odds while refunds keep settled odds null", async () => {
     const slug = await fundedPool();
-    const parlayLeg = (eventId: string, market: "spread" | "total", line: number, selection: "home" | "over") => ({ ...leg(eventId), market, selection, originalLine: line, adjustedLine: line, canonicalOfferProof: { ...leg(eventId).canonicalOfferProof, offerId: `${eventId}:${market}:${selection}`, market, selection, line } });
     await send(slug, { type: "PlaceParlayWager", commandId: "parlay-win", actorId: "member", wagerId: "parlay-win", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("parlay-game", "spread", 0, "home"), parlayLeg("parlay-game", "total", 35, "over")] });
     await send(slug, { type: "PlaceParlayWager", commandId: "parlay-refund", actorId: "member", wagerId: "parlay-refund", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("refund-game", "spread", 0, "home"), parlayLeg("refund-game", "total", 40, "over")] });
     await storage(slug, (state) => settleWagers(state.storage.sql, [final("parlay-game", "v1", 24, 17), final("refund-game", "v1", 20, 20)]));
@@ -95,12 +95,77 @@ describe("PoolDO wagers and settlement", () => {
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT outcome,settled_odds,profit_micros FROM settlement WHERE wager_id='parlay-win' AND outcome <> 'reversal' ORDER BY rowid DESC LIMIT 1")][0])).toEqual({ outcome: "win", settled_odds: 100, profit_micros: "1000000" });
 
     await send(slug, { type: "PlaceParlayWager", commandId: "parlay-pending", actorId: "member", wagerId: "parlay-pending", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("known-loss", "spread", 0, "home"), parlayLeg("missing-result", "spread", 0, "home")] });
-    const lifecycleSnapshot = () => storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='parlay-pending'")][0], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros,row_version FROM share_account WHERE season_id='s1' AND member_id='member'")][0], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")], outbox: [...state.storage.sql.exec("SELECT * FROM outbox ORDER BY rowid")], season: [...state.storage.sql.exec("SELECT state,float_micros,command_version FROM season WHERE id='s1'")][0] }));
-    const beforePartial = await lifecycleSnapshot();
     await storage(slug, (state) => settleWagers(state.storage.sql, [final("known-loss", "partial", 10, 17)]));
-    expect(await lifecycleSnapshot()).toEqual(beforePartial);
-    await storage(slug, (state) => settleWagers(state.storage.sql, [final("known-loss", "complete", 10, 17), final("missing-result", "complete", 24, 17)]));
-    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='parlay-pending'")][0], settlementCount: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement WHERE wager_id='parlay-pending' AND outcome <> 'reversal'")][0], account: [...state.storage.sql.exec("SELECT locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }))).toEqual({ wager: { status: "lost" }, settlementCount: { count: 1 }, account: { locked_micros: "0" } });
+    expect(await storage(slug, (state) => ({
+      wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='parlay-pending'")][0],
+      account: [...state.storage.sql.exec("SELECT locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0],
+      legs: [...state.storage.sql.exec("SELECT grade,result_version FROM wager_leg WHERE wager_id='parlay-pending' ORDER BY id")],
+      settlement: [...state.storage.sql.exec("SELECT outcome,source_result_json FROM settlement WHERE wager_id='parlay-pending' AND outcome <> 'reversal'")][0]
+    }))).toEqual({
+      wager: { status: "lost" },
+      account: { locked_micros: "0" },
+      legs: [{ grade: "loss", result_version: "partial" }, { grade: null, result_version: null }],
+      settlement: { outcome: "loss", source_result_json: JSON.stringify([final("known-loss", "partial", 10, 17)]) }
+    });
+  }, 90_000);
+
+  it("settles a teaser as soon as one final leg loses", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-early-loss", actorId: "member", wagerId: "teaser-early-loss", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-loss"), adjustedLine: 3 }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("teaser-loss", "partial", 10, 17)]));
+    expect(await storage(slug, (state) => ({
+      wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='teaser-early-loss'")][0],
+      account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0],
+      legs: [...state.storage.sql.exec("SELECT grade,result_version FROM wager_leg WHERE wager_id='teaser-early-loss' ORDER BY id")]
+    }))).toEqual({ wager: { status: "lost" }, account: { available_micros: "2000000", locked_micros: "0" }, legs: [{ grade: "loss", result_version: "partial" }, { grade: null, result_version: null }] });
+  }, 90_000);
+
+  it("keeps non-losing partial multi-leg results open", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceParlayWager", commandId: "parlay-partial-win", actorId: "member", wagerId: "parlay-partial-win", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("parlay-win"), parlayLeg("parlay-pending")] });
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-partial-push", actorId: "member", wagerId: "teaser-partial-push", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-push"), originalLine: -6, adjustedLine: 0, canonicalOfferProof: { ...leg("teaser-push").canonicalOfferProof, line: -6 } }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("parlay-win", "v1", 24, 17), final("teaser-push", "v1", 17, 17)]));
+    expect(await storage(slug, (state) => ({ wagers: [...state.storage.sql.exec("SELECT id,status FROM wager WHERE id IN ('parlay-partial-win','teaser-partial-push') ORDER BY id")], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0], settlements: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement")][0] }))).toEqual({ wagers: [{ id: "parlay-partial-win", status: "open" }, { id: "teaser-partial-push", status: "open" }], account: { available_micros: "1000000", locked_micros: "2000000" }, settlements: { count: 0 } });
+  }, 90_000);
+
+  it("reopens an automatic early loss when its only losing result is corrected", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceParlayWager", commandId: "early-correction", actorId: "member", wagerId: "early-correction", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("corrected-loss"), parlayLeg("still-pending")] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("corrected-loss", "loss-v1", 10, 17)]));
+    const afterLoss = await storage(slug, (state) => JSON.stringify({ wager: [...state.storage.sql.exec("SELECT status,settled_result_version FROM wager WHERE id='early-correction'")][0], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0], season: [...state.storage.sql.exec("SELECT float_micros FROM season WHERE id='s1'")][0], settlements: [...state.storage.sql.exec("SELECT * FROM settlement WHERE wager_id='early-correction' ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry WHERE causation_id LIKE '%early-correction%' OR causation_id LIKE 'reversal:%' ORDER BY rowid")], outbox: [...state.storage.sql.exec("SELECT * FROM outbox WHERE event_type IN ('SettlementApplied','SettlementRegraded') ORDER BY rowid")] }));
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("corrected-loss", "loss-v1", 10, 17)]));
+    expect(await storage(slug, (state) => JSON.stringify({ wager: [...state.storage.sql.exec("SELECT status,settled_result_version FROM wager WHERE id='early-correction'")][0], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0], season: [...state.storage.sql.exec("SELECT float_micros FROM season WHERE id='s1'")][0], settlements: [...state.storage.sql.exec("SELECT * FROM settlement WHERE wager_id='early-correction' ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry WHERE causation_id LIKE '%early-correction%' OR causation_id LIKE 'reversal:%' ORDER BY rowid")], outbox: [...state.storage.sql.exec("SELECT * FROM outbox WHERE event_type IN ('SettlementApplied','SettlementRegraded') ORDER BY rowid")] }))).toBe(afterLoss);
+
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("corrected-loss", "win-v2", 24, 17)]));
+    expect(await storage(slug, (state) => ({
+      wager: [...state.storage.sql.exec("SELECT status,settled_result_version FROM wager WHERE id='early-correction'")][0],
+      account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0],
+      season: [...state.storage.sql.exec("SELECT state,float_micros FROM season WHERE id='s1'")][0],
+      legs: [...state.storage.sql.exec("SELECT grade,result_version FROM wager_leg WHERE wager_id='early-correction' ORDER BY id")],
+      settlements: [...state.storage.sql.exec("SELECT outcome,reversal_of FROM settlement WHERE wager_id='early-correction' ORDER BY rowid")]
+    }))).toEqual({ wager: { status: "open", settled_result_version: null }, account: { available_micros: "2000000", locked_micros: "1000000" }, season: { state: "active", float_micros: "3000000" }, legs: [{ grade: "win", result_version: "win-v2" }, { grade: null, result_version: null }], settlements: [{ outcome: "loss", reversal_of: null }, { outcome: "reversal", reversal_of: expect.any(String) }] });
+
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("corrected-loss", "win-v2", 24, 17), final("still-pending", "loss-v1", 10, 17)]));
+    expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT status FROM wager WHERE id='early-correction'")][0])).toEqual({ status: "lost" });
+  }, 90_000);
+
+  it("does not reopen a commissioner settlement from partial provider evidence", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceParlayWager", commandId: "manual-parlay", actorId: "member", wagerId: "manual-parlay", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("manual-loss"), parlayLeg("manual-win")] });
+    await advancePastWagerStart(slug, "manual-parlay");
+    await send(slug, { type: "RegradeWager", commandId: "manual-loss-grade", actorId: "owner", wagerId: "manual-parlay", reason: "Official complete result", correctedResults: [correctionEvidence("manual-loss", "manual-v1", 10, 17), correctionEvidence("manual-win", "manual-v1", 24, 17)] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("manual-loss", "provider-v1", 24, 17)]));
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("manual-loss", "provider-v2", 10, 17)]));
+    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='manual-parlay'")][0], active: [...state.storage.sql.exec("SELECT actor_id,outcome FROM settlement WHERE wager_id='manual-parlay' AND outcome <> 'reversal' ORDER BY rowid DESC LIMIT 1")][0], settlements: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement WHERE wager_id='manual-parlay'")][0] }))).toEqual({ wager: { status: "lost" }, active: { actor_id: "owner", outcome: "loss" }, settlements: { count: 1 } });
+  }, 90_000);
+
+  it("defers zero-float closure until every early-lost ticket leg is graded", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceParlayWager", commandId: "all-float-parlay", actorId: "member", wagerId: "all-float-parlay", seasonId: "s1", riskMicros: "3000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("all-float-loss"), parlayLeg("all-float-pending")] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("all-float-loss", "v1", 10, 17)]));
+    expect(await storage(slug, (state) => ({ season: [...state.storage.sql.exec("SELECT state,float_micros FROM season WHERE id='s1'")][0], pool: [...state.storage.sql.exec("SELECT active_season_id FROM pool")][0] }))).toEqual({ season: { state: "active", float_micros: "0" }, pool: { active_season_id: "s1" } });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("all-float-loss", "v1", 10, 17), final("all-float-pending", "v1", 24, 17)]));
+    expect(await storage(slug, (state) => ({ season: [...state.storage.sql.exec("SELECT state,close_reason FROM season WHERE id='s1'")][0], pool: [...state.storage.sql.exec("SELECT active_season_id FROM pool")][0] }))).toEqual({ season: { state: "closed", close_reason: "float_exhausted" }, pool: { active_season_id: null } });
   }, 90_000);
 
   it("locks whole-share risk, stores immutable accepted snapshots, and replays placement", async () => {
