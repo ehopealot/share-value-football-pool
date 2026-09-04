@@ -143,10 +143,14 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-member-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }
 .activity-member-ribbon small { display: block; font-size: 0.85rem; }
 .activity-member-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
-.activity-start-column { width: 20%; }
-.activity-wager-column { width: 52%; }
+.activity-start-column { width: 16%; }
+.activity-wager-column { width: 56%; }
 .activity-staked-column { width: 16%; }
+.activity-payout-column { width: 12%; }
 .activity-pnl-column { width: 12%; }
+.my-wagers-page .activity-wager-column { width: 48%; }
+.my-wagers-page .activity-staked-column { width: 13%; }
+.my-wagers-page .activity-pnl-column { width: 11%; }
 .activity-table th, .activity-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
 .activity-wager-lines > span { display: block; white-space: nowrap; }
 .activity-member-section .activity-wager-lines > span { white-space: normal; overflow-wrap: anywhere; }
