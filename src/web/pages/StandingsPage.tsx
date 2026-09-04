@@ -9,7 +9,7 @@ const shares = (value: string, decimals: 2 | 4 = 2) => formatMicros(parseInteger
 type Standings = import("../../contracts/http").ReadStandings["standings"];
 
 export function StandingsTable({ standings }: { standings: Standings }) {
-  return <div className="table-scroll" tabIndex={0}><table><caption>Active season holdings</caption><thead><tr><th>Rank</th><th>Member</th><th>Available</th><th>Locked</th><th>Total</th><th>Notional value</th><th>SVG</th></tr></thead><tbody>{standings.map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{row.displayName}</th><td>{shares(row.availableMicros)}</td><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td><td>{shares(row.gainMicros)}</td></tr>)}</tbody></table></div>;
+  return <div className="table-scroll" tabIndex={0}><table><caption>Active season holdings</caption><thead><tr><th>Rank</th><th>Member</th><th>Locked</th><th>Total</th><th>Notional value</th><th>SVG</th></tr></thead><tbody>{standings.map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{row.displayName}</th><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td><td>{shares(row.gainMicros)}</td></tr>)}</tbody></table></div>;
 }
 
 export function StandingsPage() {
