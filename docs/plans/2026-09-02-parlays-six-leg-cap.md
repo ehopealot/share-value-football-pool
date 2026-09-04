@@ -186,7 +186,7 @@ Keep seven-leg teaser envelope parsing at the outer boundaries. D1 registry reso
 
 In `placeWager`, centralize canonical-leg validation so moneyline proof odds may differ from the vig-free `originalOdds`; validate parlay ruleset and exact derived price before account mutation. Insert `parlay` and its normal unadjusted leg snapshots.
 
-In settlement, retain all-final lifecycle eligibility, then dispatch by wager type and ruleset. A final losing leg plus a missing/pending leg remains open with risk locked; once all legs are final, pass full stored legs to `gradeParlay`, apply loss precedence, and write `settled_odds` for winning effective prices. Keep reversal accounting based on recorded return/profit; Task 4 exposes effective settlement terms at read/audit/UI boundaries.
+The original implementation retained all-final lifecycle eligibility. That timing rule is superseded by [`2026-09-03-early-multileg-loss-settlement-design.md`](2026-09-03-early-multileg-loss-settlement-design.md): a final losing leg now settles a parlay immediately, while wins and refunds still wait for all legs. Reversal accounting remains based on recorded return/profit; Task 4 exposes effective settlement terms at read/audit/UI boundaries.
 
 **Step 5: Verify GREEN**
 
