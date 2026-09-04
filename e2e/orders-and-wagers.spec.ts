@@ -355,7 +355,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }).check();
   await page.getByRole("button", { name: "Build teaser" }).click();
   await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
-  await expect(page.getByText(/Local Away \+9/)).toBeVisible();
+  await expect(page.getByText("Local Away (+9)")).toBeVisible();
   let teaserQuoteRequests = 0;
   const teaserQuoteBodies: Record<string, unknown>[] = [];
   const teaserPlacementBodies: Record<string, unknown>[] = [];

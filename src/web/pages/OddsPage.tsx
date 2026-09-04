@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage } from "../api";
 import { vigFreeMoneylinePrice } from "../../odds/market-semantics";
 import { Layout } from "../components/Layout";
+import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
 import { selectableOutcomes, selectionForOutcome } from "../selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, writeTeaserSlip } from "../teaser-slip";
 import { buildParlaySlip, writeParlaySlip } from "../parlay-slip";
@@ -121,13 +122,8 @@ export const failureReason = (error: unknown, phase: "quote" | "place", maxSideB
 
 type FailedEntry = { label: string; reason: string };
 type ReviewEntry = { item: TrayItem; pick: BoardPick; quote: any; mutationKey: string; label: string };
-export const straightReviewDetails = (entry: Pick<ReviewEntry, "item" | "quote">) => {
-  const leg = entry.quote.leg;
-  const selection = leg.market === "total" ? leg.selection === "over" ? "Over" : "Under" : leg.selection === "away" ? leg.awayTeam ?? "Away" : leg.homeTeam ?? "Home";
-  const market = `${String(leg.market).slice(0, 1).toUpperCase()}${String(leg.market).slice(1)}`;
-  const line = leg.market === "moneyline" || leg.originalLine === null || leg.originalLine === undefined ? "" : ` ${leg.market === "total" ? Number(leg.originalLine) : formatSignedLine(Number(leg.originalLine))}`;
-  return { matchup: `${leg.awayTeam ?? "Away"} at ${leg.homeTeam ?? "Home"}`, pick: `${market} — ${selection}${line}`, odds: formatAmericanOdds(entry.quote.acceptedOdds), risk: `${entry.item.risk} shares`, toWin: `${ticketReturns(entry.quote.riskMicros, entry.quote.acceptedOdds).profit} shares` };
-};
+const selectedLegDetail = (leg: { market: string; originalLine?: number | null }) => leg.market === "moneyline" || leg.originalLine === null || leg.originalLine === undefined ? undefined : leg.market === "total" ? `${Number(leg.originalLine)}` : formatSignedLine(Number(leg.originalLine));
+export const straightReviewDetails = (entry: Pick<ReviewEntry, "item" | "quote">) => ({ odds: formatAmericanOdds(entry.quote.acceptedOdds), risk: `${entry.item.risk} shares`, toWin: `${ticketReturns(entry.quote.riskMicros, entry.quote.acceptedOdds).profit} shares` });
 type StraightReviewBatch = { entries: ReviewEntry[]; quoteFailures: FailedEntry[]; placed: string[]; failed: FailedEntry[] };
 type StraightPlacementResult = { placed: ReviewEntry[]; failed: Array<FailedEntry & { entry: ReviewEntry }>; retry: ReviewEntry[] };
 type Batch = { tag: "quoting" } | ({ tag: "reviewing" | "placing" } & StraightReviewBatch) | { tag: "results"; placed: string[]; failed: FailedEntry[]; retryPlacements: ReviewEntry[] };
@@ -397,7 +393,7 @@ export function OddsPage() {
   if (batch?.tag === "reviewing" || batch?.tag === "placing") {
     const entries = batch.entries;
     return <Layout signedIn><h1>Review straight wagers</h1><p role="status">{batch.tag === "placing" ? "Placing wagers…" : `${entries.length} straight wager${entries.length === 1 ? "" : "s"} ready to place.`}{batch.quoteFailures.length ? ` ${batch.quoteFailures.length} selection${batch.quoteFailures.length === 1 ? "" : "s"} could not be quoted and remain in your tray.` : ""}</p>
-      <div className="table-scroll" tabIndex={0}><table><caption>Bet confirmation</caption><thead><tr><th>Matchup</th><th>Pick</th><th>Odds</th><th>Risk</th><th>To win</th></tr></thead><tbody>{entries.map((entry) => { const details = straightReviewDetails(entry); return <tr key={entry.item.wagerId}><td>{details.matchup}</td><td>{details.pick}</td><td>{details.odds}</td><td>{details.risk}</td><td>{details.toWin}</td></tr>; })}</tbody></table></div>
+      <div className="table-scroll" tabIndex={0}><table><caption>Bet confirmation</caption><thead><tr><th>Matchup</th><th>Odds</th><th>Risk</th><th>To win</th></tr></thead><tbody>{entries.map((entry) => { const details = straightReviewDetails(entry); const leg = entry.quote.leg; return <tr key={entry.item.wagerId}><td><SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={selectedLegDetail(leg)} /></td><td>{details.odds}</td><td>{details.risk}</td><td>{details.toWin}</td></tr>; })}</tbody></table></div>
       <span className="tray-actions"><button className="primary-action" disabled={batch.tag === "placing"} onClick={() => void placeAll(batch)}>{batch.tag === "placing" ? "Placing…" : `Place ${entries.length} wager${entries.length === 1 ? "" : "s"}`}</button>
       <button disabled={batch.tag === "placing"} onClick={backToBoard}>Back to board</button></span>
       {batch.placed.length > 0 && <section aria-label="Placed wagers"><h2>Placed</h2><ul>{batch.placed.map((label) => <li key={label}>{label}</li>)}</ul></section>}
@@ -422,7 +418,7 @@ export function OddsPage() {
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={parlayTransferPending} onToggle={toggle}/>
     {board && games.length === 0 && <p>{teamFilter.trim() ? "No teams match this filter." : "No games to show for this week."}</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
-      {tray.length > 0 && <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board ?? {}, item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label">{displayLabel}</span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
+      {tray.length > 0 && <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board ?? {}, item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label"><SelectedLegDisplay league={resolved.offer.league} awayTeam={resolved.offer.awayTeam} homeTeam={resolved.offer.homeTeam} market={resolved.offer.market} selection={item.selection} selectedDetail={displayedBoardValue(resolved.offer, resolved.outcome, item.selection)} /></span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={parlayTransferPending || teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button disabled={parlayTransferPending || tray.length < 2 || tray.length > 6} onClick={() => void addToParlay()}>{parlayTransferPending ? "Loading current odds…" : "Build parlay"}</button>
         <button className="primary-action" disabled={parlayTransferPending || !view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>

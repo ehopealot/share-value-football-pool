@@ -181,7 +181,8 @@ describe("parlay slip and page semantics", () => {
     const leg = parlayLegForOutcome(offer("game-1", "spread", { name: "Home", price: -110, point: -3.5 }), { price: -110, point: -3.5 }, "home");
     const markup = renderToStaticMarkup(createElement(ParlayLegTable, { legs: [leg], onRemove: () => undefined }));
     expect(markup).toContain("<caption>Selected parlay legs</caption>");
-    expect(markup).toContain("<th>Matchup</th><th>Market</th><th>Pick</th><th>Action</th>");
+    expect(markup).toContain("<th>Matchup</th><th>Market</th><th>Action</th>");
+    expect(markup).toContain("<span>Away at </span><strong>Home (-3.5)</strong>");
     expect(markup).not.toContain("Advisory leg price");
     expect(markup).not.toContain("-110");
   });

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { PARLAY_RULESET_ID, parlayOdds } from "../../domain/parlay";
 import { api, buildParlayPlacement, commandOutcome, errorMessage } from "../api";
 import { Confirmation } from "../components/Confirmation";
+import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
 import { formatAmericanOdds } from "../odds-format";
 import { parlayLegForOutcome, readParlaySlip, writeParlaySlip, type ParlayLeg } from "../parlay-slip";
 import { outcomeForSelection } from "../selection-matcher";
@@ -25,7 +26,7 @@ export const parlayUnresolvedPlacementTransition = (attempt: ParlayPlacementAtte
 /** One focused alert tells the member that only the exact frozen placement may be retried. */
 export const parlayUnknownPlacementMessage = "Placement result unknown. Retry this exact placement to check its result.";
 /** The lean builder intentionally leaves pricing to its aggregate advisory estimate and review snapshot. */
-const parlayLegTableColumns = ["Matchup", "Market", "Pick", "Action"] as const;
+const parlayLegTableColumns = ["Matchup", "Market", "Action"] as const;
 /** Every quote and placement attempt clears earlier errors before awaiting a new authority result. */
 export const parlayQuoteAttemptTransition = (request: ParlaySemantic) => ({ state: { tag: "quoting" as const, request }, error: "" });
 export const parlayPlacementAttemptTransition = (attempt: ParlayPlacementAttempt) => ({ state: { tag: "submitting" as const, request: attempt.request, quote: attempt.quote, mutationKey: attempt.mutationKey }, error: "" });
@@ -70,14 +71,10 @@ export const parlayQuoteRequest = (request: ParlaySemantic, seasonId: string) =>
 });
 const marketName = (market: ParlayLeg["market"]) => `${market.slice(0, 1).toUpperCase()}${market.slice(1)}`;
 const signed = (line: number) => `${line > 0 ? "+" : ""}${line}`;
-const parlayPick = (leg: ParlayLeg) => {
-  if (leg.market === "total") return `${leg.selection === "over" ? "Over" : "Under"} ${leg.originalLine ?? "—"}`;
-  const team = leg.selection === "away" ? leg.awayTeam : leg.homeTeam;
-  return leg.market === "moneyline" ? team ?? leg.selection : `${team ?? leg.selection} ${leg.originalLine === null ? "—" : signed(leg.originalLine)}`;
-};
+const parlaySelectedDetail = (leg: ParlayLeg) => leg.originalLine === null ? undefined : leg.market === "total" ? `${leg.originalLine}` : signed(leg.originalLine);
 
 export function ParlayLegTable({ legs, onRemove }: { legs: ParlayLeg[]; onRemove: (index: number) => void }) {
-  return <div className="table-scroll" tabIndex={0}><table><caption>Selected parlay legs</caption><thead><tr>{parlayLegTableColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{legs.map((leg, index) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? `${leg.awayTeam} at ${leg.homeTeam}` : "Game details unavailable"}</td><td>{marketName(leg.market)}</td><td>{parlayPick(leg)}</td><td><button onClick={() => onRemove(index)}>Remove</button></td></tr>)}</tbody></table></div>;
+  return <div className="table-scroll" tabIndex={0}><table><caption>Selected parlay legs</caption><thead><tr>{parlayLegTableColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{legs.map((leg, index) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? <SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={parlaySelectedDetail(leg)} /> : "Game details unavailable"}</td><td>{marketName(leg.market)}</td><td><button onClick={() => onRemove(index)}>Remove</button></td></tr>)}</tbody></table></div>;
 }
 
 export function ParlayPageRoute() {
