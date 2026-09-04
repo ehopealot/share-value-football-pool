@@ -23,8 +23,8 @@ describe("PoolDO message board", () => {
     expect(await post(slug, "owner", "post-first", "First thread")).toMatchObject({ commandVersion: expect.any(String), isAnnouncement: false });
     const firstPostId = String((await read(slug, "owner")).threads[0].postId);
     expect(await post(slug, "member", "post-second", "Second thread")).toMatchObject({ commandVersion: expect.any(String), isAnnouncement: false, replayed: false });
-    expect(await reply(slug, "member", "reply-first", firstPostId, "First reply")).toEqual({ commandVersion: expect.any(String) });
-    expect(await reply(slug, "owner", "reply-second", firstPostId, "Second reply")).toEqual({ commandVersion: expect.any(String) });
+    expect(await reply(slug, "member", "reply-first", firstPostId, "First reply")).toMatchObject({ commandVersion: expect.any(String), replyId: expect.any(String), postAuthorId: "owner", replayed: false });
+    expect(await reply(slug, "owner", "reply-second", firstPostId, "Second reply")).toMatchObject({ commandVersion: expect.any(String), replyId: expect.any(String), postAuthorId: "owner", replayed: false });
     expect(await send(slug, { type: "UpdateMemberNickname", commandId: "rename-member", actorId: "member", displayName: "Sunday Shark" })).toMatchObject({ commandVersion: expect.any(String) });
 
     const board = await read(slug, "owner");
@@ -74,6 +74,18 @@ describe("PoolDO message board", () => {
     expect(await storage(slug, (_instance, state) => [...state.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM message_board_entry")][0])).toEqual({ count: 0 });
   }, 30_000);
 
+  it("retains the original author and reply identity for notification scheduling without duplicate replies", async () => {
+    const slug = `message-board-reply-notification-${crypto.randomUUID()}`;
+    await initialize(slug);
+    await join(slug, "member", "Member");
+    const postId = String((await post(slug, "owner", "post-for-reply-notification", "Original thread")).postId);
+
+    const first = await reply(slug, "member", "reply-for-notification", postId, "One durable reply");
+    expect(first).toEqual({ commandVersion: expect.any(String), replyId: expect.any(String), postAuthorId: "owner", replayed: false });
+    expect(await reply(slug, "member", "reply-for-notification", postId, "One durable reply")).toEqual({ ...first, replayed: true });
+    expect(await storage(slug, (_instance, state) => [...state.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM message_board_entry WHERE parent_post_id = ?", postId)][0])).toEqual({ count: 1 });
+  }, 30_000);
+
   it("replays board mutations without projection work and leaves state-changing reads unrecorded", async () => {
     const slug = `message-board-effects-${crypto.randomUUID()}`;
     await initialize(slug);
@@ -91,8 +103,8 @@ describe("PoolDO message board", () => {
     const postId = String((await read(slug, "owner", "board-read")).threads[0].postId);
     const beforeReply = Number((await view(slug, "member")).commandVersion);
     const firstReply = await reply(slug, "member", "reply-idempotent", postId, "One durable reply");
-    expect(firstReply).toEqual({ commandVersion: String(beforeReply + 1) });
-    expect(await reply(slug, "member", "reply-idempotent", postId, "One durable reply")).toEqual(firstReply);
+    expect(firstReply).toEqual({ commandVersion: String(beforeReply + 1), replyId: expect.any(String), postAuthorId: "owner", replayed: false });
+    expect(await reply(slug, "member", "reply-idempotent", postId, "One durable reply")).toEqual({ ...firstReply, replayed: true });
     expect(await reply(slug, "member", "reply-idempotent", postId, "Changed reply")).toEqual({ code: "IDEMPOTENCY_CONFLICT" });
 
     expect(await storage(slug, async (_instance, state) => ({
