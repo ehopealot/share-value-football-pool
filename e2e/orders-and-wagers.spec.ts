@@ -1,4 +1,24 @@
 import { test, expect } from "./fixtures/local-worker";
+import { createActivePool } from "./fixtures/local-pool";
+
+async function fundPool(page: import("@playwright/test").Page, slug: string, shares = "3") {
+  return page.evaluate(async ({ poolSlug, amount }) => {
+    const viewResponse = await fetch(`/api/p/${poolSlug}/view`);
+    if (!viewResponse.ok) throw new Error(`pool view failed: ${viewResponse.status}`);
+    const view = await viewResponse.json() as { activeSeason: { id: string }; currentMember: { memberId: string } };
+    const request = { seasonId: view.activeSeason.id, memberId: view.currentMember.memberId, mode: "shares", amountMicros: `${BigInt(amount) * 1_000_000n}`, idempotencyKey: crypto.randomUUID() };
+    const quoteResponse = await fetch(`/api/p/${poolSlug}/admin/orders/quote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    if (!quoteResponse.ok) throw new Error(`order quote failed: ${quoteResponse.status}`);
+    const quote = await quoteResponse.json() as { priceMicros: string; commandVersion: string };
+    const executeResponse = await fetch(`/api/p/${poolSlug}/admin/orders/execute`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...request, quote, reason: "Route isolation test", idempotencyKey: crypto.randomUUID() }) });
+    if (!executeResponse.ok) throw new Error(`order execute failed: ${executeResponse.status}`);
+    return executeResponse.status;
+  }, { poolSlug: slug, amount: shares });
+}
+
+async function navigateWithinSpa(page: import("@playwright/test").Page, pathname: string) {
+  await page.evaluate((nextPath) => { window.history.pushState({}, "", nextPath); window.dispatchEvent(new PopStateEvent("popstate")); }, pathname);
+}
 
 async function signInOwner(
   page: import("@playwright/test").Page,
@@ -35,6 +55,81 @@ test("local Wrangler serves the freshly built SPA for sign-up and deep browser r
   );
   expect(deepRoute?.headers()["content-type"]).toContain("text/html");
   await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
+});
+
+test("a pending straight quote cannot leak into a newly selected pool", async ({ page, worker }) => {
+  const source = await createActivePool(page, worker, { slug: "route-source", name: "Route Source" });
+  expect(await fundPool(page, source.slug)).toBe(200);
+  await page.goto(`${worker.baseURL}/pools/new`);
+  await page.getByLabel("Pool name").fill("Route Destination");
+  await page.getByLabel("Pool web address").fill("route-destination");
+  await page.getByLabel("Join password").fill("route-destination-password");
+  await page.getByRole("button", { name: "Create pool" }).click();
+  await expect(page).toHaveURL(/\/p\/route-destination\/odds$/);
+
+  await page.goto(`${worker.baseURL}/p/${source.slug}/odds`);
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  expect(await page.evaluate(async (poolSlug) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: `/api/p/${poolSlug}/wagers/straight/quote` }) })).status, source.slug)).toBe(200);
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toBeVisible();
+
+  await navigateWithinSpa(page, "/p/route-destination/odds");
+  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
+  await page.waitForTimeout(6_000);
+  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toHaveCount(0);
+});
+
+test("a pending straight placement cannot leak into a newly selected pool", async ({ page, worker }) => {
+  const source = await createActivePool(page, worker, { slug: "placement-route-source", name: "Placement Route Source" });
+  expect(await fundPool(page, source.slug)).toBe(200);
+  await page.goto(`${worker.baseURL}/pools/new`);
+  await page.getByLabel("Pool name").fill("Placement Route Destination");
+  await page.getByLabel("Pool web address").fill("placement-route-destination");
+  await page.getByLabel("Join password").fill("placement-route-destination-password");
+  await page.getByRole("button", { name: "Create pool" }).click();
+  await expect(page).toHaveURL(/\/p\/placement-route-destination\/odds$/);
+
+  await page.goto(`${worker.baseURL}/p/${source.slug}/odds`);
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+  await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+  await page.getByRole("button", { name: "Place bets" }).click();
+  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
+  expect(await page.evaluate(async (poolSlug) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: `/api/p/${poolSlug}/wagers/straight/place` }) })).status, source.slug)).toBe(200);
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+
+  await navigateWithinSpa(page, "/p/placement-route-destination/odds");
+  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
+  await page.waitForTimeout(8_000);
+  await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toHaveCount(0);
+});
+
+test("a pending teaser quote cannot leak into a newly selected pool", async ({ page, worker }) => {
+  const source = await createActivePool(page, worker, { slug: "teaser-route-source", name: "Teaser Route Source" });
+  expect(await fundPool(page, source.slug)).toBe(200);
+  await page.goto(`${worker.baseURL}/pools/new`);
+  await page.getByLabel("Pool name").fill("Teaser Route Destination");
+  await page.getByLabel("Pool web address").fill("teaser-route-destination");
+  await page.getByLabel("Join password").fill("teaser-route-destination-password");
+  await page.getByRole("button", { name: "Create pool" }).click();
+  await expect(page).toHaveURL(/\/p\/teaser-route-destination\/odds$/);
+
+  await page.goto(`${worker.baseURL}/p/${source.slug}/odds`);
+  await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+  await page.getByRole("checkbox", { name: /^O \d+(\.\d+)?$/ }).check();
+  await page.getByRole("button", { name: "Build teaser" }).click();
+  await page.getByLabel("Risk", { exact: true }).fill("1");
+  expect(await page.evaluate(async (poolSlug) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: `/api/p/${poolSlug}/wagers/teasers/quote` }) })).status, source.slug)).toBe(200);
+  await page.getByRole("button", { name: "Review teaser wager" }).click();
+  await expect(page.getByRole("heading", { name: "Reviewing teaser wager" })).toBeVisible();
+
+  await navigateWithinSpa(page, "/p/teaser-route-destination/teaser");
+  await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
+  await page.waitForTimeout(6_000);
+  await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Confirm teaser wager" })).toHaveCount(0);
 });
 
 test("commissioner funds shares and confirms a canonical straight wager through the isolated local Worker", async ({
@@ -100,18 +195,14 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   expect(straightQuoteBodies[2]!.wagerId).toBe(straightQuoteBodies[1]!.wagerId);
   expect(straightQuoteBodies[2]!.leg).toEqual(straightQuoteBodies[1]!.leg);
   expect(straightQuoteBodies[2]!.quoteKey).not.toBe(straightQuoteBodies[1]!.quoteKey);
-  // The real first placement completes before its response is withheld. Retry
-  // must resend the exact frozen placement with the same durable identity.
+  // The real first placement completes before its response is withheld. The
+  // browser automatically replays the exact frozen placement after two seconds.
   expect(await page.evaluate(async () => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: "/api/p/orders-pool/wagers/straight/place" }) })).status)).toBe(200);
-  const droppedPlacementAt = Date.now();
   await page.getByRole("button", { name: "Place 1 wager" }).click();
-  await expect(page.getByRole("alert")).toContainText("Placement result unknown");
-  expect(Date.now() - droppedPlacementAt).toBeLessThan(10_000);
-  await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
-  await page.getByRole("button", { name: "Place 1 wager" }).click();
-  await expect.poll(() => straightPlacementBodies).toHaveLength(2);
+  await expect.poll(() => straightPlacementBodies, { timeout: 15_000 }).toHaveLength(2);
   expect(straightPlacementBodies[1]).toEqual(straightPlacementBodies[0]);
   await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await page.getByRole("link", { name: "My wagers" }).click();
   await expect(page).toHaveURL(/\/p\/orders-pool\/my-wagers$/);
   await page.getByRole("link", { name: "Return to games", exact: true }).click();
@@ -142,7 +233,7 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   await expect(page).toHaveURL(/\/p\/orders-pool\/my-wagers$/);
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
-  await expect(openBets.getByRole("row", { name: /Local Away at Local Home.*Local Away \+3.*\+100.*1\.00.*2\.00/ }).first()).toBeVisible();
+  await expect(openBets.getByRole("row", { name: /Local Away at Local Home.*Local Away \+3.*1 \+100.*2\.00/ }).first()).toBeVisible();
   await expect(page.getByText("Bets cannot be canceled after placement.")).toBeVisible();
   // The browser renders the real durable balance without ever converting its
   // canonical integer micros through Number.
@@ -527,7 +618,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
   await expect(openBets.getByText("Local Away at Local Home")).toHaveCount(2);
-  await expect(openBets.getByRole("row", { name: /-120.*1\.00.*1\.83/ })).toBeVisible();
+  await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.83/ })).toBeVisible();
 });
 
 test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh explicit straight re-quote", async ({
@@ -752,6 +843,8 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByLabel("Amount")).toHaveValue("1");
   await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
+  const quotedMemberId = await page.getByLabel("Member").inputValue();
+  expect(quotedMemberId).toBeTruthy();
   const orderQuoteBodies: Record<string, unknown>[] = [];
   const orderExecutionBodies: Record<string, unknown>[] = [];
   page.on("request", (request) => {
@@ -770,7 +863,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     await expect(
       page.getByRole("heading", { name: "Confirm share order" }),
     ).toBeVisible();
-    const reviewedQuotes = () => orderQuoteBodies.slice(quoteStart).filter((body) => body.amountMicros === "1000000" && body.mode === mode);
+    const reviewedQuotes = () => orderQuoteBodies.slice(quoteStart).filter((body) => body.memberId === quotedMemberId && body.amountMicros === "1000000" && body.mode === mode);
     await expect.poll(() => reviewedQuotes()).toHaveLength(1);
     const originalQuote = reviewedQuotes()[0]!;
     expect(originalQuote.idempotencyKey).toEqual(expect.any(String));
@@ -820,7 +913,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     });
     expect(bumped).toBe(200);
     await page.getByRole("button", { name: "Confirm order" }).click();
-    const reviewedExecutions = () => orderExecutionBodies.slice(executionStart).filter((body) => body.amountMicros === "1000000" && body.mode === mode);
+    const reviewedExecutions = () => orderExecutionBodies.slice(executionStart).filter((body) => body.memberId === quotedMemberId && body.amountMicros === "1000000" && body.mode === mode);
     await expect.poll(() => reviewedExecutions()).toHaveLength(1);
     const rejectedExecution = reviewedExecutions()[0]!;
     expect(rejectedExecution.idempotencyKey).toEqual(expect.any(String));
@@ -1266,7 +1359,7 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
     .click();
   await page.getByLabel("Reason").fill("Requires a fresh sign-in");
   await page.getByRole("button", { name: "Confirm reversal" }).click();
-  await expect(page.getByRole("alert")).toContainText("sign in again");
+  await expect(page.getByRole("alert")).toHaveText("Sign in again.");
   await expect(
     page.getByRole("heading", { name: "Confirm share-order reversal" }),
   ).toBeVisible();

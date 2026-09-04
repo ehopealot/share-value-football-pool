@@ -21,10 +21,13 @@ const leg = (grade?: string) => ({
   homeTeam: "Arizona",
   ...(grade ? { grade } : {})
 });
+const wager = (legs: ReturnType<typeof leg>[]) => ({
+  wagerId: "wager", seasonId: "season", memberId: "member", memberDisplayName: "Member", type: "parlay" as const, status: "lost" as const, confirmedAt: "2026-09-01T00:00:00.000Z", weekStart: "2026-09-01T04:00:00.000Z", performanceMicros: "-1000000", legs
+});
 
 describe("graded wager presentation", () => {
-  it("colors every parlay or teaser leg from its own grade", () => {
-    const html = render(createElement(WagerLines, { legs: [leg("loss"), leg("win"), leg("push"), leg("void"), leg()] }));
+  it("colors every multi-leg wager from its own grade", () => {
+    const html = render(createElement(WagerLines, { wager: wager([leg("loss"), leg("win"), leg("push"), leg("void"), leg()]) }));
 
     expect(html).toContain('class="activity-leg-loss"');
     expect(html).toContain('class="activity-leg-win"');

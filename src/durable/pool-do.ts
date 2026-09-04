@@ -1,4 +1,4 @@
-import { migrateSeasonCreatedAt, poolSchema } from "./schema";
+import { migratePoolStorage, migrateSeasonCreatedAt, poolSchema } from "./schema";
 import { authenticatePoolSecret, hashPoolPassword, verifyPoolPassword } from "../security/pool-password";
 import { executeShareOrder, quoteShareOrder, reverseShareOrder } from "./accounting-commands";
 import { divideRoundHalfEven, MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
@@ -13,6 +13,7 @@ import { enqueueOutbox, drainOutbox, nextOutboxAttempt, type PoolOutboxMessage }
 import { shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { TEASER_RULESET_ID } from "../domain/teaser-table";
+import { parlayOdds } from "../domain/parlay";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -27,9 +28,11 @@ const first = (sql: SqlStorage, query: string, ...params: SqlStorageValue[]): Ro
 const now = () => new Date().toISOString();
 const actorId = (command: PoolCommand) => command.type === "InitializePool" ? command.creatorId : command.actorId;
 const isReadCommand = (command: PoolCommand) => command.type === "ReadPoolGate" || command.type === "ReadPoolView" || command.type === "ReadMessageBoard" || command.type === "ReadStandings" || command.type === "ReadActivity" || command.type === "ReadSeasonHistory" || command.type === "ReadWagers" || command.type === "ReadMyWagers" || command.type === "ReadAuditExport" || command.type === "ProbePlacementReplay" || command.type === "ReplayWagerQuote";
-const isQuoteCommand = (command: PoolCommand) => command.type === "QuoteShareOrder" || command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager";
-/** Board conversation is authoritative-only and deliberately has no D1 projection or alarm work. */
-const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost";
+const isQuoteCommand = (command: PoolCommand) => command.type === "QuoteShareOrder" || command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager";
+/** A standalone commissioner notice is informational and must not affect wagering or projections. */
+const isNoticeOnlySettingsCommand = (command: PoolCommand) => command.type === "UpdatePoolSettings" && command.commissionerNotice !== undefined && command.poolName === undefined && command.password === undefined && command.signupsOpen === undefined && command.maxSideBetMicros === undefined;
+/** Board conversation and standalone commissioner notices are authoritative-only, without D1 projection or alarm work. */
+const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost" && !isNoticeOnlySettingsCommand(command);
 const canonical = (value: unknown) => JSON.stringify(value);
 /** The durable quote binding intentionally excludes snapshot and envelope metadata. */
 const placementTerms = (value: { wagerId: string; quoteKey: string; seasonId: string; riskMicros: string; acceptedOdds: number; rulesetVersion: string; leg?: unknown; teaserPoints?: number; legs?: unknown }) => value.leg !== undefined
@@ -43,7 +46,7 @@ const requestFingerprint = (command: PoolCommand, commandAuthenticatorKey?: stri
   if (command.type === "InitializePool" || command.type === "JoinPool") return canonical({ ...command, password: authenticate(command.password) });
   if (command.type === "UpdatePoolSettings" && command.password !== undefined) return canonical({ ...command, password: authenticate(command.password) });
   // Browser quote retries must survive mutable D1 offers, while reuse for a different browser request remains a conflict.
-  if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager") return canonical({ type: command.type, commandId: command.commandId, actorId: command.actorId, identity: command.identity });
+  if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager") return canonical({ type: command.type, commandId: command.commandId, actorId: command.actorId, identity: command.identity });
   return canonical(command);
 };
 /** Pre-announcement post commands remain replayable for the processed-command retention window. */
@@ -59,7 +62,10 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
 export class PoolDO {
   constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
-    migrateSeasonCreatedAt(this.state.storage.sql);
+    this.state.storage.transactionSync(() => {
+      migrateSeasonCreatedAt(this.state.storage.sql);
+      migratePoolStorage(this.state.storage.sql);
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -161,7 +167,8 @@ export class PoolDO {
       case "RegradeWager": payload = { ...base, commandType: command.type, wagerId: command.wagerId }; break;
       case "CreateSeasonAnnotation": payload = { ...base, commandType: command.type, seasonId: command.seasonId }; break;
       case "PlaceStraightWager":
-      case "PlaceTeaserWager": payload = { ...base, commandType: command.type, seasonId: command.seasonId, memberId: command.actorId, wagerId: command.wagerId }; break;
+      case "PlaceTeaserWager":
+      case "PlaceParlayWager": payload = { ...base, commandType: command.type, seasonId: command.seasonId, memberId: command.actorId, wagerId: command.wagerId }; break;
       default: throw new Error("OUTBOX_IDENTITY_MISSING");
     }
     return { eventId: crypto.randomUUID(), eventType: "CommandApplied", version, payload };
@@ -180,7 +187,7 @@ export class PoolDO {
   }
 
   private authorized(sql: SqlStorage, command: Exclude<PoolCommand, { type: "InitializePool" }>): PoolCommandResult {
-    const pool = first(sql, "SELECT commissioner_id, password_hash, signups_open, max_side_bet_micros, command_version, active_season_id FROM pool LIMIT 1");
+    const pool = first(sql, "SELECT commissioner_id, password_hash, signups_open, max_side_bet_micros, commissioner_notice, command_version, active_season_id FROM pool LIMIT 1");
     if (!pool) throw new Error("POOL_NOT_INITIALIZED");
     const member = first(sql, "SELECT role, status FROM member WHERE user_id = ?", command.actorId);
     if (member?.status === "suspended") throw new Error("SUSPENDED");
@@ -221,7 +228,7 @@ export class PoolDO {
     if (command.type === "ReadAuditExport") return { commandVersion: String(pool.command_version), ...memberAuditExport(sql, command.actorId, this.authoritativeTime()) };
     if (command.type === "ProbePlacementReplay") {
       const candidate = poolCommandSchema.safeParse(command.placement);
-      if (!candidate.success || (candidate.data.type !== "PlaceStraightWager" && candidate.data.type !== "PlaceTeaserWager") || candidate.data.actorId !== command.actorId) throw new Error("INVALID_PLACEMENT_REPLAY_PROBE");
+      if (!candidate.success || (candidate.data.type !== "PlaceStraightWager" && candidate.data.type !== "PlaceTeaserWager" && candidate.data.type !== "PlaceParlayWager") || candidate.data.actorId !== command.actorId) throw new Error("INVALID_PLACEMENT_REPLAY_PROBE");
       const previousPlacement = first(sql, "SELECT type, actor_id, request_json, response_json FROM processed_command WHERE id = ?", candidate.data.commandId);
       if (!previousPlacement) return { commandVersion: String(pool.command_version), replayed: false };
       if (previousPlacement.type !== candidate.data.type || previousPlacement.actor_id !== candidate.data.actorId || previousPlacement.request_json !== requestFingerprint(candidate.data, this.env.POOL_COMMAND_AUTHENTICATOR_KEY)) throw new Error("IDEMPOTENCY_CONFLICT");
@@ -234,32 +241,35 @@ export class PoolDO {
       if (stored.fingerprint !== command.identity.fingerprint) throw new Error("IDEMPOTENCY_CONFLICT");
       return JSON.parse(String(stored.snapshot_json)) as PoolCommandResult;
     }
-    if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager") {
+    if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager") {
       if (command.identity.actorId !== command.actorId || command.identity.quoteKey !== command.commandId || command.projection.actorId !== command.actorId || command.projection.quoteKey !== command.commandId || command.projection.fingerprint !== command.identity.fingerprint) throw new Error("INVALID_QUOTE");
       const existing = first(sql, "SELECT fingerprint, wager_id, kind, snapshot_json FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.commandId);
-      const kind = command.type === "QuoteStraightWager" ? "straight" : "teaser";
+      const kind = command.type === "QuoteStraightWager" ? "straight" : command.type === "QuoteTeaserWager" ? "teaser" : "parlay";
       if (existing) {
         if (existing.fingerprint !== command.identity.fingerprint || existing.wager_id !== command.projection.wagerId || existing.kind !== kind) throw new Error("IDEMPOTENCY_CONFLICT");
         return JSON.parse(String(existing.snapshot_json)) as PoolCommandResult;
       }
       const commandVersion = String(pool.command_version);
       if (command.type === "QuoteTeaserWager") {
+        if (command.projection.legs.length > 6) throw new Error("INVALID_QUOTE");
         try {
           validateTeaser(command.projection.legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg)), command.projection.teaserPoints);
         } catch {
           throw new Error("INVALID_QUOTE");
         }
       }
+      if (command.type === "QuoteParlayWager" && parlayOdds(command.projection.legs) !== command.projection.acceptedOdds) throw new Error("INVALID_QUOTE");
       const { wagerId: quotedWagerId, actorId: _actor, fingerprint: _fingerprint, ...snapshot } = command.projection;
       if (snapshot.ownerMemberId !== command.actorId || snapshot.commandVersion !== commandVersion) throw new Error("ORDER_QUOTE_STALE");
       const terms = placementTerms({ wagerId: quotedWagerId, ...snapshot });
       sql.exec("INSERT INTO wager_quote (actor_id, quote_key, fingerprint, wager_id, kind, terms_json, command_version, snapshot_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", command.actorId, command.commandId, command.identity.fingerprint, quotedWagerId, kind, canonical(terms), commandVersion, canonical(snapshot), now());
       return snapshot;
     }
-    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager") {
+    if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager" || command.type === "PlaceParlayWager") {
+      if (command.type === "PlaceTeaserWager" && command.legs.length > 6) throw new Error("INVALID_WAGER_LEG");
       const quote = first(sql, "SELECT wager_id, kind, terms_json, command_version FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.quoteKey);
       if (!quote) throw new Error("LINE_CHANGED");
-      const kind = command.type === "PlaceStraightWager" ? "straight" : "teaser";
+      const kind = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";
       if (quote.kind !== kind || String(quote.wager_id) !== command.wagerId) throw new Error("LINE_CHANGED");
       if (command.quotedCommandVersion !== String(quote.command_version) || command.quotedCommandVersion !== String(pool.command_version)) throw new Error("ORDER_QUOTE_STALE");
       if (canonical(placementTerms(command)) !== String(quote.terms_json)) throw new Error("LINE_CHANGED");
@@ -324,8 +334,8 @@ export class PoolDO {
     if (command.type === "UpdatePoolSettings") {
       if (command.poolName !== undefined && command.poolName.trim().length === 0) throw new Error("INVALID_POOL_NAME");
       const passwordHash = command.password === undefined ? pool.password_hash : hashPoolPassword(command.password);
-      sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?, max_side_bet_micros = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0, command.maxSideBetMicros ?? String(pool.max_side_bet_micros));
-      return { commandVersion: this.bumpVersion(sql) };
+      sql.exec("UPDATE pool SET name = ?, password_hash = ?, password_version = password_version + ?, signups_open = ?, max_side_bet_micros = ?, commissioner_notice = ?", command.poolName?.trim() || first(sql, "SELECT name FROM pool LIMIT 1")!.name, passwordHash, command.password === undefined ? 0 : 1, command.signupsOpen === undefined ? first(sql, "SELECT signups_open FROM pool LIMIT 1")!.signups_open : command.signupsOpen ? 1 : 0, command.maxSideBetMicros ?? String(pool.max_side_bet_micros), command.commissionerNotice === undefined ? pool.commissioner_notice ?? null : command.commissionerNotice);
+      return { commandVersion: isNoticeOnlySettingsCommand(command) ? String(pool.command_version) : this.bumpVersion(sql) };
     }
     if (command.type === "CreateSeason") {
       if (first(sql, "SELECT id FROM season WHERE state IN ('draft', 'active')")) throw new Error("OVERLAPPING_SEASON");
@@ -494,7 +504,7 @@ export class PoolDO {
     const text = (value: SqlStorageValue | null | undefined) => value === null || value === undefined ? null : String(value);
     const orders = [...sql.exec<Row>("SELECT o.id, o.season_id, o.member_id, m.display_name, o.actor_id, o.mode, o.requested_micros, o.shares_micros, o.value_micros, o.price_micros, o.reversal_of, o.reason, o.command_id, o.created_at FROM share_order o JOIN member m ON m.user_id = o.member_id WHERE o.season_id = ? ORDER BY o.created_at, o.rowid", seasonId)].map((row) => ({ id: String(row.id), seasonId: String(row.season_id), memberId: String(row.member_id), memberDisplayName: String(row.display_name), actorId: String(row.actor_id), mode: String(row.mode), requestedMicros: String(row.requested_micros), sharesMicros: String(row.shares_micros), valueMicros: String(row.value_micros), priceMicros: String(row.price_micros), reversalOf: text(row.reversal_of), reason: String(row.reason), commandId: String(row.command_id), createdAt: String(row.created_at) }));
     const ledger = [...sql.exec<Row>("SELECT l.id, l.season_id, l.member_id, m.display_name, l.actor_id, l.available_delta, l.locked_delta, l.float_delta, l.notional_delta, l.causation_id, l.kind, l.created_at FROM ledger_entry l JOIN member m ON m.user_id = l.member_id WHERE l.season_id = ? ORDER BY l.created_at, l.rowid", seasonId)].map((row) => ({ id: String(row.id), seasonId: String(row.season_id), memberId: String(row.member_id), memberDisplayName: String(row.display_name), actorId: String(row.actor_id), availableDelta: String(row.available_delta), lockedDelta: String(row.locked_delta), floatDelta: String(row.float_delta), notionalDelta: String(row.notional_delta), causationId: String(row.causation_id), kind: String(row.kind), createdAt: String(row.created_at) }));
-    const settlements = [...sql.exec<Row>("SELECT s.id, s.wager_id, s.result_version, s.outcome, s.return_micros, s.profit_micros, s.source_result_json, s.reversal_of, s.actor_id, s.reason, s.created_at FROM settlement s JOIN wager w ON w.id = s.wager_id WHERE w.season_id = ? ORDER BY s.created_at, s.rowid", seasonId)].map((row) => ({ id: String(row.id), wagerId: String(row.wager_id), resultVersion: String(row.result_version), outcome: String(row.outcome), returnMicros: String(row.return_micros), profitMicros: String(row.profit_micros), sourceResult: JSON.parse(String(row.source_result_json)), reversalOf: text(row.reversal_of), actorId: String(row.actor_id), reason: text(row.reason), createdAt: String(row.created_at) }));
+    const settlements = [...sql.exec<Row>("SELECT s.id, s.wager_id, s.result_version, s.outcome, s.return_micros, s.profit_micros, s.settled_odds, s.source_result_json, s.reversal_of, s.actor_id, s.reason, s.created_at FROM settlement s JOIN wager w ON w.id = s.wager_id WHERE w.season_id = ? ORDER BY s.created_at, s.rowid", seasonId)].map((row) => ({ id: String(row.id), wagerId: String(row.wager_id), resultVersion: String(row.result_version), outcome: String(row.outcome), returnMicros: String(row.return_micros), profitMicros: String(row.profit_micros), settledOdds: row.settled_odds === null ? null : Number(row.settled_odds), sourceResult: JSON.parse(String(row.source_result_json)), reversalOf: text(row.reversal_of), actorId: String(row.actor_id), reason: text(row.reason), createdAt: String(row.created_at) }));
     const wagerCorrections = [...sql.exec<Row>("SELECT c.id, c.wager_id, c.actor_id, c.reason, c.source_result_json, c.replacement_result_json, c.command_id, c.created_at FROM wager_correction c JOIN wager w ON w.id = c.wager_id WHERE w.season_id = ? ORDER BY c.created_at, c.rowid", seasonId)].map((row) => ({ id: String(row.id), wagerId: String(row.wager_id), actorId: String(row.actor_id), reason: String(row.reason), sourceResult: JSON.parse(String(row.source_result_json)), replacementResult: JSON.parse(String(row.replacement_result_json)), commandId: String(row.command_id), createdAt: String(row.created_at) }));
     const eventResults = [...sql.exec<Row>("SELECT event_id, result_json, observed_at FROM season_provider_result WHERE season_id = ? ORDER BY append_order", seasonId)].map((row) => ({ eventId: String(row.event_id), result: JSON.parse(String(row.result_json)), observedAt: String(row.observed_at) }));
     return {
@@ -506,7 +516,7 @@ export class PoolDO {
   }
 
   private readPool(sql: SqlStorage, actorId: string, commandVersion: string, activeSeasonId: SqlStorageValue | undefined): PoolCommandResult {
-    const pool = first(sql, "SELECT id, slug, name, commissioner_id, signups_open, max_side_bet_micros FROM pool LIMIT 1")!;
+    const pool = first(sql, "SELECT id, slug, name, commissioner_id, signups_open, max_side_bet_micros, commissioner_notice FROM pool LIMIT 1")!;
     const currentRole = String(first(sql, "SELECT role FROM member WHERE user_id = ?", actorId)!.role) as "commissioner" | "member";
     const summary = (season: Row | undefined) => !season ? null : ({ id: String(season.id), label: String(season.label), rulesetVersion: String(season.ruleset_version), state: String(season.state), createdAt: String(season.created_at), openedAt: season.opened_at === null ? null : String(season.opened_at), closedAt: season.closed_at === null ? null : String(season.closed_at), defaultOrderMode: season.default_mode === null ? null : String(season.default_mode), defaultOrderAmountMicros: season.default_amount_micros === null ? null : String(season.default_amount_micros), floatMicros: String(season.float_micros), notionalValueMicros: String(season.notional_micros), superBowlCandidate: (() => { const candidate = first(sql, "SELECT event_id, provider_event_name, confirmed_at FROM season_super_bowl WHERE season_id = ?", season.id); return candidate ? { eventId: String(candidate.event_id), providerEventName: String(candidate.provider_event_name), confirmedAt: candidate.confirmed_at === null ? null : String(candidate.confirmed_at) } : null; })(), ...(String(season.state) === "closed" ? { closeReason: season.close_reason === null ? null : String(season.close_reason) } : {}) });
     const active = activeSeasonId === null || activeSeasonId === undefined ? undefined : first(sql, "SELECT * FROM season WHERE id = ? AND state = 'active'", activeSeasonId);
@@ -523,6 +533,6 @@ export class PoolDO {
     const boardRead = first(sql, "SELECT last_read_at FROM message_board_read WHERE member_id = ?", actorId);
     const hasUnreadBoard = latestBoardActivity?.activity_at !== null && latestBoardActivity?.activity_at !== undefined
       && (boardRead?.last_read_at === null || boardRead?.last_read_at === undefined || String(latestBoardActivity.activity_at) > String(boardRead.last_read_at));
-    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances, hasUnreadBoard }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
+    return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros), commissionerNotice: pool.commissioner_notice === null || pool.commissioner_notice === undefined ? null : String(pool.commissioner_notice) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances, hasUnreadBoard }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
   }
 }

@@ -12,6 +12,7 @@ export function WagerDetails({ wager, ownerOutcome = false }: { wager: Wager; ow
   return <section aria-labelledby={`wager-${wager.wagerId}`}>
     <h3 id={`wager-${wager.wagerId}`}>{wager.memberDisplayName} — {wager.type} wager</h3>
     <p>Status: {wager.status}. {outcome}.</p>
+    {ownerOutcome && wager.acceptedOdds !== undefined && <p>Accepted ticket odds: {formatAmericanOdds(wager.acceptedOdds)}. {wager.outcome === "won" ? `Recorded settlement odds: ${typeof wager.settledOdds === "number" ? formatAmericanOdds(wager.settledOdds) : "Not recorded"}.` : "No paid odds."}</p>}
     {wager.legs?.length ? <div className="table-scroll" tabIndex={0}><table>
       <caption>Authorized wager selections</caption>
       <thead><tr><th>Event ID</th><th>League</th><th>Teams</th><th>Market</th><th>Selection</th><th>Accepted line</th><th>Adjusted line</th><th>Source</th><th>Retrieved</th><th>Start time</th><th>Grade</th><th>Result version</th></tr></thead>

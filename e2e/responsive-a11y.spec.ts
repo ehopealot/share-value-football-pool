@@ -54,7 +54,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
     [`/p/${pool.slug}/overview`, pool.name],
     [`/p/${pool.slug}/odds`, "Odds board"],
     [`/p/${pool.slug}/teaser`, "Teaser builder"],
-    [`/p/${pool.slug}/my-wagers`, "My wagers"],
+    [`/p/${pool.slug}/my-wagers`, "Open bets"],
     [`/p/${pool.slug}/standings`, "Standings"],
     [`/p/${pool.slug}/activity`, "Activity"],
     [`/p/${pool.slug}/rules`, "Pool rules"],
@@ -107,7 +107,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await expect(page.locator(".selection-tray-list li > label")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Place bets" })).toHaveCSS("min-height", "44px");
   await page.goto(`${worker.baseURL}/p/${pool.slug}/my-wagers`);
-  await expect(page.getByRole("heading", { name: "My wagers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   await expectNoViewportOverflow(page);
   await page.goto(`${worker.baseURL}/p/${pool.slug}/activity`);
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();

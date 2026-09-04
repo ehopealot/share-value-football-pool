@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "../src/web/api";
 import { HomeLoadGeneration, loadHome } from "../src/web/pages/HomePage";
 import { destination } from "../src/web/pages/AuthPages";
-import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, noVigAmerican, SEASON_WEEK1_ANCHOR, straightQuoteRequest, weekStartOf } from "../src/web/pages/OddsPage";
+import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, straightPlacementBatchTransition, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
-import { addTeaserLeg, teaserLegForOutcome } from "../src/web/teaser-slip";
-import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserRecoveryTransition, teaserTerminalTransition } from "../src/web/pages/TeaserPage";
+import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
+import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
+import { PageGeneration } from "../src/web/page-generation";
 
 describe("entry redirects", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -40,7 +41,7 @@ describe("entry redirects", () => {
     session.mockRestore(); memberships.mockRestore();
   });
   it("projects Admin Orders lifecycle and reversal pairing from ReadPoolView", () => {
-    const base = { commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "commissioner", signupsOpen: true, maxSideBetMicros: "800000000" }, currentMember: { memberId: "commissioner", role: "commissioner" as const, seasonBalances: [], hasUnreadBoard: false }, members: [{ memberId: "commissioner", displayName: "Commissioner", role: "commissioner" as const, status: "active" as const }], commissioner: { seasonOrders: [] } };
+    const base = { commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "commissioner", signupsOpen: true, maxSideBetMicros: "800000000", commissionerNotice: null }, currentMember: { memberId: "commissioner", role: "commissioner" as const, seasonBalances: [], hasUnreadBoard: false }, members: [{ memberId: "commissioner", displayName: "Commissioner", role: "commissioner" as const, status: "active" as const }], commissioner: { seasonOrders: [] } };
     expect(projectAdminOrders({ ...base, activeSeason: null, nextDraftSeason: null, latestClosedSeason: null })).toMatchObject({ notice: "No active season. Create and open a season before issuing orders.", canOrder: false });
     const active = { id: "season", label: "2026", rulesetVersion: "SHARE_POOL_2026_V1", state: "active" as const, defaultOrderMode: "shares" as const, defaultOrderAmountMicros: "1000000", createdAt: "2030-01-01T00:00:00.000Z", openedAt: "2030-01-01T00:00:00.000Z", closedAt: null, floatMicros: "0", notionalValueMicros: "0" };
     const original = { orderId: "original", memberId: "commissioner", mode: "shares" as const, requestedMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", reversalOf: null, reason: "Issue", createdAt: "2030-01-01T00:00:00.000Z" };
@@ -68,6 +69,15 @@ describe("entry redirects", () => {
     expect(addTeaserLeg([home], home).error).toBe("Duplicate selections are not allowed.");
     expect(addTeaserLeg([home], teaserLegForOutcome(offer, { point: 3.5, price: -110 }, "away")).error).toBe("Opposing selections are not allowed.");
   });
+  it("caps new teaser slips at six legs without changing legacy server envelopes", () => {
+    const leg = (index: number) => ({ eventId: `event-${index}`, league: "nfl" as const, canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: {}, market: "spread" as const, selection: "home" as const, originalLine: -3.5, originalOdds: -110, eventStartsAt: "2030-09-01T12:00:00.000Z" });
+    const six = Array.from({ length: 6 }, (_, index) => leg(index));
+    expect(addTeaserLeg(six.slice(0, 5), six[5]!).error).toBe("");
+    expect(addTeaserLeg(six, leg(6)).error).toBe("Choose no more than six legs.");
+    expect(validateTeaser(six, 6)).toBe("");
+    expect(validateTeaser([...six, leg(6)], 6)).toBe("Choose two to six legs.");
+  });
+
   it("re-resolves stale teaser semantics from current offers without accepting a replacement payload", async () => {
     const offer = { eventId: "event-1", league: "nfl" as const, homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread" as const, canonicalBook: "CurrentBook", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v2", policyVersion: "CANONICAL_BOOKS_2026_V1" as const, outcomes: [{ name: "Home", price: -105, point: -2.5 }] };
     const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [offer], feed: { status: "current", message: "Odds are up to date.", lastPolledAt: "2030-09-01T10:00:00.000Z", lastSuccessAt: "2030-09-01T10:00:00.000Z" } });
@@ -97,6 +107,11 @@ describe("entry redirects", () => {
     expect(terminalTeaser.editor.wagerId).not.toBe(teaser.wagerId); expect(terminalTeaser.editor.quoteKey).not.toBe(teaser.quoteKey);
     const editedTeaser = editTeaserSemantic(teaser);
     expect(editedTeaser.wagerId).not.toBe(teaser.wagerId); expect(editedTeaser.quoteKey).not.toBe(teaser.quoteKey);
+    const teaserQuote = { quoteKey: teaser.quoteKey };
+    const unresolvedTeaser = teaserUnresolvedPlacementTransition({ tag: "reviewing", request: teaser, quote: teaserQuote, mutationKey: "teaser-place" });
+    expect(unresolvedTeaser).toEqual({ tag: "placement-unknown", request: teaser, quote: teaserQuote, mutationKey: "teaser-place" });
+    expect(teaserPlacementAttemptTransition(unresolvedTeaser)).toEqual({ state: { ...unresolvedTeaser, tag: "submitting" }, error: "" });
+    expect(teaserUnknownPlacementMessage).toBe("Placement result unknown. Retry this exact placement to check its result.");
 
     const order = { seasonId: "s", memberId: "m", mode: "shares" as const, amount: "1", quoteKey: "order-quote" };
     const recoveredOrder = recoverStaleOrderEditor(order);
@@ -111,14 +126,15 @@ describe("entry redirects", () => {
     expect(request).toMatchObject({ wagerId: "wager-1", seasonId: "season-1", riskMicros: "3000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event-1:spread:home", offerVersion: "v2" }, quoteKey: "quote-v1", commandId: "quote-v1" });
 
     const later = { ...offer, eventId: "event-2", startsAt: "2030-09-01T13:00:00.000Z", market: "total" as const, outcomes: [{ name: "Over", price: -110, point: 44.5 }] };
-    const moneyline = { ...offer, eventId: "event-3", startsAt: "2030-09-01T11:00:00.000Z", market: "moneyline" as const, outcomes: [{ name: "Home", price: 150 }] };
-    const games = groupBoardByEvent([later, offer, { ...moneyline, outcomes: [{ name: "Home", price: 150 }, { name: "Away", price: -170 }] }]);
+    const moneyline = { ...offer, eventId: "event-3", startsAt: "2030-09-01T11:00:00.000Z", market: "moneyline" as const, outcomes: [{ name: "Home", price: -135 }, { name: "Away", price: 115 }] };
+    const games = groupBoardByEvent([later, offer, moneyline]);
     expect(games.map((game) => game.eventId)).toEqual(["event-3", "event-1", "event-2"]);
     expect(games[1]).toMatchObject({ awayTeam: "Away", homeTeam: "Home", markets: { spread: { home: { label: "Home -2.5", selection: "home" } }, total: {}, moneyline: {} } });
     expect(games[2]).toMatchObject({ markets: { total: { over: { label: "O 44.5", selection: "over" } } } });
-    expect(noVigAmerican(-150, 130)).toEqual({ a: -138, b: 138 });
-    expect(noVigAmerican(-110, -110)).toEqual({ a: 100, b: 100 });
-    expect(noVigAmerican(0, 100)).toBeUndefined();
+    expect(games[0]).toMatchObject({ markets: { moneyline: { home: { label: "Home -124" }, away: { label: "Away +124" } } } });
+    const trayMoneyline = moneyline;
+    const trayItem = { eventId: "event-3", market: "moneyline" as const, selection: "home" as const, wagerId: "tray-moneyline", risk: "" };
+    expect(trayLabel({ offers: [trayMoneyline] }, trayItem, { offer: trayMoneyline, outcome: trayMoneyline.outcomes[0] })).toBe("Away at Home: moneyline — Home -124");
 
     const asApi = (code: string, status: number) => new ApiError(code, status);
     expect(failureReason(asApi("LINE_CHANGED", 400), "quote")).toBe("Line changed.");
@@ -127,6 +143,42 @@ describe("entry redirects", () => {
     expect(failureReason(new Error("offline"), "quote")).toBe("Odds unavailable.");
     expect(failureReason(asApi("MARKET_LOCKED", 400), "place")).toBe("Event has started.");
     expect(failureReason(asApi("SIDE_BET_LIMIT", 400), "place", "800000000")).toBe("Max bet: 800 shares.");
+  });
+
+  it("invalidates pending placement work when a route changes or unmounts", () => {
+    const pages = new PageGeneration();
+    const oldPool = pages.start("old-pool");
+    expect(pages.capture("old-pool")).toBe(oldPool);
+    expect(pages.current(oldPool)).toBe(true);
+
+    const newPool = pages.start("new-pool");
+    expect(pages.current(oldPool)).toBe(false);
+    pages.invalidate(oldPool);
+    expect(pages.current(newPool)).toBe(true);
+    pages.invalidate(newPool);
+    expect(pages.current(newPool)).toBe(false);
+  });
+
+  it("retains known straight-batch outcomes while retrying only unresolved placements", () => {
+    const retry = [{ label: "Unknown placement" }] as any;
+    const transition = straightPlacementBatchTransition(
+      { entries: retry, quoteFailures: [{ label: "Unquoted", reason: "Odds unavailable." }], placed: ["Already placed"], failed: [{ label: "Already rejected", reason: "Event has started." }] } as any,
+      { placed: [{ label: "Newly placed" }], failed: [{ label: "Rejected now", reason: "Not enough shares.", entry: {} }], retry } as any
+    );
+    expect(transition).toEqual({
+      tag: "reviewing",
+      entries: retry,
+      quoteFailures: [{ label: "Unquoted", reason: "Odds unavailable." }],
+      placed: ["Already placed", "Newly placed"],
+      failed: [{ label: "Already rejected", reason: "Event has started." }, { label: "Rejected now", reason: "Not enough shares." }]
+    });
+
+    expect(straightPlacementBatchTransition(transition as any, { placed: [{ label: "Recovered placement" }], failed: [], retry: [] } as any)).toEqual({
+      tag: "results",
+      placed: ["Already placed", "Newly placed", "Recovered placement"],
+      failed: [{ label: "Already rejected", reason: "Event has started." }, { label: "Rejected now", reason: "Not enough shares." }],
+      retryPlacements: []
+    });
   });
 
   it("anchors Tuesday weeks to Eastern Time boundaries", () => {

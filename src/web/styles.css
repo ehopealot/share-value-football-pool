@@ -7,6 +7,8 @@
   --orange: #c75000;
   --focus: #7a2d00;
   --focus-on-dark: #ffdf7e;
+  --notice-background: #ffdf7e;
+  --notice-ink: #4a2100;
   --line: #6e7780;
   --space-1: 0.4rem;
   --space-2: 0.75rem;
@@ -23,6 +25,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .masthead { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--navy); color: #fff; }
 .site-name, .site-note { margin: 0; }
 .site-name { font-size: 1.25rem; font-weight: 700; }
+.commissioner-notice { display: grid; gap: 0.15rem; padding: var(--space-2) var(--space-3); border-block: 1px solid #7a2d00; background: var(--notice-background); color: var(--notice-ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.commissioner-notice strong { font-size: 0.9rem; }
+.commissioner-notice-input { display: block; width: min(100%, 65ch); min-height: 5rem; padding: var(--space-2); border: 1px solid var(--line); border-radius: 0; font: inherit; resize: vertical; }
 .nav-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
 .nav-bar a { color: #fff; }
 .nav-bar a.active { font-weight: 700; }
@@ -71,6 +76,8 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .odds-start { white-space: nowrap; color: #3b4046; }
 /* Bet slip pinned to the viewport bottom with compact amount inputs. */
 .selection-tray { position: sticky; bottom: 0; z-index: 2; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
+.selection-tray h2 { margin: 0; font-size: 1rem; }
+.pool-balance { margin: 0.15rem 0; font-size: 0.8rem; white-space: nowrap; }
 .selection-tray-list li { flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
 .tray-item-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 0.85rem; }
 .selection-tray-amount input { width: 4.5rem; text-align: right; }
@@ -91,8 +98,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .join-pool-controls button { margin: 0; }
 .main-content:has(.my-wagers-page) { max-width: none; }
 .my-wagers-page table { min-width: 58rem; }
-.teaser-risk-actions { display: flex; align-items: flex-end; justify-content: flex-start; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
-.teaser-risk-actions label, .teaser-review-action { margin: 0; }
+.teaser-risk-actions, .parlay-risk-actions { display: flex; align-items: flex-end; justify-content: flex-start; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+.teaser-risk-actions label, .teaser-review-action, .parlay-risk-actions label, .parlay-review-action { margin: 0; }
+.parlay-advisory { margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--line); background: #edf1f4; }
 .bet-slip-error { min-height: 1.45rem; margin: var(--space-1) 0 0; color: #9b1c1c; font-weight: 700; }
 .main-content:has(.standings-page) { max-width: none; }
 .secondary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--blue); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #003f7d; }
@@ -100,6 +108,21 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .share-order-form label { justify-content: flex-end; margin: 0; }
 .share-order-form input, .share-order-form select, .share-order-form button { box-sizing: border-box; height: 2.5rem; }
 .share-order-form button { margin: 0; }
+/* Settings use the same aligned control/action pattern as order administration. */
+.pool-settings { display: grid; gap: var(--space-3); }
+.pool-settings > h1, .pool-settings > .error-summary, .pool-settings-return { margin: 0; }
+.pool-settings-section { display: grid; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); background: #f6f8fa; }
+.pool-settings-section h2 { margin: 0; font-size: 1.1rem; }
+.pool-settings .share-order-form { margin: 0; }
+.pool-settings-control { flex: 1 1 16rem; min-width: 0; }
+.pool-settings-notice-controls { align-items: flex-end; }
+.pool-settings-notice-field { flex: 1 1 min(100%, 65ch); min-width: 0; display: grid; gap: var(--space-1); }
+.pool-settings-notice-field label, .pool-settings-help, .pool-settings-signups p { margin: 0; }
+.pool-settings-notice-field .commissioner-notice-input { width: 100%; }
+.pool-settings-help { color: #3b4046; }
+.pool-settings-signups { align-items: center; }
+.pool-settings-signups p { flex: 1 1 16rem; }
+@media (max-width: 600px) { .pool-settings-section { padding: var(--space-2); } .pool-settings-control, .pool-settings-notice-field { flex-basis: 100%; } .pool-settings .share-order-form input, .pool-settings .share-order-form button { height: 44px; min-height: 44px; } }
 .confirmation-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .confirmation-actions button { margin: 0; }
 .reversal-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
@@ -107,7 +130,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .reversal-form input, .reversal-form button { box-sizing: border-box; height: 2.5rem; }
 .reversal-actions { display: flex; gap: var(--space-2); }
 .reversal-actions button { margin: 0; }
-.wager-legs span { display: block; }
+.wager-legs > span { display: block; white-space: nowrap; }
 /* Activity keeps week/member performance scanable without repeating one table per member. */
 .main-content:has(.activity-page) { max-width: none; }
 .activity-page > section > label { margin: 0 0 var(--space-1); }
@@ -115,14 +138,19 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-table th, .activity-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
 .activity-table th[scope="rowgroup"] { min-width: 10rem; background: #edf1f4; }
 .activity-table th[scope="rowgroup"] small { display: block; font-weight: 700; white-space: nowrap; }
-.activity-wager-lines > span { display: block; }
+.activity-wager-lines > span { display: block; white-space: nowrap; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
-.activity-wager-lines .activity-leg-loss { color: #9b1c1c; }
-.activity-wager-lines .activity-leg-win { color: #167a2f; }
+.activity-wager-not-started { color: #6e7780; }
+.activity-picked-won, .activity-performance-won { color: #137333; }
+.activity-picked-lost, .activity-performance-lost { color: #b42318; }
+.activity-wager-lines .activity-leg-loss { color: #b42318; }
+.activity-wager-lines .activity-leg-win { color: #137333; }
 .activity-wager-lines .activity-leg-neutral { color: var(--ink); }
+.activity-staked { display: flex; justify-content: space-between; align-items: baseline; gap: 0.3rem; }
+.activity-staked-odds { font-size: 0.72em; }
 @media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } }
 @media (max-width: 600px) { .tray-actions button, .tray-actions .primary-action { min-height: 44px; } }
-@media (max-width: 600px) { .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
+@media (max-width: 600px) { .selection-tray { margin-top: var(--space-1); padding-block: 0.2rem; } .selection-tray h2 { font-size: 0.9rem; } .pool-balance { font-size: 0.7rem; overflow-x: auto; } .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
 /* Mobile Games board prioritizes compact tappable prices over repeated team names. */
 .odds-mobile-start { display: none; }
 @media (max-width: 600px) {

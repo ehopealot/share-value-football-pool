@@ -206,7 +206,8 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
     },
     async setOfferState({ eventId, market, state }) {
       const startsAt = state === "locked" ? new Date(Date.now() - 60_000).toISOString() : new Date(Date.now() + 5 * 60 * 1000).toISOString();
-      const retrievedAt = state === "stale" ? new Date(Date.now() - 10 * 60 * 1000).toISOString() : new Date().toISOString();
+      // Production freshness is strictly older than 30 minutes, so this test state must cross that boundary.
+      const retrievedAt = state === "stale" ? new Date(Date.now() - 31 * 60 * 1000).toISOString() : new Date().toISOString();
       const updated = await db.batch([
         db.prepare("UPDATE sports_event SET starts_at = ? WHERE provider_event_id = ?").bind(startsAt, eventId),
         db.prepare("UPDATE market_offer SET retrieved_at = ? WHERE event_id = ? AND market = ?").bind(retrievedAt, eventId, market),

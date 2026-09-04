@@ -2,7 +2,7 @@
 
 ## Local operation
 
-Run `npm run dev` for the Vite/Worker local environment. It applies local D1 migrations first. The local fixture controls are development-only and are absent from production. Do not inspect, print, or commit `.dev.vars`.
+Run `npm run dev` for the Vite/Worker local environment. It applies local D1 migrations first and uses the canonical ignored `.dev.vars` and `.wrangler/state` beside Git's common checkout, so authentication and D1/Durable Object data remain stable across restarts and shared-state-compatible linked worktrees. Shared-state compatibility requires matching storage schemas and local Wrangler identities: worker name, D1 binding/database identity, and Durable Object class/migration identity. On its first linked-worktree run, the launcher safely preserves an existing `.dev.vars` under ignored canonical `.wrangler/dev-vars-backups/` and links the worktree to the canonical file. The Linux-only shared launcher requires util-linux `flock`; its kernel-held lock is outside the resettable state directory and remains with Vite itself, so stop the existing dev server before starting another one. Use only `npm run dev`: direct Vite/IDE dev servers are rejected because they would bypass the lock, and direct Wrangler commands explicitly pointed at the canonical state are unsupported for the same reason. Stop the server before resetting `.wrangler/state`; do not remove the parent `.wrangler` directory while it is running. Do not run an older or identity-incompatible checkout against newer shared state: use separate state or reset the canonical state deliberately before a downgrade. The local fixture controls are development-only and are absent from production. Do not inspect, print, or commit `.dev.vars`.
 
 Useful local checks:
 

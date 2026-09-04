@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-22
 
-**Status:** Approved by the operator on 2026-08-22
+**Status:** Approved by the operator on 2026-08-22; parlay deferral and fresh teaser 2–7-leg rules are superseded by [`2026-09-02-parlays-six-leg-cap-design.md`](../../plans/2026-09-02-parlays-six-leg-cap-design.md). Its seven-leg teaser table remains historical settlement/regrade compatibility only.
 **Product record:** [`PRODUCT.md`](../../../PRODUCT.md)
 
 ## 1. Objective
