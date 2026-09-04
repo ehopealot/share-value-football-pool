@@ -489,7 +489,7 @@ export class PoolDO {
   }
 
   private activity(sql: SqlStorage, actorId: string) {
-    return { orders: [...sql.exec<Row>("SELECT o.id, o.member_id, m.display_name, o.shares_micros, o.value_micros, o.price_micros, o.reason, o.created_at FROM share_order o JOIN member m ON m.user_id = o.member_id ORDER BY o.created_at DESC, o.rowid DESC")].map((order) => ({ orderId: String(order.id), memberId: String(order.member_id), memberDisplayName: String(order.display_name), sharesMicros: String(order.shares_micros), valueMicros: String(order.value_micros), priceMicros: String(order.price_micros), reason: String(order.reason), createdAt: String(order.created_at) })), ...shapeWagers(sql, actorId, this.authoritativeTime(), false) };
+    return { orders: [...sql.exec<Row>("SELECT o.id, o.member_id, m.display_name, o.shares_micros, o.value_micros, o.price_micros, o.reason, o.created_at FROM share_order o JOIN member m ON m.user_id = o.member_id ORDER BY o.created_at DESC, o.rowid DESC")].map((order) => ({ orderId: String(order.id), memberId: String(order.member_id), memberDisplayName: String(order.display_name), sharesMicros: String(order.shares_micros), valueMicros: String(order.value_micros), priceMicros: String(order.price_micros), reason: String(order.reason), createdAt: String(order.created_at) })), ...shapeWagers(sql, actorId, this.authoritativeTime(), false, undefined, true) };
   }
 
   private history(sql: SqlStorage, seasonId: string, actorId: string) {
