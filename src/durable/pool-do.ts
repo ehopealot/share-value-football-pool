@@ -115,6 +115,7 @@ export class PoolDO {
       const response = JSON.parse(String(previous.response_json)) as Record<string, unknown>;
       // External notifications need to distinguish newly committed actions from idempotent replays.
       if (command.type === "CreateMessageBoardPost") return { ...response, ...(typeof response.postId === "string" ? {} : { isAnnouncement: false }), replayed: true } as unknown as PoolCommandResult;
+      if (command.type === "ReplyToMessageBoardPost") return { ...response, replayed: true } as PoolCommandResult;
       return (command.type === "JoinPool" || command.type === "ExecuteShareOrder" ? { ...response, replayed: true } : response) as PoolCommandResult;
     }
 
@@ -410,14 +411,15 @@ export class PoolDO {
   }
 
   private replyToMessageBoardPost(sql: SqlStorage, command: Extract<PoolCommand, { type: "ReplyToMessageBoardPost" }>): PoolCommandResult {
-    const parent = first(sql, "SELECT parent_post_id FROM message_board_entry WHERE id = ?", command.postId);
+    const parent = first(sql, "SELECT parent_post_id, author_id FROM message_board_entry WHERE id = ?", command.postId);
     if (!parent) throw new Error("MESSAGE_BOARD_POST_NOT_FOUND");
     if (parent.parent_post_id !== null) throw new Error("MESSAGE_BOARD_REPLY_NOT_ALLOWED");
     const activityAt = this.nextMessageBoardActivityAt(sql);
-    sql.exec("INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at) VALUES (?, ?, ?, ?, ?, ?)", crypto.randomUUID(), command.postId, command.actorId, command.text, activityAt, activityAt);
+    const replyId = crypto.randomUUID();
+    sql.exec("INSERT INTO message_board_entry (id, parent_post_id, author_id, text, created_at, activity_at) VALUES (?, ?, ?, ?, ?, ?)", replyId, command.postId, command.actorId, command.text, activityAt, activityAt);
     sql.exec("UPDATE message_board_entry SET activity_at = ? WHERE id = ?", activityAt, command.postId);
     this.advanceMessageBoardRead(sql, command.actorId, activityAt);
-    return { commandVersion: this.bumpVersion(sql) };
+    return { commandVersion: this.bumpVersion(sql), replyId, postAuthorId: String(parent.author_id), replayed: false };
   }
 
   private nextMessageBoardActivityAt(sql: SqlStorage): string {
