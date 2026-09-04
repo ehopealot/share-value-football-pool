@@ -3,6 +3,8 @@
 ## Guiding philosophy
 - We build quickly and correctly
 - Lean with documented residuals is preferred over gold-plated and overengineered. YAGNI
+- No mistakes
+- No bugs
 
 ## Development
 - Work on feature branches in worktrees
