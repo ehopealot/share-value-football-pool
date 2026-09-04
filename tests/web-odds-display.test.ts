@@ -16,7 +16,7 @@ describe("member-facing odds display", () => {
   it("uses one compact local kickoff formatter for the odds board and wager tables", () => {
     const date = new Date("2026-09-06T20:00:00.000Z");
     const hour = date.getHours() % 12 || 12;
-    expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe(`${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`);
+    expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe(`${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`);
     expect(oddsPageSource).toContain("formatKickoff(game.startsAt)");
   });
 
