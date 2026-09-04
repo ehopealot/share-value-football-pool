@@ -144,12 +144,11 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .table-ribbon-section > table, .table-ribbon-section > .table-scroll > table { margin: 0 0 var(--space-2); }
 .activity-member-ribbon small { display: block; font-size: 0.85rem; }
 .activity-member-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
-.activity-start-column { width: 20%; }
+.activity-start-column { width: 8rem; }
 .activity-wager-column { width: 52%; }
 .activity-staked-column { width: 16%; }
 .activity-payout-column { width: 12%; }
 .activity-pnl-column { width: 12%; }
-.my-wagers-page .activity-start-column { width: 12%; }
 .my-wagers-page .activity-wager-column { width: 52%; }
 .my-wagers-page .activity-staked-column { width: 13%; }
 .my-wagers-page .activity-pnl-column { width: 11%; }

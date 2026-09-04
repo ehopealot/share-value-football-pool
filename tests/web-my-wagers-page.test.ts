@@ -31,8 +31,8 @@ describe("My wagers page", () => {
 
   it("keeps each wager leg on its own line without splitting selected and unselected fragments", () => {
     expect(styles).toContain('.wager-legs > span { display: block; white-space: nowrap; }');
-    expect(styles).toContain('.activity-start-column { width: 20%; }');
-    expect(styles).toContain('.my-wagers-page .activity-start-column { width: 12%; }');
+    expect(styles).toContain('.activity-start-column { width: 8rem; }');
+    expect(styles).not.toContain('.my-wagers-page .activity-start-column');
     expect(styles).toContain('.my-wagers-page .activity-wager-column { width: 52%; }');
     expect(styles).toMatch(/^\.activity-leg-loss \{ color: #b42318; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-win \{ color: #137333; \}$/m);
