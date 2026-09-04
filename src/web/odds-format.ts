@@ -5,7 +5,7 @@ export const formatAmericanOdds = (value: number): string => value > 0 ? `+${val
 export const formatKickoff = (startsAt: string): string => {
   const date = new Date(startsAt);
   const hour = date.getHours() % 12 || 12;
-  return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`;
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`;
 };
 
 /** Point spreads use the same signed presentation, while totals remain unsigned. */
