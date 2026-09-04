@@ -184,8 +184,7 @@ describe("T11 authoritative member reads", () => {
     await storage(slug, (state) => state.storage.sql.exec("UPDATE wager_leg SET event_starts_at = '2026-01-01T00:00:00.000Z' WHERE wager_id = 'w-m'"));
     const startedAsNonOwner = await send(slug, { type: "ReadActivity", commandId: "read-started-n", actorId: "n" });
     const started = startedAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m");
-    expect(started).toMatchObject({ status: "open", performanceMicros: "0", riskMicros: "1000000" });
-    expect(started).not.toHaveProperty("acceptedOdds");
+    expect(started).toMatchObject({ status: "open", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100 });
     await storage(slug, (state) => {
       const sql = state.storage.sql;
       sql.exec("UPDATE wager_leg SET event_starts_at = '2030-03-06T18:00:00.000Z' WHERE wager_id = 'w-m'");
@@ -196,8 +195,7 @@ describe("T11 authoritative member reads", () => {
     const lostAsOwner = await send(slug, { type: "ReadActivity", commandId: "read-lost-m", actorId: "m" });
     expect(lostAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toMatchObject({ status: "lost", performanceMicros: "-1000000" });
     expect(lostAsOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toMatchObject({ status: "lost", performanceMicros: "-1000000" });
-    expect(lostAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toMatchObject({ riskMicros: "1000000" });
-    expect(lostAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).not.toHaveProperty("acceptedOdds");
+    expect(lostAsNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m")).toMatchObject({ riskMicros: "1000000", acceptedOdds: 100 });
     // The ticket owner alone sees its own unstarted selection and full terms.
     const asOwner = await send(slug, { type: "ReadActivity", commandId: "read-m", actorId: "m" });
     const ownUnstarted = asOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m");
@@ -278,7 +276,7 @@ describe("T11 authoritative member reads", () => {
     expect(history.accounts).toContainEqual(expect.objectContaining({ memberId: "m", memberDisplayName: "Sunday Shark" }));
   }, 90_000);
 
-  it("publishes completed parlay stakes while keeping effective settlement odds owner-only", async () => {
+  it("publishes completed parlay stakes and accepted odds while keeping settlement odds owner-only", async () => {
     const slug = `t11-parlay-settled-odds-${crypto.randomUUID()}`;
     await initialize(slug, "Owner");
     await join(slug, "m", "Member");
@@ -293,8 +291,7 @@ describe("T11 authoritative member reads", () => {
     const owner = await send(slug, { type: "ReadActivity", commandId: "owner-parlay", actorId: "m" });
     expect(owner.activity.wagers[0]).toMatchObject({ type: "parlay", acceptedOdds: 300, settledOdds: 250, outcome: "won", returnMicros: "3500000" });
     const nonowner = await send(slug, { type: "ReadActivity", commandId: "nonowner-parlay", actorId: "n" });
-    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000" });
-    expect(nonowner.activity.wagers[0]).not.toHaveProperty("acceptedOdds");
+    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 300 });
     expect(nonowner.activity.wagers[0]).not.toHaveProperty("settledOdds");
   }, 90_000);
 

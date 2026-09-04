@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/ActivityPage.tsx"), "utf8");
 
 describe("Activity page", () => {
+  it("keeps an accessible Activity heading without displaying a duplicate page title", () => {
+    expect(source).toContain('<h1 className="visually-hidden">Activity</h1>');
+  });
+
   it("offers a week selector and renders a compact wager table beneath every member ribbon", () => {
     expect(source).toContain('<label>Week <select');
     expect(source).toContain('].sort().reverse();');

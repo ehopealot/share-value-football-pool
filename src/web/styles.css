@@ -16,6 +16,7 @@
 }
 
 * { box-sizing: border-box; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 body { margin: 0; background: #d4d8dc; color: var(--ink); font-family: Arial, Verdana, sans-serif; line-height: 1.45; }
 a { color: #003f7d; text-decoration: underline; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -27,6 +28,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .site-name { font-size: 1.25rem; font-weight: 700; }
 .commissioner-notice { display: grid; gap: 0.15rem; padding: var(--space-2) var(--space-3); border-block: 1px solid #7a2d00; background: var(--notice-background); color: var(--notice-ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .commissioner-notice strong { font-size: 0.9rem; }
+.commissioner-notice > span, .commissioner-notice-input { text-transform: uppercase; }
 .commissioner-notice-input { display: block; width: min(100%, 65ch); min-height: 5rem; padding: var(--space-2); border: 1px solid var(--line); border-radius: 0; font: inherit; resize: vertical; }
 .nav-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
 .nav-bar a { color: #fff; }
@@ -92,6 +94,8 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .tray-actions button { min-height: 2.4rem; }
 .tray-actions button, .tray-actions .primary-action { display: inline-flex; align-items: center; margin: 0; padding: 0.55rem 0.8rem; font: inherit; font-weight: 700; line-height: 1.45; min-height: 2.4rem; border-width: 1px; border-style: solid; white-space: nowrap; }
 .pool-context { margin: 0 0 var(--space-1); color: #3b4046; font-weight: 700; }
+.odds-board-filters { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0 0 var(--space-1); }
+.odds-board-filters label { margin: 0; }
 .join-pool-form > label { display: block; margin: 0 0 var(--space-1); }
 .join-pool-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .join-pool-form input { width: 16rem; }
@@ -144,9 +148,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-wager-not-started { color: #6e7780; }
 .activity-picked-won, .activity-performance-won { color: #137333; }
 .activity-picked-lost, .activity-performance-lost { color: #b42318; }
-.activity-wager-lines .activity-leg-loss { color: #b42318; }
-.activity-wager-lines .activity-leg-win { color: #137333; }
-.activity-wager-lines .activity-leg-neutral { color: var(--ink); }
+.activity-leg-loss { color: #b42318; }
+.activity-leg-win { color: #137333; }
+.activity-leg-neutral { color: var(--ink); }
 .activity-staked { display: flex; justify-content: space-between; align-items: baseline; gap: 0.3rem; }
 .activity-staked-odds { font-size: 0.72em; }
 @media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } }

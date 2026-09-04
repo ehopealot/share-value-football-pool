@@ -14,7 +14,7 @@ export function AdminSettingsPage() {
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const settings = useFrozenAdminCommand<Record<string, unknown>>();
-  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / 1000000n).toString()); setCommissionerNotice(value.pool.commissionerNotice ?? ""); }).catch((e) => setLoadError(errorMessage(e)));
+  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / 1000000n).toString()); setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase()); }).catch((e) => setLoadError(errorMessage(e)));
   useEffect(load, [slug]);
   if (loadError) return <Layout signedIn><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!view) return <Layout><p role="status">Loading settings…</p></Layout>;
@@ -40,7 +40,7 @@ export function AdminSettingsPage() {
       <div className="share-order-form pool-settings-notice-controls">
         <div className="pool-settings-notice-field">
           <p id="commissioner-notice-help" className="pool-settings-help">This notice displays in a banner above this pool.</p>
-          <textarea id="commissioner-notice" className="commissioner-notice-input" aria-labelledby="commissioner-notice-settings-heading" aria-describedby="commissioner-notice-help" disabled={settings.pending} value={commissionerNotice} maxLength={500} onChange={(e) => { edit(); setCommissionerNotice(e.target.value); }} />
+          <textarea id="commissioner-notice" className="commissioner-notice-input" aria-labelledby="commissioner-notice-settings-heading" aria-describedby="commissioner-notice-help" disabled={settings.pending} value={commissionerNotice} maxLength={500} onChange={(e) => { edit(); setCommissionerNotice(e.target.value.toUpperCase().slice(0, 500)); }} />
         </div>
         <button disabled={!commissionerNotice.trim() || settings.pending} onClick={() => void save(`notice:${commissionerNotice}`, () => ({ commissionerNotice }))}>Save notice</button>
         {view.pool.commissionerNotice !== null && <button disabled={settings.pending} onClick={() => void save("clear-notice", () => ({ commissionerNotice: null }))}>Clear notice</button>}
