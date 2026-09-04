@@ -11,6 +11,7 @@ import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatAmericanOdds, formatKickoff, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
+import { displayTeamName } from "../team-display";
 import { PageGeneration } from "../page-generation";
 import { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
@@ -20,7 +21,7 @@ export const boardEnablesWagerReview = (board: { offers?: unknown[]; feed?: { st
 
 export type MarketCell = { offer: any; outcome: any; label: string; selection: string; name: string; odds: string };
 export type GameMarkets = { spread: { away?: MarketCell; home?: MarketCell }; total: { over?: MarketCell; under?: MarketCell }; moneyline: { away?: MarketCell; home?: MarketCell } };
-export type GameRow = { eventId: string; startsAt: string; awayTeam: string; homeTeam: string; markets: GameMarkets };
+export type GameRow = { eventId: string; league: "nfl" | "ncaaf"; startsAt: string; awayTeam: string; homeTeam: string; markets: GameMarkets };
 const pickId = (item: Pick<TrayItem, "eventId" | "market" | "selection">) => `${item.eventId}:${item.market}:${item.selection}`;
 export type OddsBoardTableProps = { games: GameRow[]; currentWeek: string; selectedPickIds: string[]; selectionDisabled?: boolean; onToggle: (cell: MarketCell) => void };
 const samePickIds = (left: string[], right: string[]) => left.length === right.length && left.every((id, index) => id === right[index]);
@@ -35,22 +36,22 @@ export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek,
       // Only the current Tuesday–Monday week is bettable; future weeks are visible but locked.
       const locked = !inWeek(game.startsAt, currentWeek);
       const classes = ["odds-option", locked ? "locked" : "", option?.offer.market === "total" ? "odds-option-total" : ""].filter(Boolean).join(" ");
-      return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked || selectionDisabled} checked={selected.has(pickId({ eventId: option.offer.eventId, market: option.offer.market, selection: option.selection as TrayItem["selection"] }))} onChange={() => onToggle(option)} /><span className="odds-option-name">{option.name}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
+      return option ? <td className="odds-cell" key={`${game.eventId}-${index}-${option.selection}`}><label className={classes}><input type="checkbox" disabled={locked || selectionDisabled} checked={selected.has(pickId({ eventId: option.offer.eventId, market: option.offer.market, selection: option.selection as TrayItem["selection"] }))} onChange={() => onToggle(option)} /><span className="odds-option-name">{displayTeamName(game.league, option.name)}</span><strong>{option.odds}</strong></label></td> : <td className="odds-cell odds-empty" key={`${game.eventId}-${index}-empty`} />;
     };
     const kickoff = formatKickoff(game.startsAt);
-    return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{game.awayTeam}</span><span>{game.homeTeam}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
+    return [<tr key={`${game.eventId}-top`} className="odds-game-top"><td rowSpan={2} className="odds-start">{kickoff}</td><th scope="row" rowSpan={2} className="odds-matchup"><span>{displayTeamName(game.league, game.awayTeam)}</span><span>{displayTeamName(game.league, game.homeTeam)}</span><small className="odds-mobile-start">{kickoff}</small></th>{top.map(cell)}</tr>, <tr key={`${game.eventId}-bottom`} className="odds-game-bottom">{bottom.map(cell)}</tr>];
   })}</tbody></table></div>;
 }, oddsBoardTablePropsAreEqual);
 /** Compact board grouping: a two-row game block — away/Over on top, home/Under underneath, one market per column. */
 export function groupBoardByEvent(offers: any[]): GameRow[] {
   const rows = new Map<string, GameRow>();
   for (const offer of [...offers].sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)) || String(a.eventId).localeCompare(String(b.eventId)))) {
-    if (!rows.has(offer.eventId)) rows.set(offer.eventId, { eventId: offer.eventId, startsAt: offer.startsAt, awayTeam: offer.awayTeam, homeTeam: offer.homeTeam, markets: { spread: {}, total: {}, moneyline: {} } });
+    if (!rows.has(offer.eventId)) rows.set(offer.eventId, { eventId: offer.eventId, league: offer.league, startsAt: offer.startsAt, awayTeam: offer.awayTeam, homeTeam: offer.homeTeam, markets: { spread: {}, total: {}, moneyline: {} } });
     const game = rows.get(offer.eventId)!;
     for (const outcome of selectableOutcomes(offer) as any[]) {
       const selection = selectionForOutcome(offer, outcome);
       if (!selection) continue;
-      const name = offer.market === "total" ? (selection === "over" ? "O" : "U") : outcome.name;
+      const name = offer.market === "total" ? (selection === "over" ? "O" : "U") : displayTeamName(offer.league, outcome.name);
       const odds = offer.market === "total" ? `${outcome.point}` : offer.market === "moneyline" ? formatAmericanOdds(outcome.price) : formatSignedLine(outcome.point ?? outcome.price);
       const cell: MarketCell = { offer, outcome, selection, name, odds, label: `${name} ${odds}` };
       if (offer.market === "spread" && (selection === "away" || selection === "home")) game.markets.spread[selection] = cell;
@@ -63,8 +64,8 @@ export function groupBoardByEvent(offers: any[]): GameRow[] {
     const away = game.markets.moneyline.away; const home = game.markets.moneyline.home;
     const awayPrice = away && vigFreeMoneylinePrice({ homeTeam: game.homeTeam, awayTeam: game.awayTeam }, away.offer.outcomes, "away");
     const homePrice = home && vigFreeMoneylinePrice({ homeTeam: game.homeTeam, awayTeam: game.awayTeam }, home.offer.outcomes, "home");
-    if (away && awayPrice !== undefined) game.markets.moneyline.away = { ...away, odds: formatAmericanOdds(awayPrice), label: `${away.outcome.name} ${formatAmericanOdds(awayPrice)}` };
-    if (home && homePrice !== undefined) game.markets.moneyline.home = { ...home, odds: formatAmericanOdds(homePrice), label: `${home.outcome.name} ${formatAmericanOdds(homePrice)}` };
+    if (away && awayPrice !== undefined) game.markets.moneyline.away = { ...away, odds: formatAmericanOdds(awayPrice), label: `${away.name} ${formatAmericanOdds(awayPrice)}` };
+    if (home && homePrice !== undefined) game.markets.moneyline.home = { ...home, odds: formatAmericanOdds(homePrice), label: `${home.name} ${formatAmericanOdds(homePrice)}` };
   }
   return [...rows.values()];
 }
@@ -167,10 +168,10 @@ const displayedBoardValue = (offer: any, outcome: any, selection: TrayItem["sele
 export const trayLabel = (board: { offers?: any[] }, item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => {
   if (!resolved) return `${item.market} ${item.selection} (no longer available)`;
   const offer = board.offers?.find((candidate) => candidate.eventId === item.eventId && candidate.market === item.market) ?? resolved.offer;
-  return `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${item.market} — ${resolved.outcome.name} ${displayedBoardValue(offer, resolved.outcome, item.selection)}`;
+  return `${displayTeamName(resolved.offer.league, resolved.offer.awayTeam)} at ${displayTeamName(resolved.offer.league, resolved.offer.homeTeam)}: ${item.market} — ${displayTeamName(resolved.offer.league, resolved.outcome.name)} ${displayedBoardValue(offer, resolved.outcome, item.selection)}`;
 };
 /** Market type is implicit in a live pick's team, total, or price display. */
-export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${resolved.offer.awayTeam} at ${resolved.offer.homeTeam}: ${resolved.outcome.name} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : trayLabel({}, item, resolved);
+export const selectionTrayDisplayLabel = (item: TrayItem, resolved: { offer: any; outcome: any } | undefined): string => resolved ? `${displayTeamName(resolved.offer.league, resolved.offer.awayTeam)} at ${displayTeamName(resolved.offer.league, resolved.offer.homeTeam)}: ${displayTeamName(resolved.offer.league, resolved.outcome.name)} ${displayedBoardValue(resolved.offer, resolved.outcome, item.selection)}` : trayLabel({}, item, resolved);
 /** Transfers the first six eligible legs and returns every untransferred tray item for persistence. */
 export const buildTeaserTransfer = (items: TrayItem[], board: { offers?: any[] }) => {
   let slip: ReturnType<typeof teaserLegForOutcome>[] = []; let error = ""; const added: TrayItem[] = [];

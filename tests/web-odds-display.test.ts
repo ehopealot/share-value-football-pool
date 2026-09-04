@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds, formatKickoff } from "../src/web/odds-format";
-import { batchAfterPopState, filterGamesByTeam, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
+import { batchAfterPopState, filterGamesByTeam, groupBoardByEvent, OddsBoardTable, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
 
@@ -31,6 +33,10 @@ describe("member-facing odds display", () => {
     } as any)).toEqual({ matchup: "Away at Home", pick: "Moneyline — Away", odds: "+125", risk: "10 shares", toWin: "12.50 shares" });
   });
 
+  it("keeps raw provider names in the straight-bet confirmation", () => {
+    expect(straightReviewDetails({ item: { risk: "10" }, quote: { riskMicros: "10000000", acceptedOdds: 125, leg: { awayTeam: "Texas Longhorns", homeTeam: "Oklahoma Sooners", market: "moneyline", selection: "away", originalLine: null, originalOdds: 125 } } } as any).matchup).toBe("Texas Longhorns at Oklahoma Sooners");
+  });
+
   it("keeps total points unsigned in straight-bet confirmation details", () => {
     expect(straightReviewDetails({ item: { risk: "10" }, quote: { riskMicros: "10000000", acceptedOdds: -110, leg: { awayTeam: "Away", homeTeam: "Home", market: "total", selection: "over", originalLine: 45.5, originalOdds: -110 } } } as any).pick).toBe("Total — Over 45.5");
   });
@@ -40,6 +46,7 @@ describe("member-facing odds display", () => {
     expect(selectionTrayDisplayLabel({ market: "spread", selection: "away" } as any, { offer: { ...offer, market: "spread" }, outcome: { name: "Away", point: 3, price: -110 } })).toBe("Away at Home: Away +3");
     expect(selectionTrayDisplayLabel({ market: "total", selection: "over" } as any, { offer: { ...offer, market: "total" }, outcome: { name: "Over", point: 44.5, price: -110 } })).toBe("Away at Home: Over 44.5");
     expect(selectionTrayDisplayLabel({ market: "moneyline", selection: "home" } as any, { offer: { ...offer, market: "moneyline" }, outcome: { name: "Home", price: 125 } })).toBe("Away at Home: Home +125");
+    expect(selectionTrayDisplayLabel({ market: "spread", selection: "away" } as any, { offer: { league: "ncaaf", awayTeam: "Texas Longhorns", homeTeam: "Oklahoma Sooners", market: "spread" }, outcome: { name: "Texas Longhorns", point: -3, price: -110 } })).toBe("Texas at Oklahoma: Texas -3");
   });
 
   it("returns both review and placement results to the odds board on browser back", () => {
@@ -76,12 +83,21 @@ describe("member-facing odds display", () => {
     expect(oddsPageSource).toContain('<a href={window.location.href}>Reload odds</a>');
   });
 
+  it("uses concise NCAA school names on the odds board", () => {
+    const games = groupBoardByEvent([{ eventId: "texas-oklahoma", league: "ncaaf", startsAt: "2026-09-10T17:00:00.000Z", awayTeam: "Texas Longhorns", homeTeam: "Oklahoma Sooners", market: "spread", outcomes: [{ name: "Texas Longhorns", price: -110, point: -3 }, { name: "Oklahoma Sooners", price: -110, point: 3 }] }]);
+    const html = renderToStaticMarkup(createElement(OddsBoardTable, { games, currentWeek: "2026-09-07T04:00:00.000Z", selectedPickIds: [], onToggle: () => undefined }));
+    expect(html).toContain("Texas");
+    expect(html).toContain("Oklahoma");
+    expect(html).not.toContain("Texas Longhorns");
+    expect(html).not.toContain("Oklahoma Sooners");
+  });
+
   it("filters either team fuzzily while retaining input order", () => {
     const markets = { spread: {}, total: {}, moneyline: {} };
     const games: GameRow[] = [
-      { eventId: "jets-broncos", startsAt: "2026-09-10T17:00:00.000Z", awayTeam: "New York Jets", homeTeam: "Denver Broncos", markets },
-      { eventId: "chiefs-raiders", startsAt: "2026-09-10T20:00:00.000Z", awayTeam: "Kansas City Chiefs", homeTeam: "Las Vegas Raiders", markets },
-      { eventId: "jets-dolphins", startsAt: "2026-09-11T17:00:00.000Z", awayTeam: "New Jersey Jets", homeTeam: "Miami Dolphins", markets }
+      { eventId: "jets-broncos", league: "nfl", startsAt: "2026-09-10T17:00:00.000Z", awayTeam: "New York Jets", homeTeam: "Denver Broncos", markets },
+      { eventId: "chiefs-raiders", league: "nfl", startsAt: "2026-09-10T20:00:00.000Z", awayTeam: "Kansas City Chiefs", homeTeam: "Las Vegas Raiders", markets },
+      { eventId: "jets-dolphins", league: "nfl", startsAt: "2026-09-11T17:00:00.000Z", awayTeam: "New Jersey Jets", homeTeam: "Miami Dolphins", markets }
     ];
 
     expect(filterGamesByTeam(games, "BRONCOS")).toEqual([games[0]]);
