@@ -353,7 +353,7 @@ test("standings display canonical fixed-point values that change after real sett
     await issueShares(page, worker.baseURL, slug, "2", memberName);
     const currentShareValue = page.getByText("Current share value:", { exact: false });
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
-    await expect(currentShareValue).toContainText("$1.00");
+    await expect(currentShareValue).toContainText("$1.000");
     expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "3.00", "0.00", "3.00", "3.00", "0.00"]);
     expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "2.00", "0.00"]);
     // A real straight ticket moves risk from available to locked without changing the price.
@@ -361,24 +361,24 @@ test("standings display canonical fixed-point values that change after real sett
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
-    await expect(currentShareValue).toContainText("$1.00");
+    await expect(currentShareValue).toContainText("$1.000");
     expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "2.00", "1.00", "3.00", "3.00", "0.00"]);
     // Real fixture final + alarm settlement: the win mints 1,000,000 profit into the float (5,000,000 -> 6,000,000)
-    // while season notional stays 5,000,000, so the rounded page-level share value becomes $0.83 for every member.
+    // while season notional stays 5,000,000, so the rounded page-level share value becomes $0.833 for every member.
     await settleFixtureResult(page, slug, 17, 24);
     await page.reload();
-    await expect(currentShareValue).toContainText("$0.83");
+    await expect(currentShareValue).toContainText("$0.833");
     expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "4.00", "0.00", "4.00", "3.33", "0.33"]);
     expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "1.67", "-0.33"]);
     // A reason-gated regrade of that same ticket to a loss must reverse the prior win's float profit before the
-    // loss destroys the risk: 6,000,000 - 1,000,000 - 1,000,000 = 4,000,000, so the rounded share value becomes $1.25.
+    // loss destroys the risk: 6,000,000 - 1,000,000 - 1,000,000 = 4,000,000, so the rounded share value becomes $1.250.
     // (An earlier revision placed a second fixture push here; that ticket stayed locked because the local alarm
     // control fires at now+10min while the post-final final_15 reconciliation is next due at observed+15min —
     // see test-results/privacy-and-settlement-sta-fa3aa-ettlement-and-after-regrade. Production reschedules its own
     // alarm to that deadline, so the single-ticket journey is the faithful settlement proof.)
     expect(await correctWager(page, slug, wagerId, "lost", "Official scoring correction", "official-loss-v2")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
-    await expect(currentShareValue).toContainText("$1.25");
+    await expect(currentShareValue).toContainText("$1.250");
     // Both members now hold exactly 2.00 shares; the member attained 2.00 at funding while the owner's ledger
     // only returns to 2.00 at the regrade settlement entry, so the earliest-attainment tiebreak swaps the ranks.
     expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "2.00", "0.00", "2.00", "2.50", "0.50"]);

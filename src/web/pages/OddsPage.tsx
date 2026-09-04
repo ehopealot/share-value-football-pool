@@ -309,7 +309,7 @@ export function OddsPage() {
   const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros });
   const available = balance ? parseIntegerText(balance.availableMicros) : 0n;
   const total = balance ? available + parseIntegerText(balance.lockedMicros) : 0n;
-  const shareValue = view?.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.00";
+  const shareValue = view?.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.000";
   const noIssuedShares = !view?.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
 
   const quoteAll = async () => {
