@@ -204,6 +204,57 @@ describe("later wager and member HTTP API", () => {
     expect(deliveryStartedAt[1]! - deliveryStartedAt[0]!).toBeLessThan(800);
     expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeGreaterThanOrEqual(200);
     expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeLessThan(800);
+  it("notifies an active original author once after another member replies without changing the reply response", async () => {
+    const poolId = `api-board-reply-email-${crypto.randomUUID()}`;
+    const slug = `api-board-reply-email-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    const post = await send(poolId, { type: "CreateMessageBoardPost", commandId: "reply-email-post", actorId: "owner", text: "Original thread" });
+    const postId = String((await post.json() as { postId: string }).postId);
+    let release!: () => void;
+    const deferred = new Promise<void>((resolve) => { release = resolve; });
+    const notifyMessageBoardReply = vi.fn(async () => await deferred);
+    const notifier = { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => {}, notifyMessageBoardReply };
+    const memberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolJoinNotifier: notifier });
+    const pending: Promise<unknown>[] = [];
+    const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
+    const path = `/api/p/${slug}/board/posts/${postId}/replies`;
+    const body = { text: "A new reply", idempotencyKey: "reply-email" };
+
+    const first = await memberApp.fetch(request(path, body), {}, executionContext);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ commandVersion: expect.any(String) });
+    expect(pending).toHaveLength(1);
+    await expect.poll(() => notifyMessageBoardReply).toHaveBeenCalledOnce();
+    const notification = notifyMessageBoardReply.mock.calls[0]![0];
+    expect(notification).toMatchObject({ to: "owner-api@example.test", poolName: "API Pool", replierName: "Member", text: "A new reply", boardUrl: `https://pool.example.test/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}` });
+    expect(notification.idempotencyKey).toMatch(/^reply\/[0-9a-f-]+\/owner$/);
+    let settled = false;
+    void pending[0]!.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await pending[0];
+
+    expect((await memberApp.fetch(request(path, body), {}, executionContext)).status).toBe(200);
+    expect(pending).toHaveLength(1);
+    expect(notifyMessageBoardReply).toHaveBeenCalledOnce();
+
+    const ownerPost = await send(poolId, { type: "CreateMessageBoardPost", commandId: "self-reply-post", actorId: "owner", text: "Owner thread" });
+    const ownerPostId = String((await ownerPost.json() as { postId: string }).postId);
+    const ownerApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: notifier });
+    expect((await ownerApp.fetch(request(`/api/p/${slug}/board/posts/${ownerPostId}/replies`, { text: "My own reply", idempotencyKey: "self-reply" }), {}, executionContext)).status).toBe(200);
+    expect(pending).toHaveLength(1);
+
+    await bindings.DB.prepare("INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('second-member', 'Second Member', 'second-member-api@example.test', 1, 0, 0)").run();
+    await send(poolId, { type: "JoinPool", commandId: "join-second-member", actorId: "second-member", displayName: "Second Member", password: "correct-password" });
+    const suspendedPost = await send(poolId, { type: "CreateMessageBoardPost", commandId: "suspended-author-post", actorId: "member", text: "Suspended author thread" });
+    const suspendedPostId = String((await suspendedPost.json() as { postId: string }).postId);
+    await send(poolId, { type: "SuspendMember", commandId: "suspend-original-author", actorId: "owner", memberId: "member" });
+    const secondMemberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "second-member", name: "Second Member" }), poolJoinNotifier: notifier });
+    expect((await secondMemberApp.fetch(request(`/api/p/${slug}/board/posts/${suspendedPostId}/replies`, { text: "No delivery", idempotencyKey: "suspended-author-reply" }), {}, executionContext)).status).toBe(200);
+    expect(pending).toHaveLength(2);
+    await pending[1];
+    expect(notifyMessageBoardReply).toHaveBeenCalledOnce();
   }, 90_000);
 
   it("accepts a legacy ordinary post replay without scheduling an announcement blast", async () => {

@@ -6,7 +6,7 @@ import { freeSeasonEntitlement, type SeasonEntitlementService } from "../service
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
 import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest, messageBoardPostRequest } from "../contracts/http";
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
+import { auditExportResponse, decimalString, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -40,6 +40,8 @@ const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.string
 const recipientChunkSize = 100;
 const announcementSendIntervalMs = 250;
 const pause = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+const internalMessageBoardReplyResponse = z.object({ commandVersion: decimalString, replyId: z.string().min(1), postAuthorId: z.string().min(1), replayed: z.boolean() }).strict();
+const legacyMessageBoardReplyReplayResponse = z.object({ commandVersion: decimalString, replayed: z.literal(true) }).strict();
 
 /** Installs only early authenticated pool mutations; reads, wagers, exports, and settlement stay deferred. */
 export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): void {
@@ -84,6 +86,19 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
         await dependencies.poolJoinNotifier.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` }).catch(() => undefined);
       }
     }
+  };
+
+  /** Best-effort only: a reply remains committed even when delivery fails or its original author is no longer active. */
+  const dispatchMessageBoardReply = async (input: { slug: string; actor: AuthenticatedUser; postId: string; replyId: string; postAuthorId: string; text: string; boardUrl: string }) => {
+    const notify = dependencies.poolJoinNotifier?.notifyMessageBoardReply;
+    if (!notify) return;
+    const view = ReadPoolView.parse(await router.send(input.slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: input.actor.id }));
+    const originalAuthor = view.members.find((member) => member.memberId === input.postAuthorId);
+    if (!originalAuthor || originalAuthor.status !== "active") return;
+    const recipient = await dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(input.postAuthorId).first<{ email: string }>();
+    if (!recipient?.email) return;
+    const replierName = view.members.find((member) => member.memberId === input.actor.id)?.displayName ?? input.actor.name;
+    await notify({ to: recipient.email, poolName: view.pool.name, replierName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `reply/${input.replyId}/${input.postAuthorId}` });
   };
 
   const memberRead = async (c: Context, action: (user: AuthenticatedUser) => Promise<Response>) => {
@@ -156,7 +171,16 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const parsed = messageBoardMutationRequest.safeParse(await c.req.json());
     const slug = c.req.param("slug"); const postId = c.req.param("postId");
     if (!parsed.success || !slug || !postId) return jsonError(c, "INVALID_REQUEST");
-    return c.json(MessageBoardMutationResponse.parse(await router.send(slug, { type: "ReplyToMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, postId, text: parsed.data.text })));
+    const raw = await router.send(slug, { type: "ReplyToMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, postId, text: parsed.data.text });
+    const reply = internalMessageBoardReplyResponse.safeParse(raw);
+    const legacyReplay = legacyMessageBoardReplyReplayResponse.safeParse(raw);
+    if (!reply.success && !legacyReplay.success) throw new z.ZodError([]);
+    const result = MessageBoardMutationResponse.parse({ commandVersion: reply.success ? reply.data.commandVersion : legacyReplay.data.commandVersion });
+    if (reply.success && !reply.data.replayed && reply.data.postAuthorId !== user.id && dependencies.poolJoinNotifier?.notifyMessageBoardReply) {
+      const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}`, c.req.url).toString();
+      c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, postId, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+    }
+    return c.json(result);
   }));
 
   /** D1 supplies only canonical public offers; the prior PoolDO member read above is the access boundary. */
