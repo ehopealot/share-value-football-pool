@@ -62,6 +62,7 @@ test("My Wagers shows only the current settlement economics after real regrades 
   await page.reload();
   const settledBets = page.getByRole("table", { name: "Settled bets" });
   await expect(page.getByRole("heading", { name: "Settled bets" })).toBeVisible();
+  await expect(settledBets.locator("tbody tr").first().locator("td").first()).toHaveText(/^\d{2}\/\d{2} \d{2}:\d{2}[ap]$/);
   await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveText("+1.00 shares");
   await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveClass("activity-performance-won");
   await expect(settledBets.locator("tbody tr").first()).toContainText("2.00");

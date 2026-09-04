@@ -618,7 +618,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
   await expect(openBets.getByText("Local Away at Local Home")).toHaveCount(2);
-  await expect(openBets.getByRole("row", { name: /1\.00.*1\.83/ })).toBeVisible();
+  await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.83/ })).toBeVisible();
 });
 
 test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh explicit straight re-quote", async ({
