@@ -23,7 +23,7 @@ describe("member-facing odds display", () => {
     expect(oddsPageSource).toContain("formatKickoff(game.startsAt)");
   });
 
-  it("provides complete straight-bet confirmation details including the amount to win", () => {
+  it("provides straight-bet confirmation totals without repeating the selected matchup", () => {
     expect(straightReviewDetails({
       item: { risk: "10" },
       quote: {
@@ -31,15 +31,7 @@ describe("member-facing odds display", () => {
         acceptedOdds: 125,
         leg: { awayTeam: "Away", homeTeam: "Home", market: "moneyline", selection: "away", originalLine: null, originalOdds: 125 }
       }
-    } as any)).toEqual({ matchup: "Away at Home", pick: "Moneyline — Away", odds: "+125", risk: "10 shares", toWin: "12.50 shares" });
-  });
-
-  it("keeps raw provider names in the straight-bet confirmation", () => {
-    expect(straightReviewDetails({ item: { risk: "10" }, quote: { riskMicros: "10000000", acceptedOdds: 125, leg: { awayTeam: "Texas Longhorns", homeTeam: "Oklahoma Sooners", market: "moneyline", selection: "away", originalLine: null, originalOdds: 125 } } } as any).matchup).toBe("Texas Longhorns at Oklahoma Sooners");
-  });
-
-  it("keeps total points unsigned in straight-bet confirmation details", () => {
-    expect(straightReviewDetails({ item: { risk: "10" }, quote: { riskMicros: "10000000", acceptedOdds: -110, leg: { awayTeam: "Away", homeTeam: "Home", market: "total", selection: "over", originalLine: 45.5, originalOdds: -110 } } } as any).pick).toBe("Total — Over 45.5");
+    } as any)).toEqual({ odds: "+125", risk: "10 shares", toWin: "12.50 shares" });
   });
 
   it("omits explicit market names from resolved bet-slip labels", () => {
@@ -73,6 +65,11 @@ describe("member-facing odds display", () => {
     expect(markup).toContain('<strong class="odds-matchup-team">Away</strong><span class="odds-matchup-at">at</span><strong class="odds-matchup-team">Home</strong>');
     expect(styles).toMatch(/\.odds-matchup-team\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap[^}]*line-height:\s*1\.15/);
     expect(styles).toMatch(/\.odds-matchup-at\s*\{[^}]*display:\s*block[^}]*font-weight:\s*400[^}]*line-height:\s*1/);
+  });
+
+  it("gives the mobile matchup column more room than the market columns", () => {
+    expect(styles).toMatch(/\.odds-board thead th:nth-child\(2\)\s*\{[^}]*width:\s*5\.5rem/);
+    expect(styles).toMatch(/th:nth-child\(3\),\s*\.odds-board thead th:nth-child\(4\),\s*\.odds-board thead th:nth-child\(5\)\s*\{[^}]*width:\s*4\.25rem/);
   });
 
   it("keeps the two odds-board sub-rows equal beneath row-spanning matchup cells", () => {
