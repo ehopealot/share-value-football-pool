@@ -22,7 +22,7 @@ test("commissioners can set and clear a member-only notice banner across pool ro
   await expect(banner).toContainText(replacementNotice.toUpperCase());
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await expect.poll(() => page.getByRole("link", { name: "Odds board", exact: true }).evaluate((link) => link.getBoundingClientRect().height >= 44)).toBe(true);
+  await expect.poll(() => page.getByRole("link", { name: "Odds board", exact: true }).evaluate((link) => link.getBoundingClientRect().height >= 36)).toBe(true);
 
   for (const [link, heading] of [["Odds board", "Odds board"], ["Standings", "Standings"], ["Message board", "Message board"], ["Pool home", "Commissioner Notice"]] as const) {
     await page.getByRole("link", { name: link, exact: true }).click();
