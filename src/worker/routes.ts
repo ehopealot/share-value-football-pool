@@ -38,6 +38,8 @@ const csrf = (c: Context) => {
 };
 const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.stringify(ticket);
 const recipientChunkSize = 100;
+const announcementSendIntervalMs = 250;
+const pause = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 /** Installs only early authenticated pool mutations; reads, wagers, exports, and settlement stay deferred. */
 export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): void {
@@ -71,11 +73,16 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const view = ReadPoolView.parse(await router.send(input.slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: input.actor.id }));
     const recipientIds = view.members.filter((member) => member.status === "active" && member.memberId !== view.pool.commissionerId && member.memberId !== input.actor.id).map((member) => member.memberId);
     const authorName = view.members.find((member) => member.memberId === input.actor.id)?.displayName ?? input.actor.name;
+    let firstRecipient = true;
     for (let offset = 0; offset < recipientIds.length; offset += recipientChunkSize) {
       const ids = recipientIds.slice(offset, offset + recipientChunkSize);
       if (!ids.length) continue;
       const recipients = await dependencies.db.prepare(`SELECT id, email FROM user WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; email: string }>();
-      await Promise.allSettled(recipients.results.map((recipient) => dependencies.poolJoinNotifier!.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` })));
+      for (const recipient of recipients.results) {
+        if (!firstRecipient) await pause(announcementSendIntervalMs);
+        firstRecipient = false;
+        await dependencies.poolJoinNotifier.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` }).catch(() => undefined);
+      }
     }
   };
 
