@@ -59,6 +59,10 @@ describe("activity presentation", () => {
     expect(formatActivityLeg(leg({ market: "total", selection: "over", originalLine: "44.5" }))).toEqual({ hidden: false, segments: [{ text: "UCLA at Arizona ", selected: false }, { text: "O44.5", selected: true }] });
   });
 
+  it("uses concise NCAA names in wager legs", () => {
+    expect(formatActivityLeg(leg({ league: "ncaaf", awayTeam: "Texas Longhorns", homeTeam: "Oklahoma Sooners" }))).toEqual({ hidden: false, segments: [{ text: "Texas (-7.5)", selected: true }, { text: " at Oklahoma", selected: false }] });
+  });
+
   it("formats teaser legs independently and leaves redacted tickets explicitly hidden", () => {
     const teaser = wager({ type: "teaser", legs: [leg({ adjustedLine: "-1.5" }), leg({ eventId: "game-two", market: "total", selection: "over", originalLine: "44.5", adjustedLine: "38.5" })] });
     expect(teaser.legs!.map(formatActivityLeg)).toEqual([

@@ -2,6 +2,7 @@ import type { ReadActivity } from "../contracts/http";
 import { formatMicros, parseIntegerText } from "../domain/fixed-point";
 import { formatAmericanOdds } from "./odds-format";
 import { sortWagersByStartTime } from "./wager-presentation";
+import { displayTeamName } from "./team-display";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -62,7 +63,7 @@ export function activityLegTimingClass(leg: Pick<Leg, "eventStartsAt">, now = Da
 }
 
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";
-const teams = (leg: Leg) => ({ away: leg.awayTeam ?? "Away", home: leg.homeTeam ?? "Home" });
+const teams = (leg: Leg) => ({ away: displayTeamName(leg.league, leg.awayTeam ?? "Away"), home: displayTeamName(leg.league, leg.homeTeam ?? "Home") });
 
 /** Returns text segments so Activity can emphasize only the selected side or total. */
 export function formatActivityLeg(leg: Leg): ActivityLegLine {
