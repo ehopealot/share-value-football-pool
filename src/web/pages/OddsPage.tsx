@@ -412,7 +412,7 @@ export function OddsPage() {
   }
   if (batch?.tag === "quoting") return <Layout signedIn><h1>Reviewing straight wagers</h1><p role="status">Confirming odds for {tray.length} selection{tray.length === 1 ? "" : "s"}…</p></Layout>;
 
-  return <Layout signedIn><h1>Odds board</h1><p className="pool-context">{view && <><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""} · </>}<span role="status">Feed status: {board?.feed.status ?? "loading"} — {board?.feed.message}</span>{board?.feed.status === "stale" && <> <a href={window.location.href}>Reload odds</a></>}</p>
+  return <Layout signedIn><h1>Odds board</h1><p className="pool-context">{view && <><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""} · </>}<span role="status">Board status: {board?.feed.status ?? "loading"}</span>{board?.feed.status === "stale" && <> <a href={window.location.href}>Reload odds</a></>}</p>
     {error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     <div className="odds-board-filters"><label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>

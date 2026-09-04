@@ -36,7 +36,9 @@ type WagerOutcome = { status: string; outcome?: "won" | "lost" | "refunded" };
 const terminalOutcome = (wager: WagerOutcome) => wager.outcome ?? (wager.status === "won" || wager.status === "lost" || wager.status === "refunded" ? wager.status : undefined);
 
 export function formatActivityWagerPerformance(wager: WagerOutcome & Pick<Wager, "performanceMicros">): string {
-  return wager.performanceMicros === "0" && terminalOutcome(wager) === "refunded" ? "0.00 shares" : formatActivityPerformance(wager.performanceMicros);
+  if (wager.performanceMicros === "0") return terminalOutcome(wager) === "refunded" ? "0.00" : "";
+  const value = parseIntegerText(wager.performanceMicros);
+  return `${value > 0n ? "+" : ""}${formatMicros(value, 2)}`;
 }
 
 export function activityWagerPerformanceClass(wager: WagerOutcome): string {

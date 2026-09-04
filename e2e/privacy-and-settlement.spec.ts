@@ -583,10 +583,10 @@ test("activity stays immutable and presents only the current settlement without 
     const activityPAndL = (actor: Page) => activityRow(actor).locator("td").last();
     // Both viewers receive the same safe settlement performance, while only the owner receives protected terms.
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityPAndL(page)).toHaveText("+1.00 shares");
+    await expect(activityPAndL(page)).toHaveText("+1.00");
     await expect(activityPAndL(page)).toHaveClass("activity-performance-won");
     await member.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityPAndL(member)).toHaveText("+1.00 shares");
+    await expect(activityPAndL(member)).toHaveText("+1.00");
     await expect(activityPAndL(member)).toHaveClass("activity-performance-won");
     const hidden = await activityJson(member, slug);
     expect(hidden).toContain('"riskMicros":"1000000"');
@@ -596,17 +596,17 @@ test("activity stays immutable and presents only the current settlement without 
     // The correction chain replaces only the current outcome and safe performance presentation.
     expect(await correctWager(page, slug, wagerId, "lost", "Official scoring correction", "official-loss-v2")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityPAndL(page)).toHaveText("-1.00 shares");
+    await expect(activityPAndL(page)).toHaveText("-1.00");
     await expect(activityPAndL(page)).toHaveClass("activity-performance-lost");
     await member.reload();
-    await expect(activityPAndL(member)).toHaveText("-1.00 shares");
+    await expect(activityPAndL(member)).toHaveText("-1.00");
     await expect(activityPAndL(member)).toHaveClass("activity-performance-lost");
     expect(await correctWager(page, slug, wagerId, "refunded", "Settled ticket voided", "official-void-v3")).toBe(200);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(activityPAndL(page)).toHaveText("0.00 shares");
+    await expect(activityPAndL(page)).toHaveText("0.00");
     await expect(activityPAndL(page)).not.toHaveClass(/activity-performance-(won|lost)/);
     await member.reload();
-    await expect(activityPAndL(member)).toHaveText("0.00 shares");
+    await expect(activityPAndL(member)).toHaveText("0.00");
     await expect(activityPAndL(member)).not.toHaveClass(/activity-performance-(won|lost)/);
     expect(await activityRow(page).count()).toBe(1);
     expect(await activityRow(member).count()).toBe(1);
