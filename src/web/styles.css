@@ -144,7 +144,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .table-ribbon-section > table, .table-ribbon-section > .table-scroll > table { margin: 0 0 var(--space-2); }
 .activity-member-ribbon small { display: block; font-size: 0.85rem; }
 .activity-member-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
-.activity-start-column { width: 8rem; }
+.activity-start-column { width: 7rem; }
 .activity-wager-column { width: 52%; }
 .activity-staked-column { width: 16%; }
 .activity-payout-column { width: 12%; }
@@ -153,6 +153,11 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .my-wagers-page .activity-staked-column { width: 13%; }
 .my-wagers-page .activity-pnl-column { width: 11%; }
 .activity-table th, .activity-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
+.activity-table .activity-wager-leg-row > td { border-top: 0; padding-top: 0; }
+.activity-wager-leg-row-leading > td:not([rowspan]) { border-bottom: 0; padding-bottom: 0; }
+.wager-start-time { display: block; white-space: nowrap; }
+.activity-table .activity-leg-loss, .activity-table .activity-leg-win, .activity-table .activity-leg-neutral { display: block; white-space: normal; overflow-wrap: anywhere; }
+.my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-neutral { white-space: nowrap; }
 .activity-wager-lines > span { display: block; white-space: nowrap; }
 .activity-member-section .activity-wager-lines > span { white-space: normal; overflow-wrap: anywhere; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
