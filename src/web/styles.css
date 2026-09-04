@@ -165,6 +165,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
   .odds-board thead th:first-child, .odds-board .odds-start { display: none; }
   .odds-board thead th { overflow-wrap: anywhere; }
   .odds-board thead th:nth-child(2) { width: 5.5rem; }
+  .odds-board thead th:nth-child(3), .odds-board thead th:nth-child(4), .odds-board thead th:nth-child(5) { width: 4.25rem; }
   .odds-board .odds-matchup { width: auto; padding-inline: var(--space-1); }
   .odds-mobile-start { display: block; margin-top: 0.2rem; color: #3b4046; font-size: 0.72rem; font-weight: 400; }
   .odds-board .odds-cell { padding: 0.25rem 0.1rem; text-align: center; }
