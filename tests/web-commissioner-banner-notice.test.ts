@@ -17,7 +17,7 @@ describe("commissioner banner notice", () => {
     expect(markup).toContain("<aside");
     expect(markup).toContain('aria-label="Commissioner notice"');
     expect(markup).toContain("Commissioner notice");
-    expect(markup).toContain("Draft starts\nat noon.");
+    expect(markup).toContain("DRAFT STARTS\nAT NOON.");
     expect(markup).not.toContain("aria-live");
     expect(markup).not.toContain('role="alert"');
   });
@@ -42,6 +42,8 @@ describe("commissioner banner notice", () => {
     expect(settings()).toContain('id="commissioner-notice"');
     expect(settings()).not.toContain(">Notice text<");
     expect(settings()).toContain("maxLength={500}");
+    expect(settings()).toContain('setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase())');
+    expect(settings()).toContain("setCommissionerNotice(e.target.value.toUpperCase().slice(0, 500))");
     expect(settings()).toContain("Save notice");
     expect(settings()).toContain("Clear notice");
     expect(settings()).toContain("invalidatePoolView()");

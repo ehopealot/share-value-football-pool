@@ -67,7 +67,11 @@ describe("member-facing odds display", () => {
     expect(oddsPageSource).not.toContain('Check options on the board to build straight wagers, a teaser, or a parlay.');
   });
 
-  it("offers a full-page Reload odds link only when the feed is stale", () => {
+  it("keeps every feed status beside the pool and season context", () => {
+    expect(oddsPageSource).toContain('<h1>Odds board</h1>');
+    expect(oddsPageSource).toContain('<p className="pool-context">{view &&');
+    expect(oddsPageSource).toContain('Feed status: {board?.feed.status ?? "loading"}');
+    expect(oddsPageSource).toContain('className="odds-board-filters"');
     expect(oddsPageSource).toContain('board?.feed.status === "stale"');
     expect(oddsPageSource).toContain('<a href={window.location.href}>Reload odds</a>');
   });

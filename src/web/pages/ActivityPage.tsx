@@ -45,7 +45,7 @@ export function ActivityPage() {
   const weeks = [...new Set(data.activity.wagers.map((wager) => wager.weekStart))].sort().reverse();
   const week = weeks.includes(selectedWeek) ? selectedWeek : weeks[0];
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
-  return <Layout signedIn><div className="activity-page"><h1>Activity</h1>
+  return <Layout signedIn><div className="activity-page"><h1 className="visually-hidden">Activity</h1>
     <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>{members.map((member) => <MemberActivitySection key={member.memberId} member={member} />)}</> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;

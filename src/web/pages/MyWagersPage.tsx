@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
-import { activityLegTimingClass, activitySelectedOutcomeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
 import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
@@ -14,7 +14,8 @@ function WagerLines({ wager }: { wager: Wager }) {
   const legs = wager.legs ?? [];
   return <div className="wager-legs">{legs.map((leg: any) => {
     const line = formatActivityLeg(leg);
-    return <span key={`${leg.eventId}:${leg.market}:${leg.selection}`} className={activityLegTimingClass(leg)}>{line.segments.map((segment, index) => segment.selected ? <strong key={index} className={activitySelectedOutcomeClass(wager)}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
+    const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";
+    return <span key={`${leg.eventId}:${leg.market}:${leg.selection}`} className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
   })}</div>;
 }
 

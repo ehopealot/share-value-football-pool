@@ -51,7 +51,7 @@ export function PoolNavigation({ slug, view }: { slug: string; view: ReadPoolVie
 
 /** A member-authorized notice is informative, not an interrupting live alert. */
 export function CommissionerNotice({ notice }: { notice: string }) {
-  return <aside className="commissioner-notice" aria-label="Commissioner notice"><strong>Commissioner notice</strong><span>{notice}</span></aside>;
+  return <aside className="commissioner-notice" aria-label="Commissioner notice"><strong>Commissioner notice</strong><span>{notice.toUpperCase()}</span></aside>;
 }
 
 export function Layout({ children }: { children: React.ReactNode; signedIn?: boolean }) {

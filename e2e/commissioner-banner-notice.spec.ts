@@ -13,13 +13,13 @@ test("commissioners can set and clear a member-only notice banner across pool ro
   const firstSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/api/p/${pool.slug}/admin/settings`));
   await page.getByRole("button", { name: "Save notice" }).click();
   expect((await firstSave).status()).toBe(200);
-  await expect(banner).toContainText(firstNotice);
+  await expect(banner).toContainText(firstNotice.toUpperCase());
 
   await page.getByRole("textbox", { name: "Commissioner notice" }).fill(replacementNotice);
   const replacementSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/api/p/${pool.slug}/admin/settings`));
   await page.getByRole("button", { name: "Save notice" }).click();
   expect((await replacementSave).status()).toBe(200);
-  await expect(banner).toContainText(replacementNotice);
+  await expect(banner).toContainText(replacementNotice.toUpperCase());
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect.poll(() => page.getByRole("link", { name: "Odds board", exact: true }).evaluate((link) => link.getBoundingClientRect().height >= 44)).toBe(true);
@@ -27,7 +27,7 @@ test("commissioners can set and clear a member-only notice banner across pool ro
   for (const [link, heading] of [["Odds board", "Odds board"], ["Standings", "Standings"], ["Message board", "Message board"], ["Pool home", "Commissioner Notice"]] as const) {
     await page.getByRole("link", { name: link, exact: true }).click();
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
-    await expect(banner).toContainText(replacementNotice);
+    await expect(banner).toContainText(replacementNotice.toUpperCase());
   }
 
   const memberContext = await browser.newContext();
@@ -40,7 +40,7 @@ test("commissioners can set and clear a member-only notice banner across pool ro
     await member.getByLabel("Pool password").fill("local-pool-password");
     await member.getByRole("button", { name: "Join pool" }).click();
     await expect(member).toHaveURL(new RegExp(`/p/${pool.slug}/odds$`));
-    await expect(member.getByRole("complementary", { name: "Commissioner notice" })).toContainText(replacementNotice);
+    await expect(member.getByRole("complementary", { name: "Commissioner notice" })).toContainText(replacementNotice.toUpperCase());
     await member.goto(`${worker.baseURL}/p/${pool.slug}/admin/settings`);
     await expect(member.getByRole("alert")).toHaveText("Only the commissioner can change pool settings.");
     await expect(member.getByRole("textbox", { name: "Commissioner notice" })).toHaveCount(0);

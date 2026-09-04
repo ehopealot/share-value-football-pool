@@ -412,12 +412,12 @@ export function OddsPage() {
   }
   if (batch?.tag === "quoting") return <Layout signedIn><h1>Reviewing straight wagers</h1><p role="status">Confirming odds for {tray.length} selection{tray.length === 1 ? "" : "s"}…</p></Layout>;
 
-  return <Layout signedIn><h1>Odds board</h1>{view && <p className="pool-context"><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""}</p>}<p><span role="status">Feed status: {board?.feed.status ?? "loading"} — {board?.feed.message}</span>{board?.feed.status === "stale" && <> <a href={window.location.href}>Reload odds</a></>}</p>
+  return <Layout signedIn><h1>Odds board</h1><p className="pool-context">{view && <><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""} · </>}<span role="status">Feed status: {board?.feed.status ?? "loading"} — {board?.feed.message}</span>{board?.feed.status === "stale" && <> <a href={window.location.href}>Reload odds</a></>}</p>
     {error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    <label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
+    <div className="odds-board-filters"><label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
-    <label>Filter teams <input type="search" value={teamFilter} placeholder="Search team names" onChange={e => setTeamFilter(e.target.value)} /></label>
+    <label>Filter teams <input type="search" value={teamFilter} placeholder="Search team names" onChange={e => setTeamFilter(e.target.value)} /></label></div>
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={parlayTransferPending} onToggle={toggle}/>
     {board && games.length === 0 && <p>{teamFilter.trim() ? "No teams match this filter." : "No games to show for this week."}</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}

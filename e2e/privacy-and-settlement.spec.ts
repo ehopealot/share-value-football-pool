@@ -459,8 +459,9 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     const firstVisible = teaserFrom(firstViewer).legs!;
     expect(firstVisible).toHaveLength(1);
     expect(firstVisible[0]).toMatchObject({ eventId: "local-nfl-upcoming", market: "spread", selection: "away", originalLine: "3", adjustedLine: "9", homeTeam: "Local Home", awayTeam: "Local Away" });
-    for (const protectedText of [secondLeg.eventId, secondLeg.homeTeam, secondLeg.awayTeam, "legCount", "futureLeg", "acceptedOdds"]) expect(firstViewer).not.toContain(protectedText);
+    for (const protectedText of [secondLeg.eventId, secondLeg.homeTeam, secondLeg.awayTeam, "legCount", "futureLeg"]) expect(firstViewer).not.toContain(protectedText);
     expect(firstViewer).toContain('"riskMicros":"1000000"');
+    expect(firstViewer).toContain('"acceptedOdds":');
     await viewer.reload();
     const firstRendered = teaserRow(viewer);
     await expect(firstRendered).toContainText("Local Away (+9) at Local Home");
@@ -589,7 +590,7 @@ test("activity stays immutable and presents only the current settlement without 
     await expect(activityPAndL(member)).toHaveClass("activity-performance-won");
     const hidden = await activityJson(member, slug);
     expect(hidden).toContain('"riskMicros":"1000000"');
-    expect(hidden).not.toContain("acceptedOdds");
+    expect(hidden).toContain('"acceptedOdds":');
     expect(hidden).toContain('"performanceMicros":"1000000"');
     expect(hidden).toContain("Local Away");
     // The correction chain replaces only the current outcome and safe performance presentation.
