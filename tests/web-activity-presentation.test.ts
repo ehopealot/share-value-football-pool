@@ -11,12 +11,12 @@ describe("activity presentation", () => {
       wager({ wagerId: "open", type: "teaser", status: "open", performanceMicros: "0", profitMicros: undefined, legs: [leg({ eventStartsAt: "2026-09-08T20:00:00.000Z" }), leg({ eventId: "earliest-parlay-leg", eventStartsAt: "2026-09-06T18:00:00.000Z" })] }),
       wager({ wagerId: "loss", status: "lost", performanceMicros: "-300000000", profitMicros: "0", legs: [leg({ eventStartsAt: "2026-09-07T20:00:00.000Z" })] }),
       wager({ wagerId: "other-week", weekStart: "2026-09-08T04:00:00.000Z", performanceMicros: "300000000", profitMicros: "300000000" }),
-      wager({ wagerId: "other-member", memberId: "arizona", memberDisplayName: "Wildcat", performanceMicros: "-300000000" })
+      wager({ wagerId: "other-member", memberId: "alpha", memberDisplayName: "Alpha", performanceMicros: "-300000000" })
     ], "2026-09-01T04:00:00.000Z");
 
     expect(groups).toEqual([
-      expect.objectContaining({ memberId: "ucla", memberDisplayName: "Bruin", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "open" }), expect.objectContaining({ wagerId: "loss" }), expect.objectContaining({ wagerId: "late" })] }),
-      expect.objectContaining({ memberId: "arizona", memberDisplayName: "Wildcat", performanceMicros: "-300000000" })
+      expect.objectContaining({ memberId: "alpha", memberDisplayName: "Alpha", performanceMicros: "-300000000" }),
+      expect.objectContaining({ memberId: "ucla", memberDisplayName: "Bruin", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "open" }), expect.objectContaining({ wagerId: "loss" }), expect.objectContaining({ wagerId: "late" })] })
     ]);
     expect(formatWeeklyPerformance("500000000")).toBe("+500.00 shares");
     expect(formatWeeklyPerformance("-300000000")).toBe("-300.00 shares");
@@ -37,6 +37,7 @@ describe("activity presentation", () => {
   it("formats the stake as whole shares and accepted odds", () => {
     expect(formatActivityStake(wager({ riskMicros: "100000000", acceptedOdds: 150 }))).toEqual({ amount: "100", odds: "+150" });
     expect(formatActivityStake(wager({ riskMicros: "25000000", acceptedOdds: -110 }))).toEqual({ amount: "25", odds: "-110" });
+    expect(formatActivityStake(wager({ riskMicros: "25000000", acceptedOdds: undefined }))).toEqual({ amount: "25" });
     expect(formatActivityStake(wager({ riskMicros: undefined, acceptedOdds: undefined }))).toBeUndefined();
   });
 

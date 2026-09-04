@@ -20,11 +20,16 @@ export function WagerLines({ wager }: { wager: Wager }) {
 
 function Staked({ wager }: { wager: Wager }) {
   const stake = formatActivityStake(wager);
-  return stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : null;
+  return stake ? <span className="activity-staked">{stake.amount}{stake.odds && <> <small className="activity-staked-odds">{stake.odds}</small></>}</span> : null;
 }
 
 function WagerStartTimes({ wager }: { wager: Wager }) {
   return <div className="activity-wager-lines">{displayWagerStartTimes(wager).map((start, index) => <span key={index}>{start}</span>)}</div>;
+}
+
+export function MemberActivitySection({ member }: { member: ReturnType<typeof groupActivityMembersForWeek>[number] }) {
+  const performance = formatActivityPerformance(member.performanceMicros);
+  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}{performance && <small>{performance}</small>}</h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{member.wagers.map((wager) => <tr key={wager.wagerId}><td><WagerStartTimes wager={wager}/></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>)}</tbody></table></div></section>;
 }
 
 export function ActivityPage() {
@@ -41,8 +46,7 @@ export function ActivityPage() {
   const week = weeks.includes(selectedWeek) ? selectedWeek : weeks[0];
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
   return <Layout signedIn><div className="activity-page"><h1>Activity</h1>
-    <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
-      <div className="table-scroll" tabIndex={0}><table className="activity-table"><thead><tr><th>Member</th><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{members.flatMap((member) => member.wagers.map((wager, index) => <tr key={wager.wagerId}>{index === 0 && <th scope="rowgroup" rowSpan={member.wagers.length}>{member.memberDisplayName}{formatActivityPerformance(member.performanceMicros) && <small>{formatActivityPerformance(member.performanceMicros)}</small>}</th>}<td><WagerStartTimes wager={wager}/></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>))}</tbody></table></div></> : <p>No bets yet.</p>}</section>
+    <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>{members.map((member) => <MemberActivitySection key={member.memberId} member={member} />)}</> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }

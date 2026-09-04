@@ -439,7 +439,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(hiddenCommissioner).toBe(hiddenViewer);
     expect(teaserFrom(hiddenViewer).legs).toBeUndefined();
     for (const protectedText of [...forbiddenFutureFields, "local-nfl-upcoming", "local-nfl-super-bowl", "Local Home", "Local Away", "T11 Super Home", "T11 Super Away", "riskMicros"]) expect(hiddenViewer).not.toContain(protectedText);
-    const teaserRow = (actor: Page) => actor.locator(".activity-table tbody tr").filter({ hasText: ticketOwnerName });
+    const teaserRow = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: ticketOwnerName }).locator(".activity-table tbody tr");
     const teaserPAndL = (actor: Page) => teaserRow(actor).locator("td").last();
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRow(viewer)).toContainText("Selection hidden until the game starts.");
@@ -459,7 +459,8 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     const firstVisible = teaserFrom(firstViewer).legs!;
     expect(firstVisible).toHaveLength(1);
     expect(firstVisible[0]).toMatchObject({ eventId: "local-nfl-upcoming", market: "spread", selection: "away", originalLine: "3", adjustedLine: "9", homeTeam: "Local Home", awayTeam: "Local Away" });
-    for (const protectedText of [secondLeg.eventId, secondLeg.homeTeam, secondLeg.awayTeam, "legCount", "futureLeg"]) expect(firstViewer).not.toContain(protectedText);
+    for (const protectedText of [secondLeg.eventId, secondLeg.homeTeam, secondLeg.awayTeam, "legCount", "futureLeg", "acceptedOdds"]) expect(firstViewer).not.toContain(protectedText);
+    expect(firstViewer).toContain('"riskMicros":"1000000"');
     await viewer.reload();
     const firstRendered = teaserRow(viewer);
     await expect(firstRendered).toContainText("Local Away (+9) at Local Home");
@@ -577,7 +578,7 @@ test("activity stays immutable and presents only the current settlement without 
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await settleFixtureResult(page, slug, 17, 24);
-    const activityRow = (actor: Page) => actor.locator(".activity-table tbody tr").filter({ hasText: commissionerName });
+    const activityRow = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: commissionerName }).locator(".activity-table tbody tr");
     const activityPAndL = (actor: Page) => activityRow(actor).locator("td").last();
     // Both viewers receive the same safe settlement performance, while only the owner receives protected terms.
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
@@ -587,7 +588,8 @@ test("activity stays immutable and presents only the current settlement without 
     await expect(activityPAndL(member)).toHaveText("+1.00 shares");
     await expect(activityPAndL(member)).toHaveClass("activity-performance-won");
     const hidden = await activityJson(member, slug);
-    expect(hidden).not.toContain("riskMicros");
+    expect(hidden).toContain('"riskMicros":"1000000"');
+    expect(hidden).not.toContain("acceptedOdds");
     expect(hidden).toContain('"performanceMicros":"1000000"');
     expect(hidden).toContain("Local Away");
     // The correction chain replaces only the current outcome and safe performance presentation.

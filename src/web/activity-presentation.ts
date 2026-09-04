@@ -19,7 +19,7 @@ export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string):
     group.wagers.push(wager);
     groups.set(wager.memberId, group);
   }
-  return [...groups.values()].map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByStartTime(group.wagers) }));
+  return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByStartTime(group.wagers) }));
 }
 
 export function formatWeeklyPerformance(profitMicros: string): string {
@@ -43,10 +43,10 @@ export function activityWagerPerformanceClass(wager: WagerOutcome): string {
   return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : "";
 }
 
-/** Public Activity terms are optional when a ticket must be redacted. */
-export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): { amount: string; odds: string } | undefined {
-  if (wager.riskMicros === undefined || wager.acceptedOdds === undefined) return undefined;
-  return { amount: (parseIntegerText(wager.riskMicros) / 1_000_000n).toString(), odds: formatAmericanOdds(wager.acceptedOdds) };
+/** Public Activity stakes may omit protected accepted odds. */
+export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): { amount: string; odds?: string } | undefined {
+  if (wager.riskMicros === undefined) return undefined;
+  return { amount: (parseIntegerText(wager.riskMicros) / 1_000_000n).toString(), ...(wager.acceptedOdds === undefined ? {} : { odds: formatAmericanOdds(wager.acceptedOdds) }) };
 }
 
 /** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
