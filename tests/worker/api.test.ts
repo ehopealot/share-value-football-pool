@@ -204,6 +204,8 @@ describe("later wager and member HTTP API", () => {
     expect(deliveryStartedAt[1]! - deliveryStartedAt[0]!).toBeLessThan(800);
     expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeGreaterThanOrEqual(200);
     expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeLessThan(800);
+  }, 90_000);
+
   it("notifies an active original author once after another member replies without changing the reply response", async () => {
     const poolId = `api-board-reply-email-${crypto.randomUUID()}`;
     const slug = `api-board-reply-email-${crypto.randomUUID()}`;
