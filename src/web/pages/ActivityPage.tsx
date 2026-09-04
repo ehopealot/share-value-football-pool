@@ -10,11 +10,12 @@ type Leg = NonNullable<Wager["legs"]>[number];
 
 const wagerResult = (wager: Wager) => wager.outcome ?? (wager.status === "open" ? "Open" : wager.status);
 
-function WagerLines({ legs }: { legs: Leg[] | undefined }) {
+export function WagerLines({ legs }: { legs: Leg[] | undefined }) {
   if (!legs?.length) return <>Selection hidden until the game starts.</>;
   return <div className="activity-wager-lines">{legs.map((leg) => {
     const line = formatActivityLeg(leg);
-    return <span key={`${leg.eventId}:${leg.market}:${leg.selection}`}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
+    const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";
+    return <span className={gradeClass} key={`${leg.eventId}:${leg.market}:${leg.selection}`}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
   })}</div>;
 }
 
