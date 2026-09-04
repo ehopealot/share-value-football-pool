@@ -62,6 +62,11 @@ describe("member-facing odds display", () => {
     expect(oddsBoardTablePropsAreEqual(previous, { ...previous, selectedPickIds: ["event:spread:home"] })).toBe(false);
   });
 
+  it("keeps the mobile bet slip summary compact and omits empty-tray instructions", () => {
+    expect(oddsPageSource).toContain('Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong>');
+    expect(oddsPageSource).not.toContain('Check options on the board to build straight wagers, a teaser, or a parlay.');
+  });
+
   it("offers a full-page Reload odds link only when the feed is stale", () => {
     expect(oddsPageSource).toContain('board?.feed.status === "stale"');
     expect(oddsPageSource).toContain('<a href={window.location.href}>Reload odds</a>');

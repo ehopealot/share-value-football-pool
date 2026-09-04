@@ -76,6 +76,8 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .odds-start { white-space: nowrap; color: #3b4046; }
 /* Bet slip pinned to the viewport bottom with compact amount inputs. */
 .selection-tray { position: sticky; bottom: 0; z-index: 2; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
+.selection-tray h2 { margin: 0; font-size: 1rem; }
+.pool-balance { margin: 0.15rem 0; font-size: 0.8rem; white-space: nowrap; }
 .selection-tray-list li { flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
 .tray-item-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 0.85rem; }
 .selection-tray-amount input { width: 4.5rem; text-align: right; }
@@ -145,7 +147,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-staked-odds { font-size: 0.72em; }
 @media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } }
 @media (max-width: 600px) { .tray-actions button, .tray-actions .primary-action { min-height: 44px; } }
-@media (max-width: 600px) { .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
+@media (max-width: 600px) { .selection-tray { margin-top: var(--space-1); padding-block: 0.2rem; } .selection-tray h2 { font-size: 0.9rem; } .pool-balance { font-size: 0.7rem; overflow-x: auto; } .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
 /* Mobile Games board prioritizes compact tappable prices over repeated team names. */
 .odds-mobile-start { display: none; }
 @media (max-width: 600px) {
