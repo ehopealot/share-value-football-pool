@@ -17,11 +17,13 @@ describe("Activity page", () => {
     expect(source).not.toContain('Week of {weekLabel(start)}');
   });
 
-  it("uses semantic selected-pick rendering and preserves hidden tickets", () => {
+  it("colors each selected leg from its own grade and preserves hidden tickets", () => {
     expect(source).toContain('formatActivityLeg');
-    expect(source).toContain('className={activitySelectedOutcomeClass(wager)}');
-    expect(source).toContain('className={activityLegTimingClass(leg)}');
-    expect(source).toContain('<strong key={index} className={activitySelectedOutcomeClass(wager)}>{segment.text}</strong>');
+    expect(source).toContain('const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";');
+    expect(source).toContain('className={gradeClass}');
+    expect(source).toContain('<strong key={index}>{segment.text}</strong>');
+    expect(source).not.toContain('activitySelectedOutcomeClass(wager)');
+    expect(source).not.toContain('activityLegTimingClass(leg)');
     expect(source).toContain('Selection hidden until the game starts.');
   });
 

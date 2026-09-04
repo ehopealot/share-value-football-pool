@@ -13,4 +13,4 @@
 - Don't run the e2e tests unless there is a failure in CI and even then, only if it seems related or you are asked to.
 
 ## Subagents
-- Always instruct subagents NOT to run e2e tests themselves. 
+- Always instruct subagents NOT to run e2e tests themselves.

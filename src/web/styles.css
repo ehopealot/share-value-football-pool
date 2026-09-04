@@ -143,6 +143,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-wager-not-started { color: #6e7780; }
 .activity-picked-won, .activity-performance-won { color: #137333; }
 .activity-picked-lost, .activity-performance-lost { color: #b42318; }
+.activity-wager-lines .activity-leg-loss { color: #b42318; }
+.activity-wager-lines .activity-leg-win { color: #137333; }
+.activity-wager-lines .activity-leg-neutral { color: var(--ink); }
 .activity-staked { display: flex; justify-content: space-between; align-items: baseline; gap: 0.3rem; }
 .activity-staked-odds { font-size: 0.72em; }
 @media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } }
