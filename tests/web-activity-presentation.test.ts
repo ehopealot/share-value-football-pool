@@ -23,12 +23,12 @@ describe("activity presentation", () => {
     expect(formatWeeklyPerformance("0")).toBe("0.00 shares");
   });
 
-  it("shows a black zero P&L for pushes while keeping the weekly zero summary blank", () => {
+  it("omits the unit suffix from row P&L while keeping the weekly zero summary blank", () => {
     expect(formatActivityPerformance("0")).toBe("");
     expect(formatActivityPerformance("500000000")).toBe("+500.00 shares");
-    expect(formatActivityWagerPerformance(wager({ status: "refunded", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("0.00 shares");
+    expect(formatActivityWagerPerformance(wager({ status: "refunded", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("0.00");
     expect(formatActivityWagerPerformance(wager({ status: "open", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("");
-    expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "500000000" }))).toBe("+500.00 shares");
+    expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "500000000" }))).toBe("+500.00");
     expect(activityWagerPerformanceClass(wager({ status: "won", outcome: undefined }))).toBe("activity-performance-won");
     expect(activityWagerPerformanceClass(wager({ status: "lost", outcome: undefined }))).toBe("activity-performance-lost");
     expect(activityWagerPerformanceClass(wager({ status: "refunded", outcome: undefined }))).toBe("");

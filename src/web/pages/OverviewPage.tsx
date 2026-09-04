@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { divideRoundHalfEven, formatMicros, parseIntegerText } from "../../domain/fixed-point";
+import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
+import { formatCurrentShareValue } from "../share-value";
 
 const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
 
@@ -53,7 +54,7 @@ export function OverviewPage() {
   const commissioner = view.currentMember.role === "commissioner";
   const season = view.activeSeason ?? view.nextDraftSeason;
   const balance = view.currentMember.seasonBalances.find((item) => item.seasonId === season?.id) ?? { availableMicros: "0", lockedMicros: "0" };
-  const price = season && BigInt(season.floatMicros) !== 0n ? formatMicros(divideRoundHalfEven(parseIntegerText(season.notionalValueMicros) * 1000000n, parseIntegerText(season.floatMicros)), 4) : "1.0000";
+  const price = season && BigInt(season.floatMicros) !== 0n ? formatCurrentShareValue(season.floatMicros, season.notionalValueMicros) : "$1.000";
 
   return <Layout signedIn><h1>{view.pool.name}</h1>
     {season && <p className="pool-context">{view.pool.name} · {season.label} ({season.state})</p>}

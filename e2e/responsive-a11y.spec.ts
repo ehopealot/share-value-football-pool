@@ -95,7 +95,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await expectNoViewportOverflow(page);
   await expectCompactOddsBoard(page);
   await expectEvenGameRows(page);
-  await expect(page.getByText(/Current share value/)).toContainText("$0.00");
+  await expect(page.getByText(/Share price/)).toContainText("$0.000");
   await expect(page.getByText(/No shares issued yet/)).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Local Away/ })).toBeVisible();
   await page.getByRole("checkbox").first().check();
@@ -130,7 +130,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
   await page.getByRole("button", { name: "Save nickname" }).click();
   await expect(page.getByText("Pool nickname saved.")).toBeVisible();
   await page.goto(`${worker.baseURL}/p/${pool.slug}/standings`);
-  await expect(page.getByText(/Current share value/)).toContainText("$0.00");
+  await expect(page.getByText(/Current share value/)).toContainText("$0.000");
   await expect(page.getByText(/No shares issued yet/)).toBeVisible();
   await expect(page.getByRole("row", { name: /A11y Alias/ })).toBeVisible();
 
