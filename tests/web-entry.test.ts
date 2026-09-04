@@ -143,6 +143,15 @@ describe("entry redirects", () => {
     expect(failureReason(new Error("offline"), "quote")).toBe("Odds unavailable.");
     expect(failureReason(asApi("MARKET_LOCKED", 400), "place")).toBe("Event has started.");
     expect(failureReason(asApi("SIDE_BET_LIMIT", 400), "place", "800000000")).toBe("Max bet: 800 shares.");
+    expect(failureReason(new ApiError("SIDE_BET_LIMIT", 400, {
+      maxSideBetMicros: "800000000",
+      sideExposures: [{
+        eventId: "event", market: "spread", selection: "home",
+        existingExposure: { numeratorMicros: "800000000", denominator: "1" },
+        proposedExposure: { numeratorMicros: "1000000", denominator: "1" },
+        resultingExposure: { numeratorMicros: "801000000", denominator: "1" }
+      }]
+    }), "place", "800000000")).toBe("Your current exposure on this side is 800 shares. This bet adds 1 share, for 801 shares—over your 800-share limit.");
   });
 
   it("invalidates pending placement work when a route changes or unmounts", () => {

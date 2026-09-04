@@ -206,7 +206,7 @@ describe("PoolDO wagers and settlement", () => {
     expect((await send(mixedSlug, { type: "PlaceParlayWager", commandId: "mixed-parlay", actorId: "member", wagerId: "mixed-parlay", seasonId: "s1", riskMicros: "4000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [leg("mixed-side"), leg("mixed-other")] })).code).toBe("SIDE_BET_LIMIT");
   }, 30_000);
 
-  it("applies side exposure per member", async () => {
+  it("applies side exposure per member and returns the rejected side's total exposure", async () => {
     const slug = await fundedPool(`member-side-limit-${crypto.randomUUID()}`);
     await send(slug, { type: "JoinPool", commandId: "join-other", actorId: "other", displayName: "Other", password: "correct-password" });
     await storage(slug, (state) => state.storage.sql.exec("UPDATE share_account SET available_micros = '5000000000' WHERE season_id = 's1'"));
@@ -215,7 +215,15 @@ describe("PoolDO wagers and settlement", () => {
     const member: any = { ...other, commandId: "member-limit", actorId: "member", wagerId: "member-limit" };
     expect(await send(slug, other)).toMatchObject({ wagerId: "other-limit" });
     expect(await send(slug, member)).toMatchObject({ wagerId: "member-limit" });
-    expect((await send(slug, { ...member, commandId: "member-limit-over", wagerId: "member-limit-over", riskMicros: "1000000" })).code).toBe("SIDE_BET_LIMIT");
+    expect(await send(slug, { ...member, commandId: "member-limit-over", wagerId: "member-limit-over", riskMicros: "1000000" })).toMatchObject({
+      code: "SIDE_BET_LIMIT", maxSideBetMicros: "800000000",
+      sideExposures: [{
+        eventId: "member-limited-side", market: "spread", selection: "home",
+        existingExposure: { numeratorMicros: "800000000", denominator: "1" },
+        proposedExposure: { numeratorMicros: "1000000", denominator: "1" },
+        resultingExposure: { numeratorMicros: "801000000", denominator: "1" }
+      }]
+    });
   }, 30_000);
 
   it("places identical straight, teaser, and parlay quotes after the pool command version advances", async () => {
