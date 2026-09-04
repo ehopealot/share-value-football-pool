@@ -233,7 +233,7 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   await expect(page).toHaveURL(/\/p\/orders-pool\/my-wagers$/);
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
-  await expect(openBets.getByRole("row", { name: /Local Away at Local Home.*Local Away \+3.*1 \+100.*2\.00/ }).first()).toBeVisible();
+  await expect(openBets.getByRole("row", { name: /Local Away \(\+3\) at Local Home.*1 \+100.*2\.00/ }).first()).toBeVisible();
   await expect(page.getByText("Bets cannot be canceled after placement.")).toBeVisible();
   // The browser renders the real durable balance without ever converting its
   // canonical integer micros through Number.
@@ -617,7 +617,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   );
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
-  await expect(openBets.getByText("Local Away at Local Home")).toHaveCount(2);
+  await expect(openBets.locator(".wager-legs > span").filter({ hasText: /Local Away.*Local Home/ })).toHaveCount(2);
   await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.83/ })).toBeVisible();
 });
 

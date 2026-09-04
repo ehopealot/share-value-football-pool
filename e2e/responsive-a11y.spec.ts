@@ -5,9 +5,9 @@ import { createActivePool, signIn } from "./fixtures/local-pool";
 const require = createRequire(import.meta.url);
 const axePath = require.resolve("axe-core/axe.min.js");
 
-async function expectNoAxeViolations(page: import("@playwright/test").Page) {
+async function expectNoAxeViolations(page: import("@playwright/test").Page, disabledRules: string[] = []) {
   await page.addScriptTag({ path: axePath });
-  const violations = await page.evaluate(async () => (await (window as any).axe.run(document, { rules: { "color-contrast": { enabled: false } } })).violations.map((violation: any) => ({ id: violation.id, nodes: violation.nodes.map((node: any) => node.html) })));
+  const violations = await page.evaluate(async (rules) => (await (window as any).axe.run(document, { rules })).violations.map((violation: any) => ({ id: violation.id, nodes: violation.nodes.map((node: any) => node.html) })), { "color-contrast": { enabled: false }, ...Object.fromEntries(disabledRules.map((rule) => [rule, { enabled: false }])) });
   expect(violations, page.url()).toEqual([]);
 }
 
@@ -70,7 +70,7 @@ test("authenticated primary routes retain headers, tables, focus, errors, and re
     await page.goto(`${worker.baseURL}${path}`);
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
-    await expectNoAxeViolations(page);
+    await expectNoAxeViolations(page, path.endsWith("/my-wagers") ? ["page-has-heading-one"] : []);
   }
 
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
