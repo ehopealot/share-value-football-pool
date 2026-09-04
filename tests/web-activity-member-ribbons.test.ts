@@ -1,7 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { MemberActivitySection } from "../src/web/pages/ActivityPage";
+
+const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
 
 const render = (element: ReturnType<typeof createElement>) => renderToStaticMarkup(element);
 const member = {
@@ -20,8 +24,16 @@ describe("Activity member ribbons", () => {
 
     expect(html).toContain('<section class="activity-member-section">');
     expect(html).toContain('<h3 class="activity-member-ribbon">Bruin<small>+500.00 shares</small></h3>');
+    expect(html).toContain('<colgroup><col class="activity-start-column"/><col class="activity-wager-column"/><col class="activity-staked-column"/><col class="activity-pnl-column"/></colgroup>');
     expect(html).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th>');
     expect(html).not.toContain('<th>Member</th>');
+    expect(styles).toMatch(/\.activity-table\s*\{[^}]*table-layout:\s*fixed/);
+    expect(styles).toMatch(/\.activity-start-column\s*\{[^}]*width:\s*20%/);
+    expect(styles).toMatch(/\.activity-wager-column\s*\{[^}]*width:\s*52%/);
+    expect(styles).toMatch(/\.activity-staked-column\s*\{[^}]*width:\s*16%/);
+    expect(styles).toMatch(/\.activity-pnl-column\s*\{[^}]*width:\s*12%/);
+    expect(styles).toMatch(/\.activity-member-section \.activity-wager-lines > span\s*\{[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/);
+    expect(styles).toContain('@media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } .activity-wager-column { width: 50%; } .activity-pnl-column { width: 14%; } }');
     expect(html).toContain("UCLA");
   });
 });
