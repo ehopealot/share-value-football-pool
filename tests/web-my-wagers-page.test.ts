@@ -9,6 +9,8 @@ describe("My wagers page", () => {
   it("uses the compact Activity-style wager, stake, payout, and P&L layout in each status section", () => {
     expect(source).toMatch(/sortWagersByStartTime\(data\.wagers\.filter\(\(w\) => w\.status === "open"\)\)/);
     expect(source).toMatch(/sortWagersByStartTime\(data\.wagers\.filter\(\(w\) => w\.status !== "open"\)\)/);
+    expect(source).toContain('<h2 className="activity-member-ribbon">{title}</h2>');
+    expect(source).toContain('<table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup>');
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th>');
     expect(source).toContain('displayWagerStartTimes(wager)');
     expect(source).toContain('formatActivityLeg(leg)');
@@ -21,12 +23,15 @@ describe("My wagers page", () => {
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
   });
 
-  it("does not repeat the page title above the My Bets table", () => {
-    expect(source).not.toContain('<h1>My wagers</h1>');
+  it("uses a My Bets page title while section names appear only in their ribbons", () => {
+    expect(source).toContain('<h1>My Bets</h1>');
+    expect(source).not.toContain('<h2>Open bets</h2>');
+    expect(source).not.toContain('<h2>Settled bets</h2>');
   });
 
   it("keeps each wager leg on its own line without splitting selected and unselected fragments", () => {
     expect(styles).toContain('.wager-legs > span { display: block; white-space: nowrap; }');
+    expect(styles).toContain('.activity-start-column { width: 16%; }');
     expect(styles).toMatch(/^\.activity-leg-loss \{ color: #b42318; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-win \{ color: #137333; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-neutral \{ color: var\(--ink\); \}$/m);
