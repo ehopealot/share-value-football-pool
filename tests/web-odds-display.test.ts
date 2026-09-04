@@ -7,6 +7,7 @@ import { formatAmericanOdds, formatKickoff } from "../src/web/odds-format";
 import { batchAfterPopState, filterGamesByTeam, groupBoardByEvent, OddsBoardTable, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
+const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
 
 describe("member-facing odds display", () => {
   it("always prefixes a positive American price with +", () => {
@@ -59,6 +60,23 @@ describe("member-facing odds display", () => {
     expect(batchAfterPopState(results)).toBeUndefined();
     expect(batchAfterPopState(quoting)).toEqual(quoting);
     expect(batchAfterPopState(placing)).toEqual(placing);
+  });
+
+  it("separates bold odds-board team names with a normal-weight at", () => {
+    const markup = renderToStaticMarkup(createElement(OddsBoardTable, {
+      games: [{ eventId: "game", league: "nfl", startsAt: "2030-09-01T12:00:00.000Z", awayTeam: "Away", homeTeam: "Home", markets: { spread: {}, total: {}, moneyline: {} } }],
+      currentWeek: "2030-09-01T04:00:00.000Z",
+      selectedPickIds: [],
+      onToggle: () => undefined
+    }));
+
+    expect(markup).toContain('<strong>Away</strong><span class="odds-matchup-at"> at </span><strong>Home</strong>');
+    expect(styles).toMatch(/\.odds-matchup-at\s*\{[^}]*font-weight:\s*400/);
+  });
+
+  it("keeps the two odds-board sub-rows equal beneath row-spanning matchup cells", () => {
+    expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.8rem/);
+    expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.2rem/);
   });
 
   it("keeps the odds table memoized while only a bet amount changes", () => {
