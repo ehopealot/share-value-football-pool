@@ -6,4 +6,4 @@ export const currentShareValueMicros = (floatMicros: string, notionalValueMicros
   return float === 0n ? 0n : divideRoundHalfEven(parseIntegerText(notionalValueMicros) * 1_000_000n, float);
 };
 
-export const formatCurrentShareValue = (floatMicros: string, notionalValueMicros: string): string => `$${formatMicros(currentShareValueMicros(floatMicros, notionalValueMicros), 2)}`;
+export const formatCurrentShareValue = (floatMicros: string, notionalValueMicros: string): string => `$${formatMicros(currentShareValueMicros(floatMicros, notionalValueMicros), 3)}`;

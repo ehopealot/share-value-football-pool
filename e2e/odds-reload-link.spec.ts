@@ -12,19 +12,19 @@ test("a stale odds feed offers a full-page Reload odds link", async ({ page, wor
   const observation = { lastPolledAt: now, lastSuccessAt: now, retrievedAt: now };
   expect(await setFeedState(page, "current", observation)).toBe(200);
   await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
-  await expect(page.getByRole("status")).toContainText("Feed status: current");
+  await expect(page.getByRole("status")).toContainText("Board status: current");
   await expect(page.getByRole("link", { name: "Reload odds" })).toHaveCount(0);
 
   expect(await setFeedState(page, "stale", observation)).toBe(200);
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("Feed status: stale");
+  await expect(page.getByRole("status")).toContainText("Board status: stale");
   const reload = page.getByRole("link", { name: "Reload odds" });
   await expect(reload).toHaveAttribute("href", `${worker.baseURL}/p/${pool.slug}/odds`);
 
   await page.evaluate(() => { (window as Window & { reloadMarker?: string }).reloadMarker = "before"; });
   expect(await setFeedState(page, "current", observation)).toBe(200);
   await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), reload.click()]);
-  await expect(page.getByRole("status")).toContainText("Feed status: current");
+  await expect(page.getByRole("status")).toContainText("Board status: current");
   await expect(page.getByRole("link", { name: "Reload odds" })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (window as Window & { reloadMarker?: string }).reloadMarker ?? null)).toBeNull();
 });

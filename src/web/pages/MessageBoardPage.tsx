@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import type { ReadMessageBoardResponse } from "../../contracts/http";
-import { api, errorMessage, invalidatePoolView } from "../api";
+import { api, errorMessage, invalidatePoolViewForBoardRead } from "../api";
 import { useFrozenAdminCommand } from "../admin-command";
 import { Layout } from "../components/Layout";
 
@@ -13,19 +13,19 @@ type ReplyMutation = Omit<BoardMutation, "announcement">;
 /** Board reads change the caller's durable HWM, so refresh the nav only after they succeed. */
 export async function readMessageBoardAndInvalidate(slug: string) {
   const board = await api.readMessageBoard(slug);
-  invalidatePoolView();
+  invalidatePoolViewForBoardRead();
   return board;
 }
 
 export async function createMessageBoardPostAndInvalidate(slug: string, body: BoardMutation) {
   const result = await api.createMessageBoardPost(slug, body);
-  invalidatePoolView();
+  invalidatePoolViewForBoardRead();
   return result;
 }
 
 export async function replyToMessageBoardPostAndInvalidate(slug: string, postId: string, body: ReplyMutation) {
   const result = await api.replyToMessageBoardPost(slug, postId, body);
-  invalidatePoolView();
+  invalidatePoolViewForBoardRead();
   return result;
 }
 

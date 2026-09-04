@@ -8,14 +8,14 @@ T16 adds a deterministic Playwright matrix in `e2e/responsive-a11y.spec.ts` for 
 
 - `tests/accessibility/contrast.test.ts` verifies AA contrast for text, navigation, links, actions, and error summaries.
 - `tests/accessibility/focus-contrast.test.ts` verifies visible focus coverage, including selects and the dark ribbon control.
-- `tests/accessibility/touch-target.test.ts` verifies 44px minimum ribbon/action targets at the 600px mobile breakpoint.
+- `tests/accessibility/touch-target.test.ts` verifies 36px ribbon and 44px action targets at the 600px mobile breakpoint.
 - `e2e/responsive-a11y.spec.ts` is the browser/axe route-state matrix.
 
 ## Findings and fixes
 
 - Added column headers to the Games odds table so assistive technology can associate the three market columns with their controls.
 - Added visible focus styling to selects.
-- Added mobile 44px targets for ribbon links and action controls.
+- Kept mobile ribbon links compact at 36px while retaining 44px action controls.
 - Preserved horizontal table overflow inside table containers rather than the document viewport.
 
 ## Browser evidence

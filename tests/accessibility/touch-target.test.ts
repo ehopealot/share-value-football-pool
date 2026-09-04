@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync(resolve(import.meta.dirname, "../../src/web/styles.css"), "utf8");
 
 describe("narrow-screen touch targets", () => {
-  it("gives ribbon and action controls a 44px minimum target at the mobile breakpoint", () => {
-    expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[\s\S]*\.nav-bar a, \.nav-button, button, \.primary-action, \.secondary-action\s*\{[\s\S]*min-height:\s*44px/);
+  it("keeps mobile ribbon controls compact while preserving 44px action targets", () => {
+    expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[^@]*\.nav-bar a, \.nav-button\s*\{[^}]*min-height:\s*36px/);
+    expect(css).toMatch(/@media \(max-width: 600px\)[^{]*\{[^@]*button:not\(\.nav-button\), \.primary-action, \.secondary-action\s*\{[^}]*min-height:\s*44px/);
   });
 
   it("uses smaller selected-pick text without shrinking the bet-slip remove target", () => {

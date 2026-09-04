@@ -8,14 +8,15 @@ const pools = (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO;
 const send = async (slug: string, command: any): Promise<Record<string, unknown>> => {
   const stub = pools.get(pools.idFromName(slug));
   const post = async (value: unknown) => (await stub.fetch("https://pool.test/command", { method: "POST", body: JSON.stringify(value) })).json() as Promise<Record<string, unknown>>;
-  if (command.type !== "PlaceStraightWager" && command.type !== "PlaceTeaserWager") return post(command);
+  if (command.type !== "PlaceStraightWager" && command.type !== "PlaceTeaserWager" && command.type !== "PlaceParlayWager") return post(command);
   const quoteKey = `quote:${command.commandId}`;
   const view = await post({ type: "ReadPoolView", commandId: `version:${quoteKey}`, actorId: command.actorId });
   const normalize = (leg: any) => ({ ...leg, adjustedLine: leg.adjustedLine ?? leg.originalLine, homeTeam: leg.homeTeam ?? "Home", awayTeam: leg.awayTeam ?? "Away" });
-  const projection = { quoteKey, ownerMemberId: command.actorId, commandVersion: String(view.commandVersion), fingerprint: `fixture:${quoteKey}`, wagerId: command.wagerId, actorId: command.actorId, seasonId: command.seasonId, riskMicros: command.riskMicros, acceptedOdds: command.acceptedOdds, rulesetVersion: command.rulesetVersion, ...(command.type === "PlaceStraightWager" ? { leg: normalize(command.leg) } : { teaserPoints: command.teaserPoints, legs: command.legs.map(normalize) }) };
-  const quote = await post({ type: command.type === "PlaceStraightWager" ? "QuoteStraightWager" : "QuoteTeaserWager", commandId: quoteKey, actorId: command.actorId, identity: { actorId: command.actorId, quoteKey, fingerprint: projection.fingerprint }, projection });
+  const projection = { quoteKey, ownerMemberId: command.actorId, commandVersion: String(view.commandVersion), fingerprint: `fixture:${quoteKey}`, wagerId: command.wagerId, actorId: command.actorId, seasonId: command.seasonId, riskMicros: command.riskMicros, acceptedOdds: command.acceptedOdds, rulesetVersion: command.rulesetVersion, ...(command.type === "PlaceStraightWager" ? { leg: normalize(command.leg) } : { ...(command.type === "PlaceTeaserWager" ? { teaserPoints: command.teaserPoints } : {}), legs: command.legs.map(normalize) }) };
+  const quoteType = command.type === "PlaceStraightWager" ? "QuoteStraightWager" : command.type === "PlaceTeaserWager" ? "QuoteTeaserWager" : "QuoteParlayWager";
+  const quote = await post({ type: quoteType, commandId: quoteKey, actorId: command.actorId, identity: { actorId: command.actorId, quoteKey, fingerprint: projection.fingerprint }, projection });
   if (quote.code) return quote;
-  return post({ type: command.type, commandId: command.commandId, actorId: command.actorId, wagerId: command.wagerId, quoteKey, quotedCommandVersion: String(quote.commandVersion), seasonId: quote.seasonId, riskMicros: quote.riskMicros, acceptedOdds: quote.acceptedOdds, rulesetVersion: quote.rulesetVersion, ...(command.type === "PlaceStraightWager" ? { leg: quote.leg } : { teaserPoints: quote.teaserPoints, legs: quote.legs }) });
+  return post({ type: command.type, commandId: command.commandId, actorId: command.actorId, wagerId: command.wagerId, quoteKey, quotedCommandVersion: String(quote.commandVersion), seasonId: quote.seasonId, riskMicros: quote.riskMicros, acceptedOdds: quote.acceptedOdds, rulesetVersion: quote.rulesetVersion, ...(command.type === "PlaceStraightWager" ? { leg: quote.leg } : { ...(command.type === "PlaceTeaserWager" ? { teaserPoints: quote.teaserPoints } : {}), legs: quote.legs }) });
 };
 const stateFor = <T>(slug: string, callback: (state: DurableObjectState) => T) => runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => callback(state));
 const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -80,6 +81,25 @@ describe("PoolDO privacy and committed outbox", () => {
     expect(poolOutboxMessage.safeParse({ eventId: "incomplete", eventType: "CommandApplied", version: "1", payload: { poolId: slug, actorId: "owner", commandId: "missing-order", commandType: "ReverseShareOrder", seasonId: "s1", memberId: "member" } }).success).toBe(false);
     expect(poolOutboxMessage.safeParse({ eventId: "unknown", eventType: "CommandApplied", version: "1", payload: { poolId: slug, actorId: "owner", commandId: "unknown", commandType: "UnexpectedCommand" } }).success).toBe(false);
   }, 30_000);
+
+  it("parses and drains least-data parlay placement identities without ticket terms", async () => {
+    const slug = await poolWithHiddenTicket();
+    const quote = await send(slug, { type: "QuoteShareOrder", commandId: "parlay-funding-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" });
+    await send(slug, { type: "ExecuteShareOrder", commandId: "parlay-funding", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "fund parlay" });
+    const parlayLeg = (eventId: string) => ({ eventId, league: "nfl", canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:spread:home`, eventId, offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: -3, originalOdds: -110, eventStartsAt: future, homeTeam: "Home", awayTeam: "Away" });
+    expect(await send(slug, { type: "PlaceParlayWager", commandId: "private-parlay-place", actorId: "member", wagerId: "private-parlay", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("private-parlay-one"), parlayLeg("private-parlay-two")] })).toMatchObject({ wagerId: "private-parlay" });
+    const sent: PoolOutboxMessage[] = [];
+    await stateFor(slug, async (state) => {
+      const stored = [...state.storage.sql.exec<{ id: string; event_type: string; version: string; payload_json: string }>("SELECT id,event_type,version,payload_json FROM outbox WHERE payload_json LIKE '%private-parlay-place%'")][0]!;
+      const parsed = poolOutboxMessage.parse({ eventId: stored.id, eventType: stored.event_type, version: stored.version, payload: JSON.parse(stored.payload_json) });
+      expect(parsed).toMatchObject({ eventType: "CommandApplied", payload: { commandType: "PlaceParlayWager", poolId: slug, actorId: "member", commandId: "private-parlay-place", seasonId: "s1", memberId: "member", wagerId: "private-parlay" } });
+      expect(Object.keys(parsed.payload).sort()).toEqual(["actorId", "commandId", "commandType", "memberId", "poolId", "seasonId", "wagerId"]);
+      state.storage.sql.exec("UPDATE outbox SET next_attempt_at=? WHERE id=?", new Date(0).toISOString(), stored.id);
+      await drainOutbox(state, { send: async (message: PoolOutboxMessage) => sent.push(message) } as unknown as Queue<PoolOutboxMessage>);
+    });
+    expect(sent).toContainEqual(expect.objectContaining({ payload: expect.objectContaining({ commandType: "PlaceParlayWager", wagerId: "private-parlay" }) }));
+    expect(JSON.stringify(sent)).not.toMatch(/private-parlay-one|riskMicros|acceptedOdds|legs/);
+  }, 90_000);
 
   it("keeps a committed event after Queue failure and delivers it once on recovery", async () => {
     const slug = await poolWithHiddenTicket();

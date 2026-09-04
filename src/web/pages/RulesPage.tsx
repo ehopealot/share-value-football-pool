@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import type { OddsBoardResponse, ReadPoolView } from "../../contracts/http";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
+import { PARLAY_RULESET_ID } from "../../domain/parlay";
 import { TEASER_RULESET_ID } from "../../domain/teaser-table";
 const teaserRows = [[2, "-120", "-130", "-140", "-160", "—"], [3, "+150", "+135", "+120", "+105", "-120"], [4, "+235", "+215", "+200", "+140", "—"], [5, "+350", "+320", "+300", "+235", "—"], [6, "+550", "+500", "+475", "+325", "—"], [7, "+800", "+700", "+600", "+445", "—"]] as const;
 
@@ -21,10 +22,17 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
     </section>
     {supported && <section aria-labelledby="teaser-rules-heading">
       <h2 id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>
-      <div className="table-scroll" tabIndex={0}><table><caption>Fixed system teaser prices (American odds)</caption><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
-      <p>Regular teasers allow 2–7 legs. 10-point teasers require exactly 3 legs. Moneylines are ineligible. NFL and NCAA sides and totals may be mixed.</p>
-      <p>If any leg loses, the teaser loses. Otherwise pushed or void legs are removed and the remaining valid leg count is repriced from this table. If every leg pushes or voids, or too few winning legs remain, the risk is refunded.</p>
+      <div className="table-scroll" tabIndex={0}><table><caption>Fixed system teaser prices (American odds)</caption><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell === 7 ? "7 (legacy only)" : cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
+      <p>Regular teasers allow 2–6 legs. New teaser tickets are capped at six legs. 10-point teasers require exactly 3 legs. Moneylines are ineligible. NFL and NCAA sides and totals may be mixed.</p>
+      <p>The seven-leg row applies only to previously accepted legacy tickets.</p>
+      <p>A teaser settles as soon as any final leg loses. Wins and refunds wait until all legs are final; pushed or void legs are then removed and the remaining valid leg count is repriced from this table. If every leg pushes or voids, or too few winning legs remain, the risk is refunded.</p>
     </section>}
+    <section aria-labelledby="parlay-rules-heading">
+      <h2 id="parlay-rules-heading">Parlays: {PARLAY_RULESET_ID}</h2>
+      <p>Parlays allow 2–6 legs from NFL or NCAA spreads, totals, and moneylines. Each event may include one spread or moneyline, optionally paired with one total; spread-plus-moneyline and duplicate or opposing selections are not allowed.</p>
+      <p>A total paired with its event’s spread or moneyline is priced at -133. All other spread and total legs use +100, while moneylines use their accepted vig-free price.</p>
+      <p>A parlay settles as soon as any final leg loses. Wins and refunds wait until all legs are final. Pushes and voids are removed and surviving legs are repriced from their immutable accepted terms; if no legs survive, the risk is refunded.</p>
+    </section>
     <section aria-labelledby="source-policy-heading">
       <h2 id="source-policy-heading">Odds sources</h2>
       <p>DraftKings, then FanDuel, then BetMGM, then Caesars. The service uses the first source supplying a complete market; members cannot select a provider and the service does not selection-shop.</p>

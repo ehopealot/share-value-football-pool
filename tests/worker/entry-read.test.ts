@@ -15,7 +15,10 @@ describe("account entry reads", () => {
     expect((await owner.fetch(request("/api/pools", { slug: "entry-pool", poolName: "Entry Pool", password: "correct-password", idempotencyKey: "create" }))).status).toBe(201);
     await bindings.DB.prepare("INSERT INTO membership_projection (pool_id,user_id,pool_name,role,status,projection_version) SELECT pool_id, 'owner', 'Entry Pool', 'commissioner', 'active', '1' FROM pool_registry WHERE normalized_slug = 'entry-pool'").run();
     expect(await (await owner.fetch(request("/api/pools"))).json()).toEqual({ memberships: [expect.objectContaining({ slug: "entry-pool", poolName: "Entry Pool" })] });
-    expect(await (await app({ id: "visitor", name: "Visitor" }).fetch(request("/api/p/entry-pool/gate"))).json()).toEqual({ membership: "joinable", poolName: "Entry Pool", signupsOpen: true });
+    await owner.fetch(request("/api/p/entry-pool/admin/settings", { commissionerNotice: "Draft starts at noon.", idempotencyKey: "notice" }));
+    const joinableGate = await (await app({ id: "visitor", name: "Visitor" }).fetch(request("/api/p/entry-pool/gate"))).json();
+    expect(joinableGate).toEqual({ membership: "joinable", poolName: "Entry Pool", signupsOpen: true });
+    expect(JSON.stringify(joinableGate)).not.toContain("Draft starts at noon.");
     await owner.fetch(request("/api/p/entry-pool/admin/settings", { signupsOpen: false, idempotencyKey: "close" }));
     expect(await (await app({ id: "visitor", name: "Visitor" }).fetch(request("/api/p/entry-pool/gate"))).json()).toEqual({ membership: "closed", signupsOpen: false });
   }, 90_000);

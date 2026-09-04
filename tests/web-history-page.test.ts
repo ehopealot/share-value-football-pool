@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ArchivedRulesetGuidance, EventResultsTable } from "../src/web/pages/HistoryPage";
+import { ArchivedRulesetGuidance, EventResultsTable, WagerRulesetGuidance } from "../src/web/pages/HistoryPage";
 
 const render = (element: ReturnType<typeof createElement>) => renderToStaticMarkup(createElement(MemoryRouter, {}, element));
 
@@ -13,6 +13,20 @@ describe("archived history presentation", () => {
     expect(html).toContain('href="/p/pool/rules#teaser-rules-heading"');
     expect(html).toContain("This archived version remains authoritative");
     expect(html).not.toContain("Unsupported archived ruleset");
+  });
+
+  it("guides a parlay by its wager ruleset rather than the archived season teaser ruleset", () => {
+    const html = render(createElement(WagerRulesetGuidance, { slug: "pool", wager: { wagerId: "parlay", type: "parlay", rulesetVersion: "PARLAY_2026_V1" } }));
+    expect(html).toContain("PARLAY_2026_V1");
+    expect(html).toContain('href="/p/pool/rules#parlay-rules-heading"');
+    expect(html).toContain("independently of the season teaser ruleset");
+  });
+
+  it("warns for an unknown stored parlay ruleset and preserves redaction when no ruleset is visible", () => {
+    const unknown = render(createElement(WagerRulesetGuidance, { slug: "pool", wager: { wagerId: "parlay", type: "parlay", rulesetVersion: "PARLAY_2027_V2" } }));
+    expect(unknown).toContain("Unsupported parlay ruleset: PARLAY_2027_V2");
+    expect(unknown).not.toContain('href="/p/pool/rules#parlay-rules-heading"');
+    expect(render(createElement(WagerRulesetGuidance, { slug: "pool", wager: { wagerId: "parlay", type: "parlay" } }))).toBe("");
   });
 
   it("warns that an unsupported archived ruleset must not use the current payout table", () => {

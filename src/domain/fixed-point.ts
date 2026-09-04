@@ -40,7 +40,7 @@ export function microsFromDecimal(value: string): bigint {
   return negative ? -(scaled + increment) : scaled + increment;
 }
 
-export function formatMicros(value: bigint, decimals: 2 | 4 | 6): string {
+export function formatMicros(value: bigint, decimals: 2 | 3 | 4 | 6): string {
   const negative = value < 0n;
   const absolute = negative ? -value : value;
   const scale = 10n ** BigInt(6 - decimals);

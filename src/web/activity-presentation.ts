@@ -1,5 +1,8 @@
 import type { ReadActivity } from "../contracts/http";
 import { formatMicros, parseIntegerText } from "../domain/fixed-point";
+import { formatAmericanOdds } from "./odds-format";
+import { sortWagersByStartTime } from "./wager-presentation";
+import { displayTeamName } from "./team-display";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -17,7 +20,7 @@ export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string):
     group.wagers.push(wager);
     groups.set(wager.memberId, group);
   }
-  return [...groups.values()].map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString() }));
+  return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByStartTime(group.wagers) }));
 }
 
 export function formatWeeklyPerformance(profitMicros: string): string {
@@ -30,12 +33,37 @@ export function formatActivityPerformance(performanceMicros: string): string {
   return performanceMicros === "0" ? "" : formatWeeklyPerformance(performanceMicros);
 }
 
-export function formatActivityWagerPerformance(wager: Pick<Wager, "performanceMicros">): string {
-  return formatActivityPerformance(wager.performanceMicros);
+type WagerOutcome = { status: string; outcome?: "won" | "lost" | "refunded" };
+const terminalOutcome = (wager: WagerOutcome) => wager.outcome ?? (wager.status === "won" || wager.status === "lost" || wager.status === "refunded" ? wager.status : undefined);
+
+export function formatActivityWagerPerformance(wager: WagerOutcome & Pick<Wager, "performanceMicros">): string {
+  if (wager.performanceMicros === "0") return terminalOutcome(wager) === "refunded" ? "0.00" : "";
+  const value = parseIntegerText(wager.performanceMicros);
+  return `${value > 0n ? "+" : ""}${formatMicros(value, 2)}`;
+}
+
+export function activityWagerPerformanceClass(wager: WagerOutcome): string {
+  return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : "";
+}
+
+/** Public Activity stakes may omit protected accepted odds. */
+export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): { amount: string; odds?: string } | undefined {
+  if (wager.riskMicros === undefined) return undefined;
+  return { amount: (parseIntegerText(wager.riskMicros) / 1_000_000n).toString(), ...(wager.acceptedOdds === undefined ? {} : { odds: formatAmericanOdds(wager.acceptedOdds) }) };
+}
+
+/** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
+export function activitySelectedOutcomeClass(wager: WagerOutcome): string {
+  return terminalOutcome(wager) === "won" ? "activity-picked-won" : terminalOutcome(wager) === "lost" ? "activity-picked-lost" : "";
+}
+
+/** The available feed has kickoff, but no live/finished game-state signal. */
+export function activityLegTimingClass(leg: Pick<Leg, "eventStartsAt">, now = Date.now()): string {
+  return Date.parse(leg.eventStartsAt) > now ? "activity-wager-not-started" : "";
 }
 
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";
-const teams = (leg: Leg) => ({ away: leg.awayTeam ?? "Away", home: leg.homeTeam ?? "Home" });
+const teams = (leg: Leg) => ({ away: displayTeamName(leg.league, leg.awayTeam ?? "Away"), home: displayTeamName(leg.league, leg.homeTeam ?? "Home") });
 
 /** Returns text segments so Activity can emphasize only the selected side or total. */
 export function formatActivityLeg(leg: Leg): ActivityLegLine {
