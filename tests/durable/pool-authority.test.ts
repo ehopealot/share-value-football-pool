@@ -11,7 +11,7 @@ const send = async (slug: string, command: PoolCommand) => {
 };
 
 describe("PoolDO authority", () => {
-  it("runs atomic startup migration twice over populated legacy wager and settlement tables", async () => {
+  it("runs startup migration twice over populated legacy wager and settlement tables", async () => {
     const slug = `parlay-migration-${crypto.randomUUID()}`;
     await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Migration", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
     const migrated = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
@@ -183,7 +183,7 @@ describe("PoolDO authority", () => {
     expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-cleared", actorId: "member" })).body).toMatchObject({ pool: { commissionerNotice: null } });
   }, 90_000);
 
-  it("serializes membership, seasons, idempotency, and suspension authorization", async () => {
+  it("enforces membership, season, idempotency, and suspension authorization rules", async () => {
     const slug = `pool-${crypto.randomUUID()}`;
     const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Friday Pool", creatorId: "owner", creatorName: "Owner", password: "correct-password" };
     expect((await send(slug, initialize)).body).toMatchObject({ commandVersion: "1", status: "ready" });
