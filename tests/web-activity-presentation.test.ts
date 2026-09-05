@@ -31,7 +31,7 @@ describe("activity presentation", () => {
     expect(formatActivityWagerPerformance(wager({ riskMicros: undefined, performanceMicros: "500000000" }))).toBe("+500.00");
     expect(activityWagerPerformanceClass(wager({ status: "won", outcome: undefined }))).toBe("activity-performance-won");
     expect(activityWagerPerformanceClass(wager({ status: "lost", outcome: undefined }))).toBe("activity-performance-lost");
-    expect(activityWagerPerformanceClass(wager({ status: "refunded", outcome: undefined }))).toBe("");
+    expect(activityWagerPerformanceClass(wager({ status: "refunded", outcome: undefined }))).toBe("activity-performance-refunded");
   });
 
   it("formats the stake as whole shares and accepted odds", () => {
