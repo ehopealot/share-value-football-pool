@@ -12,7 +12,7 @@ export interface PoolCommandClient {
   initializePool(input: InitializePoolInput): Promise<{ commandVersion: string }>;
 }
 
-/** Worker-to-DO command transport. The DO independently owns all authorization and mutation. */
+/** Worker-to-DO command transport. Worker routes own creator authentication and entitlement; the DO owns command validation, idempotency, and mutation. */
 export class DurablePoolCommandClient implements PoolCommandClient {
   constructor(private readonly pools: DurableObjectNamespace) {}
 
