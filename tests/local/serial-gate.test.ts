@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import {
   T10_SERIAL_GATE_STAGES,
   runSerialGate,
 } from "../../scripts/run-t10-serial-gate.mjs";
+import { waitForProcessGroupExit } from "../../scripts/owned-process";
 
 type SerialGateStage = { label: string; command: string; args: string[] };
 
@@ -30,6 +31,22 @@ const expectedStages: Array<[string, string, string[]]> = [
 ];
 
 const temporary = async (prefix: string) => mkdtemp(join(tmpdir(), prefix));
+const forceProcessGroupExit = async (pgid: number, label: string) => {
+  const errors: unknown[] = [];
+  try { process.kill(-pgid, "SIGTERM"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") errors.push(error); }
+  let exited = false;
+  try { exited = await waitForProcessGroupExit(pgid, 2, 25, { cleanupTimeoutMs: 1_000 }); }
+  catch (error) { errors.push(error); }
+  if (!exited) {
+    try { process.kill(-pgid, "SIGKILL"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") errors.push(error); }
+    try { exited = await waitForProcessGroupExit(pgid, 30, 50, { cleanupTimeoutMs: 10_000 }); }
+    catch (error) { errors.push(error); }
+  }
+  if (!exited) errors.push(new Error(`${label} process group remains`));
+  if (errors.length) throw new AggregateError(errors, `${label} fallback cleanup failed`);
+};
 const noOpStages: SerialGateStage[] = [
   { label: "only", command: process.execPath, args: ["-e", ""] },
   { label: "final owned-resource cleanup", command: process.execPath, args: ["-e", ""] },
@@ -62,13 +79,16 @@ describe("T10 serial gate", () => {
     const lockPath = join(root, "gate.lock");
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
     const first = runSerialGate({
       cwd: root,
       lockPath,
       stages: noOpStages,
-      executeStage: async () => held,
+      executeStage: async () => { markEntered(); await held; },
     });
     try {
+      await entered;
       await expect.poll(async () => {
         try {
           await runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} });
@@ -82,6 +102,7 @@ describe("T10 serial gate", () => {
       await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
     } finally {
       release?.();
+      await first.catch(() => undefined);
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -117,46 +138,80 @@ describe("T10 serial gate", () => {
   it("kills a timed-out owned process group and verifies cleanup before returning", async () => {
     const root = await temporary("share-value-pool-serial-gate-timeout-");
     const marker = join(root, "descendant-ready");
-    const source = `const {spawn}=require('node:child_process');const fs=require('node:fs');process.on('SIGTERM',()=>{});spawn(process.execPath,['-e',${JSON.stringify(`const fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(marker)},'ready');setInterval(()=>{},1000)`) }],{stdio:'ignore'});setInterval(()=>{},1000);`;
+    const pgidMarker = join(root, "group-pgid");
+    const source = `const {spawn}=require('node:child_process');const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pgidMarker)},String(process.pid));process.on('SIGTERM',()=>{});spawn(process.execPath,['-e',${JSON.stringify(`const fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(marker)},'ready');setInterval(()=>{},1000)`) }],{stdio:'ignore'});setInterval(()=>{},1000);`;
+    let pgid: number | undefined;
+    let groupVerifiedAbsent = false;
     try {
       await expect(runSerialGate({
         cwd: root,
         lockPath: join(root, "gate.lock"),
-        timeoutMs: 100,
+        timeoutMs: 1_000,
         stages: [{ label: "timeout", command: process.execPath, args: ["-e", source] }],
       })).rejects.toThrow(/timed out/);
-      await expect.poll(async () => {
-        const pid = await new Promise<number | undefined>((resolve) => {
-          const child = spawn("pgrep", ["-f", marker]);
-          child.once("exit", (code) => resolve(code === 0 ? 1 : undefined));
-        });
-        return pid;
-      }, { timeout: 5_000 }).toBeUndefined();
+      await expect(access(marker)).resolves.toBeUndefined();
+      pgid = Number(await readFile(pgidMarker, "utf8"));
+      expect(pgid).toBeGreaterThan(0);
+      await expect(waitForProcessGroupExit(pgid, 20, 50, { cleanupTimeoutMs: 5_000 })).resolves.toBe(true);
+      groupVerifiedAbsent = true;
     } finally {
-      await rm(root, { recursive: true, force: true });
+      try {
+        if (!pgid) {
+          try { pgid = Number(await readFile(pgidMarker, "utf8")); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            // Process never published ownership.
+          }
+        }
+        if (pgid && !groupVerifiedAbsent) await forceProcessGroupExit(pgid, "timed-out serial stage");
+      } finally { await rm(root, { recursive: true, force: true }); }
     }
   }, 20_000);
 
   it("preserves the original interruption when owned-stage cleanup fails", async () => {
     const root = await temporary("share-value-pool-serial-gate-stop-failure-");
     const marker = join(root, "stop-failure-ready");
+    const pgidMarker = join(root, "group-pgid");
     const controller = new AbortController();
-    const source = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(marker)},'ready');setInterval(()=>{},1000);`;
+    const source = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pgidMarker)},String(process.pid));fs.writeFileSync(${JSON.stringify(marker)},'ready');setInterval(()=>{},1000);`;
+    let running: Promise<void> | undefined;
+    let pgid: number | undefined;
+    let groupVerifiedAbsent = false;
     try {
-      const running = runSerialGate({
+      running = runSerialGate({
         cwd: root, lockPath: join(root, "gate.lock"), signal: controller.signal,
         stages: [{ label: "stop failure", command: process.execPath, args: ["-e", source] }],
-        stop: async (child) => { if (child?.pid) process.kill(-child.pid, "SIGKILL"); throw new Error("injected stop cleanup failure"); },
+        stop: async (child) => { if (child?.pid) { pgid = child.pid; process.kill(-child.pid, "SIGKILL"); } throw new Error("injected stop cleanup failure"); },
         finalCleanup: async () => {},
       });
-      await expect.poll(async () => { try { await access(marker); return true; } catch { return false; } }).toBe(true);
+      await expect.poll(async () => {
+        try { await access(marker); return true; }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          return false;
+        }
+      }).toBe(true);
       controller.abort();
       const error = await running.catch((value) => value as Error & { cleanupDiagnostics?: Error });
       if (!error) throw new Error("expected interrupted gate failure");
       expect(error.message).toBe("T10 serial gate interrupted during stop failure");
       expect(error.cleanupDiagnostics?.message).toContain("injected stop cleanup failure");
     } finally {
-      await rm(root, { recursive: true, force: true });
+      controller.abort();
+      await running?.catch(() => undefined);
+      try {
+        if (!pgid) {
+          try { pgid = Number(await readFile(pgidMarker, "utf8")); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            // Process never published ownership.
+          }
+        }
+        if (pgid) {
+          try { groupVerifiedAbsent = await waitForProcessGroupExit(pgid, 20, 50, { cleanupTimeoutMs: 5_000 }); } catch { /* fallback verifies cleanup below */ }
+          if (!groupVerifiedAbsent) await forceProcessGroupExit(pgid, "stop-failure serial stage");
+        }
+      } finally { await rm(root, { recursive: true, force: true }); }
     }
   });
 
@@ -181,26 +236,45 @@ describe("T10 serial gate", () => {
   it("interrupts a TERM-resistant production child group, preserves the interruption, and releases its lock", async () => {
     const root = await temporary("share-value-pool-serial-gate-abort-");
     const marker = join(root, "abort-descendant-ready");
+    const pgidMarker = join(root, "group-pgid");
     const controller = new AbortController();
-    const source = `const {spawn}=require('node:child_process');const fs=require('node:fs');process.on('SIGTERM',()=>{});spawn(process.execPath,['-e',${JSON.stringify(`const fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(marker)},'ready');setInterval(()=>{},1000)`) }],{stdio:'ignore'});setInterval(()=>{},1000);`;
+    const source = `const {spawn}=require('node:child_process');const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pgidMarker)},String(process.pid));process.on('SIGTERM',()=>{});spawn(process.execPath,['-e',${JSON.stringify(`const fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(marker)},'ready');setInterval(()=>{},1000)`) }],{stdio:'ignore'});setInterval(()=>{},1000);`;
     const waitForMarker = async () => {
       for (let attempt = 0; attempt < 200; attempt++) {
-        try { await access(marker); return; } catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+        try { await access(marker); return; }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
       }
       throw new Error("TERM-resistant descendant did not become ready");
     };
+    let running: Promise<void> | undefined;
+    let pgid: number | undefined;
+    let groupVerifiedAbsent = false;
     try {
-      const running = runSerialGate({ cwd: process.cwd(), lockPath: join(root, "gate.lock"), timeoutMs: 30_000, signal: controller.signal, stages: [{ label: "interruptible", command: process.execPath, args: ["-e", source] }] });
+      running = runSerialGate({ cwd: process.cwd(), lockPath: join(root, "gate.lock"), timeoutMs: 30_000, signal: controller.signal, stages: [{ label: "interruptible", command: process.execPath, args: ["-e", source] }] });
       await waitForMarker();
+      pgid = Number(await readFile(pgidMarker, "utf8"));
+      expect(pgid).toBeGreaterThan(0);
       controller.abort();
       await expect(running).rejects.toThrow(/interrupted during interruptible/);
-      await expect.poll(async () => {
-        const child = spawn("pgrep", ["-f", marker]);
-        return await new Promise<number | undefined>((resolve) => child.once("exit", (code) => resolve(code === 0 ? 1 : undefined)));
-      }, { timeout: 10_000 }).toBeUndefined();
+      await expect(waitForProcessGroupExit(pgid, 20, 50, { cleanupTimeoutMs: 5_000 })).resolves.toBe(true);
+      groupVerifiedAbsent = true;
       await expect(runSerialGate({ cwd: root, lockPath: join(root, "gate.lock"), stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
     } finally {
-      await rm(root, { recursive: true, force: true });
+      controller.abort();
+      await running?.catch(() => undefined);
+      try {
+        if (!pgid) {
+          try { pgid = Number(await readFile(pgidMarker, "utf8")); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            // Process never published ownership.
+          }
+        }
+        if (pgid && !groupVerifiedAbsent) await forceProcessGroupExit(pgid, "interrupted serial stage");
+      } finally { await rm(root, { recursive: true, force: true }); }
     }
   }, 20_000);
 
