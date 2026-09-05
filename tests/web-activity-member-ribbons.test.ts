@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { MemberActivitySection } from "../src/web/pages/ActivityPage";
+import { formatKickoff } from "../src/web/odds-format";
 
 const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
 
@@ -44,6 +45,14 @@ describe("Activity member ribbons", () => {
     expect(html.match(/<tr/g)).toHaveLength(3);
     expect(html).toContain('<tr class="activity-wager-leg-row">');
     expect(html.match(/class="wager-start-time"/g)).toHaveLength(2);
+    const firstKickoff = html.indexOf(`<span class="wager-start-time">${formatKickoff("2026-09-06T20:00:00.000Z")}</span>`);
+    const firstMatchup = html.indexOf("<strong>UCLA (-7.5)</strong>");
+    const secondKickoff = html.indexOf(`<span class="wager-start-time">${formatKickoff("2026-09-07T20:00:00.000Z")}</span>`);
+    const secondMatchup = html.indexOf("<strong>Oregon (-7.5)</strong>");
+    expect([firstKickoff, firstMatchup, secondKickoff, secondMatchup].every((index) => index >= 0)).toBe(true);
+    expect(firstKickoff).toBeLessThan(firstMatchup);
+    expect(firstMatchup).toBeLessThan(secondKickoff);
+    expect(secondKickoff).toBeLessThan(secondMatchup);
     expect(html).toContain('<td rowSpan="2"><span class="activity-staked">');
     expect(styles).toContain('.activity-table .activity-wager-leg-row > td { border-top: 0; padding-top: 0; }');
     expect(styles).toContain('.activity-wager-leg-row-leading > td:not([rowspan]) { border-bottom: 0; padding-bottom: 0; }');

@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { activityLegTimingClass, activitySelectedOutcomeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
+import { WagerLines } from "../src/web/pages/ActivityPage";
 type Wager = Parameters<typeof groupActivityMembersForWeek>[0][number];
 const leg = (overrides: Record<string, unknown> = {}) => ({ eventId: "game", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalLine: "-7.5", originalOdds: -110, eventStartsAt: "2026-09-06T20:00:00.000Z", awayTeam: "UCLA", homeTeam: "Arizona", ...overrides });
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", seasonId: "s", memberId: "ucla", memberDisplayName: "Bruin", type: "straight", status: "won", confirmedAt: "2026-09-01T00:00:00.000Z", weekStart: "2026-09-01T04:00:00.000Z", performanceMicros: "500000000", profitMicros: "500000000", legs: [leg()], ...overrides }) as Wager;
@@ -69,6 +72,10 @@ describe("activity presentation", () => {
       { hidden: false, segments: [{ text: "UCLA (-1.5)", selected: true }, { text: " at Arizona", selected: false }] },
       { hidden: false, segments: [{ text: "UCLA at Arizona ", selected: false }, { text: "O38.5", selected: true }] }
     ]);
-    expect(groupActivityMembersForWeek([wager({ legs: undefined })], "2026-09-01T04:00:00.000Z")[0]!.wagers[0]!.legs).toBeUndefined();
+    const redactedWager = wager({ legs: undefined });
+    expect(groupActivityMembersForWeek([redactedWager], "2026-09-01T04:00:00.000Z")[0]!.wagers[0]!.legs).toBeUndefined();
+    const redactedMarkup = renderToStaticMarkup(createElement(WagerLines, { wager: redactedWager }));
+    expect(redactedMarkup).toBe("Selection hidden until the game starts.");
+    expect(redactedMarkup).not.toContain("UCLA");
   });
 });

@@ -1,6 +1,6 @@
-import { afterEach } from "vitest";
-
+import { afterEach, vi } from "vitest";
 
 afterEach(() => {
-  // Keep future Node tests isolated from ambient mocks and fake timers.
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
