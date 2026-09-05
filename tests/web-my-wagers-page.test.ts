@@ -13,6 +13,7 @@ describe("My wagers page", () => {
     expect(source).toContain('<table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup>');
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th>');
     expect(source).toContain('displayWagerStartTimes(wager)');
+    expect(source).toContain('sortWagerLegsByStartTime(wager.legs ?? [])');
     expect(source).toContain('formatActivityLeg(leg)');
     expect(source).toContain('activityLegGradeClass(leg.grade)');
     expect(source).toContain('className={gradeClass}');

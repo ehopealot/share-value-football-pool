@@ -37,14 +37,16 @@ describe("Activity member ribbons", () => {
     expect(html).toContain("UCLA");
   });
 
-  it("keeps multi-leg matchups visually grouped while aligning each kickoff", () => {
-    const multiLegMember = { ...member, wagers: [{ ...member.wagers[0], type: "parlay", legs: [...member.wagers[0].legs, { ...member.wagers[0].legs[0], eventId: "game-2", awayTeam: "Oregon", homeTeam: "Washington", eventStartsAt: "2026-09-07T20:00:00.000Z" }] }] };
+  it("keeps multi-leg matchups visually grouped while ordering each kickoff", () => {
+    const multiLegMember = { ...member, wagers: [{ ...member.wagers[0], type: "parlay", legs: [{ ...member.wagers[0].legs[0], eventStartsAt: "2026-09-06T20:30:00.000Z" }, { ...member.wagers[0].legs[0], eventId: "game-2", awayTeam: "Oregon", homeTeam: "Washington", eventStartsAt: "2026-09-06T18:00:00.000Z" }] }] };
     const html = render(createElement(MemberActivitySection, { member: multiLegMember as any }));
 
     expect(html.match(/<tr/g)).toHaveLength(3);
     expect(html).toContain('<tr class="activity-wager-leg-row">');
     expect(html.match(/class="wager-start-time"/g)).toHaveLength(2);
     expect(html).toContain('<td rowSpan="2"><span class="activity-staked">');
+    expect(html).toContain("Oregon");
+    expect(html.indexOf("Oregon")).toBeLessThan(html.indexOf("UCLA"));
     expect(styles).toContain('.activity-table .activity-wager-leg-row > td { border-top: 0; padding-top: 0; }');
     expect(styles).toContain('.activity-wager-leg-row-leading > td:not([rowspan]) { border-bottom: 0; padding-bottom: 0; }');
   });

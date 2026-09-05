@@ -1,5 +1,6 @@
 import type { ReadActivity } from "../../contracts/http";
 import { formatAmericanOdds } from "../odds-format";
+import { sortWagerLegsByStartTime } from "../wager-presentation";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
 
@@ -16,7 +17,7 @@ export function WagerDetails({ wager, ownerOutcome = false }: { wager: Wager; ow
     {wager.legs?.length ? <div className="table-scroll" tabIndex={0}><table>
       <caption>Authorized wager selections</caption>
       <thead><tr><th>Event ID</th><th>League</th><th>Teams</th><th>Market</th><th>Selection</th><th>Accepted line</th><th>Adjusted line</th><th>Source</th><th>Retrieved</th><th>Start time</th><th>Grade</th><th>Result version</th></tr></thead>
-      <tbody>{wager.legs.map((leg) => <tr key={`${leg.eventId}:${leg.market}:${leg.selection}`}><td>{leg.eventId}</td><td>{leg.league}</td><td>{leg.homeTeam && leg.awayTeam ? `${leg.awayTeam} at ${leg.homeTeam}` : "—"}</td><td>{leg.market}</td><td>{leg.selection}</td><td>{acceptedLine(leg)}</td><td>{leg.adjustedLine ?? "—"}</td><td>{leg.canonicalBook}</td><td>{leg.retrievedAt}</td><td>{leg.eventStartsAt}</td><td>{leg.grade ?? "—"}</td><td>{leg.resultVersion ?? "—"}</td></tr>)}</tbody>
+      <tbody>{sortWagerLegsByStartTime(wager.legs).map((leg) => <tr key={`${leg.eventId}:${leg.market}:${leg.selection}`}><td>{leg.eventId}</td><td>{leg.league}</td><td>{leg.homeTeam && leg.awayTeam ? `${leg.awayTeam} at ${leg.homeTeam}` : "—"}</td><td>{leg.market}</td><td>{leg.selection}</td><td>{acceptedLine(leg)}</td><td>{leg.adjustedLine ?? "—"}</td><td>{leg.canonicalBook}</td><td>{leg.retrievedAt}</td><td>{leg.eventStartsAt}</td><td>{leg.grade ?? "—"}</td><td>{leg.resultVersion ?? "—"}</td></tr>)}</tbody>
     </table></div> : <p className="state-notice">Selection hidden until start.</p>}
   </section>;
 }
