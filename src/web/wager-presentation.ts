@@ -16,8 +16,18 @@ const earliestWagerStartTime = (wager: WagerWithStartTime): string | undefined =
   .filter((start) => Number.isFinite(Date.parse(start)))
   .sort()[0];
 
+/** Returns a chronological display copy while preserving selection order for equal or unavailable kickoffs. */
+export const sortWagerLegsByStartTime = <T extends { eventStartsAt: string }>(legs: T[]): T[] => [...legs].sort((left, right) => {
+  const leftStart = Date.parse(left.eventStartsAt);
+  const rightStart = Date.parse(right.eventStartsAt);
+  if (Number.isFinite(leftStart) && Number.isFinite(rightStart)) return leftStart - rightStart;
+  if (Number.isFinite(leftStart)) return -1;
+  if (Number.isFinite(rightStart)) return 1;
+  return 0;
+});
+
 /** Each ticket leg retains its own kickoff, so multi-leg tickets can align every start with its wager line. */
-export const displayWagerStartTimes = (wager: WagerWithStartTime): string[] => wager.legs?.map((leg) => Number.isFinite(Date.parse(leg.eventStartsAt)) ? formatKickoff(leg.eventStartsAt) : "") ?? [];
+export const displayWagerStartTimes = (wager: WagerWithStartTime): string[] => sortWagerLegsByStartTime(wager.legs ?? []).map((leg) => Number.isFinite(Date.parse(leg.eventStartsAt)) ? formatKickoff(leg.eventStartsAt) : "");
 
 /** Returns a chronological copy, retaining a deterministic order when kickoff data ties or is unavailable. */
 export const sortWagersByStartTime = <T extends WagerWithStartTime>(wagers: T[]): T[] => [...wagers].sort((left, right) => {

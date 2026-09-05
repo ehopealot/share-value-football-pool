@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
-import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
+import { displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
 type Leg = Wager["legs"][number];
@@ -24,7 +24,7 @@ function Staked({ wager }: { wager: Wager }) {
 
 function WagerRows({ wager }: { wager: Wager }) {
   const payout = wager.status === "open" ? ticketReturns(wager.riskMicros, wager.acceptedOdds).total : shares(wager.returnMicros);
-  const legs = wager.legs;
+  const legs = sortWagerLegsByStartTime(wager.legs);
   const starts = displayWagerStartTimes(wager);
   const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < legs.length - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
   return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span></td><td><WagerLine leg={leg}/></td>{index === 0 && <><td rowSpan={legs.length}><Staked wager={wager}/></td><td rowSpan={legs.length}>{payout}</td><td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}</>;
