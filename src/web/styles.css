@@ -164,6 +164,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-wager-not-started { color: #6e7780; }
 .activity-picked-won, .activity-performance-won { color: #137333; }
 .activity-picked-lost, .activity-performance-lost { color: #b42318; }
+.activity-performance-refunded { color: #1a73e8; }
 .activity-leg-loss { color: #b42318; }
 .activity-leg-win { color: #137333; }
 .activity-leg-push { color: #1a73e8; }

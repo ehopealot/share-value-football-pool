@@ -43,7 +43,7 @@ export function formatActivityWagerPerformance(wager: WagerOutcome & Pick<Wager,
 }
 
 export function activityWagerPerformanceClass(wager: WagerOutcome): string {
-  return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : "";
+  return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : terminalOutcome(wager) === "refunded" ? "activity-performance-refunded" : "";
 }
 
 /** Public Activity stakes may omit protected accepted odds. */

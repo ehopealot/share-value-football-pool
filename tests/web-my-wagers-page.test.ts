@@ -41,6 +41,7 @@ describe("My wagers page", () => {
     expect(styles).toMatch(/^\.activity-leg-loss \{ color: #b42318; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-win \{ color: #137333; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-push \{ color: #1a73e8; \}$/m);
+    expect(styles).toMatch(/^\.activity-performance-refunded \{ color: #1a73e8; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-neutral \{ color: var\(--ink\); \}$/m);
   });
 });
