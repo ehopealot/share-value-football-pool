@@ -49,7 +49,7 @@ export const migratePoolStorage = (sql: SqlStorage): void => {
 };
 
 /** Idempotently upgrades existing PoolDO SQLite files without depending on wall-clock time. */
-export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
+export const migrateAdditivePoolStorage = (sql: SqlStorage): void => {
   const columns = [...sql.exec<{ name: string }>("PRAGMA table_info(season)")];
   if (!columns.some((column) => column.name === "created_at")) sql.exec("ALTER TABLE season ADD COLUMN created_at TEXT");
   // Historical draft rows have no lifecycle timestamp. The fixed epoch makes their backfill stable across restarts.
