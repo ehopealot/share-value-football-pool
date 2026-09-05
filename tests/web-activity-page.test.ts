@@ -31,7 +31,7 @@ describe("Activity page", () => {
     expect(source).toContain('<strong key={index}>{segment.text}</strong>');
     expect(source).not.toContain('activitySelectedOutcomeClass(wager)');
     expect(source).not.toContain('activityLegTimingClass(leg)');
-    expect(source).toContain('Selection hidden until the game starts.');
+    expect(source).toContain('Selection hidden until game time.');
   });
 
   it("colors wager P&L by result while leaving the weekly zero summary blank", () => {

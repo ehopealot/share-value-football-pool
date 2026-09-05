@@ -55,6 +55,17 @@ describe("T11 member read contracts", () => {
     expect(() => ReadSeasonHistory.parse({ ...history, accounts: [{ ...history.accounts[0], gainMicros: "01" }] })).toThrow();
   });
 
+  it("strictly permits Activity's positive hidden-leg count without hidden terms", () => {
+    const hiddenMulti = { ...wager, type: "parlay", hiddenLegCount: 2 };
+    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [hiddenMulti] } }).activity.wagers[0]).toMatchObject({ hiddenLegCount: 2 });
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...hiddenMulti, hiddenLegCount: 0 }] } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...hiddenMulti, hiddenLegCount: 1.5 }] } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...hiddenMulti, hiddenLegCount: "2" }] } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...hiddenMulti, hiddenSelection: "future team" }] } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [hiddenMulti], unexpected: true } })).toThrow();
+    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [hiddenMulti] }, unexpected: true })).toThrow();
+  });
+
   it("accepts owner-visible parlay settlement odds and nullable audit settlement odds", () => {
     const parlay = { ...wager, type: "parlay", riskMicros: "1000000", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", outcome: "won", returnMicros: "3500000", profitMicros: "2500000", settledAt: "2026-01-02T00:00:00.000Z", settledOdds: 250 };
     expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [parlay] } }).activity.wagers[0]).toMatchObject({ type: "parlay", settledOdds: 250 });
