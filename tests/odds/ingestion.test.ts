@@ -312,11 +312,12 @@ describe("odds ingestion", () => {
   });
 
   it("normalizes fixture-backed score-only events and real Super Bowl metadata", async () => {
-    const responses = [new Response(JSON.stringify(nflFixture)), new Response(JSON.stringify(nflScoresFixture))];
-    const provider = new TheOddsApiProvider("key", async () => responses.shift()!, () => new Date("2026-08-01T00:00:00.000Z"));
-    const { events } = await provider.events("nfl");
-    const normalized = events.find((item) => item.id === "fixture-nfl-final")!;
-    const live = events.find((item) => item.id === "fixture-nfl-live")!;
+    const finalResponses = [new Response(JSON.stringify(nflFixture)), new Response(JSON.stringify(nflScoresFixture.filter((event) => event.id === "fixture-nfl-final")))];
+    const finalProvider = new TheOddsApiProvider("key", async () => finalResponses.shift()!, () => new Date("2026-02-09T04:00:00.000Z"));
+    const normalized = (await finalProvider.events("nfl")).events.find((item) => item.id === "fixture-nfl-final")!;
+    const liveResponses = [new Response("[]"), new Response(JSON.stringify(nflScoresFixture.filter((event) => event.id === "fixture-nfl-live")))];
+    const liveProvider = new TheOddsApiProvider("key", async () => liveResponses.shift()!, () => new Date("2026-02-08T21:00:00.000Z"));
+    const live = (await liveProvider.events("nfl")).events.find((item) => item.id === "fixture-nfl-live")!;
     expect(normalized).toMatchObject({ status: "final", homeScore: 24, awayScore: 17, eventName: "Super Bowl LX", postseason: true });
     expect(live).toMatchObject({ status: "in_progress", homeScore: 7, awayScore: 3, bookmakers: [] });
   });
@@ -708,8 +709,8 @@ describe("odds ingestion", () => {
     expect(failedFeed!.last_error).toMatch(/^Malformed provider response:/);
     expect(failedFeed!.last_error.length).toBeLessThanOrEqual(512);
 
-    const responses = [new Response(JSON.stringify(nflFixture), { headers: { "x-requests-remaining": "7", "x-requests-used": "93" } }), new Response(JSON.stringify(nflScoresFixture)), new Response(JSON.stringify(ncaafFixture)), new Response(JSON.stringify(ncaafScoresFixture))];
-    const adapter = new TheOddsApiProvider("key", async () => responses.shift()!, () => new Date("2026-08-01T00:00:00.000Z"));
+    const responses = [new Response(JSON.stringify(nflFixture), { headers: { "x-requests-remaining": "7", "x-requests-used": "93" } }), new Response(JSON.stringify(nflScoresFixture.filter((event) => event.id === "fixture-nfl-final"))), new Response(JSON.stringify(ncaafFixture)), new Response(JSON.stringify(ncaafScoresFixture))];
+    const adapter = new TheOddsApiProvider("key", async () => responses.shift()!, () => new Date("2026-02-09T04:00:00.000Z"));
     const nflPoll = await adapter.events("nfl");
     const nfl = nflPoll.events.find((item) => item.id === "fixture-nfl-final")!;
     const ncaaf = (await adapter.events("ncaaf")).events.find((item) => item.id === "fixture-ncaaf-scheduled")!;
