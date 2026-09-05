@@ -1,4 +1,4 @@
-import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, parlayWagerQuoteRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadMyWagers as ReadMyWagersType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
+import { auditExportResponse, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, shareOrderQuoteSnapshot, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, shareOrderQuoteRequest, executeShareOrderRequest, type AuditExportResponse, type OddsBoardResponse as OddsBoardResponseType, type ReadPoolView as ReadPoolViewType, type ReadStandings as ReadStandingsType, type ReadActivity as ReadActivityType, type ReadMyWagers as ReadMyWagersType, type ReadSeasonHistory as ReadSeasonHistoryType } from "../contracts/http";
 import type { z } from "zod";
 
 export class ApiError extends Error {
@@ -45,10 +45,10 @@ export const errorMessage = (error: unknown) => {
   return messages[error.code] ?? `Request failed: ${error.code}.`;
 };
 
-type StraightQuoteRequest = { wagerId: string; quoteKey: string; commandId: string; seasonId: string; riskMicros: string; rulesetVersion: string; leg: { eventId: string; canonicalBook: string; market: string; selection: string; offerId: string; offerVersion: string } };
-type TeaserQuoteRequest = { wagerId: string; quoteKey: string; commandId: string; seasonId: string; riskMicros: string; teaserPoints: number; rulesetVersion: string; legs: Array<{ eventId: string; canonicalBook: string; market: string; selection: string; offerId: string; offerVersion: string }> };
+type StraightQuoteRequest = z.infer<typeof straightWagerQuoteRequest>;
+type TeaserQuoteRequest = z.infer<typeof teaserWagerQuoteRequest>;
 type ParlayQuoteRequest = z.infer<typeof parlayWagerQuoteRequest>;
-type OrderQuoteRequest = { seasonId: string; memberId: string; mode: string; amountMicros: string; idempotencyKey: string };
+type OrderQuoteRequest = z.infer<typeof shareOrderQuoteRequest>;
 const responseMismatch = () => { throw new ApiError("QUOTE_RESPONSE_MISMATCH", 502); };
 export const parseStraightQuoteSuccess = (request: StraightQuoteRequest, value: unknown) => {
   const quote = straightWagerQuoteSnapshot.parse(value); const leg = quote.leg;

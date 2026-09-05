@@ -1,15 +1,14 @@
-export type League = "nfl" | "ncaaf";
-export type MarketName = "spread" | "total" | "moneyline";
-export type EventStatus = "scheduled" | "in_progress" | "final" | "cancelled" | "no_contest" | "postponed";
+import type { z } from "zod";
+import type { providerBook, providerEventSnapshot, providerLeague, providerMarket, providerOutcome, providerStatus } from "../contracts/provider";
 
-export interface ProviderOutcome { name: string; price: number; point?: number; }
-export interface ProviderMarket { key: MarketName; outcomes: ProviderOutcome[]; }
-export interface ProviderBook { key: string; title: string; markets: ProviderMarket[]; }
-export interface ProviderEvent {
-  id: string; sport: League; commenceTime: string; homeTeam: string; awayTeam: string;
-  status?: EventStatus; homeScore?: number; awayScore?: number; postseason?: boolean; eventName?: string;
-  bookmakers: ProviderBook[];
-}
+export type League = z.infer<typeof providerLeague>;
+export type MarketName = z.infer<typeof providerMarket>["key"];
+export type EventStatus = z.infer<typeof providerStatus>;
+
+export type ProviderOutcome = z.infer<typeof providerOutcome>;
+export type ProviderMarket = z.infer<typeof providerMarket>;
+export type ProviderBook = z.infer<typeof providerBook>;
+export type ProviderEvent = z.infer<typeof providerEventSnapshot>;
 /** Provider quota observations are documented response-header evidence, not guesses. */
 export interface ProviderQuota { remaining?: number; used?: number; }
 export interface ProviderPoll { events: ProviderEvent[]; quota?: ProviderQuota; }
