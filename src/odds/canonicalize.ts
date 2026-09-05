@@ -47,6 +47,3 @@ export function canonicalize(event: ProviderEvent, retrievedAt: string): Canonic
     return [];
   });
 }
-
-/** Provider metadata plus the scheduled event name identify the one closing game. */
-export const isSuperBowl = (event: ProviderEvent) => event.sport === "nfl" && event.postseason === true && /super bowl/i.test(event.eventName ?? "");

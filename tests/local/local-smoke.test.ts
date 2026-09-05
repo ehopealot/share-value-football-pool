@@ -8,13 +8,14 @@ import { LOCAL_FIXTURE_EVENTS } from "../../src/odds/fixtures/runtime";
 describe("deterministic local smoke support", () => {
   it("ships completed and placeable canonical Super Bowl fixtures without disturbing upcoming order", () => {
     expect(LOCAL_FIXTURE_EVENTS).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "local-nfl-completed", completed: true })
+      expect.objectContaining({ id: "local-nfl-completed", status: "final", commenceTime: "2024-02-11T23:30:00.000Z" })
     ]));
     const upcomingIndex = LOCAL_FIXTURE_EVENTS.findIndex((event) => event.id === "local-nfl-upcoming");
     const superBowlIndex = LOCAL_FIXTURE_EVENTS.findIndex((event) => event.id === "local-nfl-super-bowl");
     expect(upcomingIndex).toBeGreaterThanOrEqual(0);
     expect(superBowlIndex).toBeGreaterThan(upcomingIndex);
-    expect(LOCAL_FIXTURE_EVENTS[superBowlIndex]).toMatchObject({ completed: false, status: "scheduled", sport: "nfl", postseason: true, eventName: "T11 Local Super Bowl LXI", homeTeam: "T11 Super Home", awayTeam: "T11 Super Away" });
+    expect(LOCAL_FIXTURE_EVENTS[upcomingIndex]).toMatchObject({ status: "scheduled", startOffsetMs: 24 * 60 * 60 * 1000 + 5 * 60 * 1000 });
+    expect(LOCAL_FIXTURE_EVENTS[superBowlIndex]).toMatchObject({ status: "scheduled", startOffsetMs: 24 * 60 * 60 * 1000 + 6 * 60 * 1000, sport: "nfl", postseason: true, eventName: "T11 Local Super Bowl LXI", homeTeam: "T11 Super Home", awayTeam: "T11 Super Away" });
   });
 
   it("does not install test controls unless explicit local/test configuration enables them", async () => {

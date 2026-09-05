@@ -22,12 +22,7 @@ const quota = (response: Response) => {
   const remaining = integer("x-requests-remaining"); const used = integer("x-requests-used");
   return remaining === undefined && used === undefined ? undefined : { ...(remaining === undefined ? {} : { remaining }), ...(used === undefined ? {} : { used }) };
 };
-const parseCanonicalScore = (value: string | null | undefined): number | undefined => {
-  if (value === null || value === undefined) return undefined;
-  const parsed = Number(value);
-  if (!/^(?:0|[1-9]\d*)$/.test(value) || !Number.isSafeInteger(parsed) || parsed < 0 || String(parsed) !== value) throw new Error("Invalid canonical provider score");
-  return parsed;
-};
+const parseCanonicalScore = (value: string | null | undefined): number | undefined => value === null || value === undefined ? undefined : Number(value);
 
 /** Documented The Odds API adapter. It validates external JSON before normalization. */
 export class TheOddsApiProvider implements OddsProvider {
@@ -55,12 +50,12 @@ export class TheOddsApiProvider implements OddsProvider {
       if (quote) assertMatchingOrderedTeams(quote, scoreEvent);
     }
     const events = [...new Set([...oddsById.keys(), ...scoreById.keys()])].map((id): ProviderEvent => {
-      const quote = oddsById.get(id); const scoreEvent = scoreById.get(id); const base = quote ?? scoreEvent!;
-      const homeTeam = scoreEvent?.home_team ?? quote?.home_team ?? base.home_team;
-      const awayTeam = scoreEvent?.away_team ?? quote?.away_team ?? base.away_team;
+      const quote = oddsById.get(id); const scoreEvent = scoreById.get(id);
+      const homeTeam = scoreEvent?.home_team ?? quote!.home_team;
+      const awayTeam = scoreEvent?.away_team ?? quote!.away_team;
       const homeScore = parseCanonicalScore(scoreEvent?.scores?.find((item) => canonicalTeamIdentity(item.name) === canonicalTeamIdentity(homeTeam))?.score);
       const awayScore = parseCanonicalScore(scoreEvent?.scores?.find((item) => canonicalTeamIdentity(item.name) === canonicalTeamIdentity(awayTeam))?.score);
-      const commenceTime = scoreEvent?.commence_time ?? quote?.commence_time ?? base.commence_time;
+      const commenceTime = scoreEvent?.commence_time ?? quote!.commence_time;
       const eventStatus = status(scoreEvent, commenceTime, this.now());
       return {
         id, sport: league, commenceTime, homeTeam, awayTeam,
