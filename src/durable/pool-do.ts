@@ -6,7 +6,7 @@ import { validateTeaser } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
 import { OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
-import { placeWager } from "./wager-commands";
+import { placeWager, SideBetLimitError } from "./wager-commands";
 import { runSettlementAlarm } from "./alarm";
 import { correctWager, voidWager } from "./settlement";
 import { enqueueOutbox, drainOutbox, nextOutboxAttempt, type PoolOutboxMessage } from "./outbox";
@@ -95,6 +95,7 @@ export class PoolDO {
       if (shouldEnqueueOutbox(parsed.data)) await this.state.storage.setAlarm(Date.now() + outboxDrainGraceMs);
       return Response.json(result);
     } catch (error) {
+      if (error instanceof SideBetLimitError) return Response.json({ code: error.message, ...error.details }, { status: 400 });
       if (error instanceof OrderQuoteStaleError) {
         return Response.json({ code: error.message, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, replacement: { ...error.terms, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, sharesMicros: error.quote.sharesMicros.toString(), valueMicros: error.quote.valueMicros.toString() } }, { status: 400 });
       }

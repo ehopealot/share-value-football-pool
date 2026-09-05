@@ -39,10 +39,60 @@ export async function retryWagerPlacement<T>(place: () => Promise<T>, options: W
   }
 }
 
+type ExposureDetails = { numeratorMicros: string; denominator: string };
+type SideExposureDetails = { eventId: string; market: string; selection: string; existingExposure: ExposureDetails; proposedExposure: ExposureDetails; resultingExposure: ExposureDetails };
+const exposureDetails = (value: unknown): ExposureDetails | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const exposure = value as Record<string, unknown>;
+  return typeof exposure.numeratorMicros === "string" && /^\d+$/.test(exposure.numeratorMicros) && typeof exposure.denominator === "string" && /^[1-9]\d*$/.test(exposure.denominator) ? { numeratorMicros: exposure.numeratorMicros, denominator: exposure.denominator } : undefined;
+};
+const sideExposureDetails = (value: unknown): SideExposureDetails | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const side = value as Record<string, unknown>;
+  const existingExposure = exposureDetails(side.existingExposure);
+  const proposedExposure = exposureDetails(side.proposedExposure);
+  const resultingExposure = exposureDetails(side.resultingExposure);
+  return typeof side.eventId === "string" && side.eventId.length > 0 && typeof side.market === "string" && side.market.length > 0 && typeof side.selection === "string" && side.selection.length > 0 && existingExposure && proposedExposure && resultingExposure ? { eventId: side.eventId, market: side.market, selection: side.selection, existingExposure, proposedExposure, resultingExposure } : undefined;
+};
+const contractValidMarketSelection = (market: string, selection: string) =>
+  (market === "spread" || market === "moneyline") ? selection === "home" || selection === "away" : market === "total" && (selection === "over" || selection === "under");
+const exposureExceedsMax = (side: SideExposureDetails, maxSideBetMicros: bigint) => {
+  const existingNumerator = BigInt(side.existingExposure.numeratorMicros);
+  const existingDenominator = BigInt(side.existingExposure.denominator);
+  const proposedNumerator = BigInt(side.proposedExposure.numeratorMicros);
+  const proposedDenominator = BigInt(side.proposedExposure.denominator);
+  const resultingNumerator = BigInt(side.resultingExposure.numeratorMicros);
+  const resultingDenominator = BigInt(side.resultingExposure.denominator);
+  return (existingNumerator * proposedDenominator + proposedNumerator * existingDenominator) * resultingDenominator === resultingNumerator * existingDenominator * proposedDenominator
+    && resultingNumerator > maxSideBetMicros * resultingDenominator;
+};
+const exposureShares = (exposure: ExposureDetails): string => {
+  const numerator = BigInt(exposure.numeratorMicros);
+  const denominator = BigInt(exposure.denominator);
+  const microsPerShare = 1_000_000n;
+  if (numerator % microsPerShare !== 0n) return `${numerator}/${denominator} micros`;
+  const shares = numerator / microsPerShare;
+  if (denominator === 1n) return `${shares} share${shares === 1n ? "" : "s"}`;
+  return `${shares}/${denominator} shares`;
+};
+export const sideExposureLimitMessage = (error: unknown): string | undefined => {
+  if (!(error instanceof ApiError) || error.code !== "SIDE_BET_LIMIT" || !Array.isArray(error.details.sideExposures)) return undefined;
+  const sides: SideExposureDetails[] = [];
+  for (const value of error.details.sideExposures) {
+    const side = sideExposureDetails(value);
+    if (!side || !contractValidMarketSelection(side.market, side.selection)) return undefined;
+    sides.push(side);
+  }
+  const maxSideBetMicros = typeof error.details.maxSideBetMicros === "string" && /^\d+$/.test(error.details.maxSideBetMicros) ? BigInt(error.details.maxSideBetMicros) : undefined;
+  if (!maxSideBetMicros || sides.length === 0 || sides.some((side) => !exposureExceedsMax(side, maxSideBetMicros))) return undefined;
+  const max = `${maxSideBetMicros / 1_000_000n}-share`;
+  return sides.map((side) => `Side (eventId: ${side.eventId}, market: ${side.market}, selection: ${side.selection}): Your current exposure is ${exposureShares(side.existingExposure)}. This bet adds ${exposureShares(side.proposedExposure)}, for ${exposureShares(side.resultingExposure)}—over your ${max} limit.`).join(" ");
+};
+
 export const errorMessage = (error: unknown) => {
   if (!(error instanceof ApiError)) return "Service unavailable.";
   const messages: Record<string, string> = { LINE_CHANGED: "Line changed.", SUSPENDED: "Pool access suspended.", INSUFFICIENT_SHARES: "Not enough shares.", SIDE_BET_LIMIT: "Side bet limit reached.", WHOLE_SHARE_RISK_REQUIRED: "Whole shares required.", MARKET_STALE: "Odds are stale.", MARKET_UNAVAILABLE: "Market unavailable.", MARKET_LOCKED: "Event has started.", WAGER_NOT_STARTED: "Wager has not started.", SEASON_CLOSED: "Season is closed.", SEASON_NOT_ACTIVE: "No active season.", SEASON_NOT_CLOSED: "Season is not closed.", ORDER_QUOTE_STALE: "Share price changed.", ORDER_REVERSAL_INSUFFICIENT_AVAILABLE_SHARES: "Not enough shares to reverse this order.", RECENT_AUTH_REQUIRED: "Sign in again.", IDEMPOTENCY_CONFLICT: "Duplicate request.", MESSAGE_BOARD_POST_NOT_FOUND: "That post is no longer available.", MESSAGE_BOARD_REPLY_NOT_ALLOWED: "Replies can only be added to a top-level post.", REQUEST_FAILED: "Service unavailable.", POOL_NOT_AVAILABLE: "Pool unavailable.", POOL_UNAVAILABLE: "Pool unavailable." };
-  return messages[error.code] ?? `Request failed: ${error.code}.`;
+  return sideExposureLimitMessage(error) ?? messages[error.code] ?? `Request failed: ${error.code}.`;
 };
 
 type StraightQuoteRequest = { wagerId: string; quoteKey: string; commandId: string; seasonId: string; riskMicros: string; rulesetVersion: string; leg: { eventId: string; canonicalBook: string; market: string; selection: string; offerId: string; offerVersion: string } };

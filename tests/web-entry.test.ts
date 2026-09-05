@@ -143,6 +143,61 @@ describe("entry redirects", () => {
     expect(failureReason(new Error("offline"), "quote")).toBe("Odds unavailable.");
     expect(failureReason(asApi("MARKET_LOCKED", 400), "place")).toBe("Event has started.");
     expect(failureReason(asApi("SIDE_BET_LIMIT", 400), "place", "800000000")).toBe("Max bet: 800 shares.");
+    expect(failureReason(new ApiError("SIDE_BET_LIMIT", 400, {
+      maxSideBetMicros: "800000000",
+      sideExposures: [{
+        eventId: "event", market: "spread", selection: "home",
+        existingExposure: { numeratorMicros: "800000000", denominator: "1" },
+        proposedExposure: { numeratorMicros: "1000000", denominator: "1" },
+        resultingExposure: { numeratorMicros: "801000000", denominator: "1" }
+      }]
+    }), "place", "800000000")).toBe("Side (eventId: event, market: spread, selection: home): Your current exposure is 800 shares. This bet adds 1 share, for 801 shares—over your 800-share limit.");
+  });
+
+  it("names every violating side and fails closed on malformed side-exposure details", () => {
+    const side = (eventId: string, market: string, selection: string) => ({
+      eventId, market, selection,
+      existingExposure: { numeratorMicros: "800000000", denominator: "1" },
+      proposedExposure: { numeratorMicros: "1000000", denominator: "1" },
+      resultingExposure: { numeratorMicros: "801000000", denominator: "1" }
+    });
+    const multipleSides = new ApiError("SIDE_BET_LIMIT", 400, {
+      maxSideBetMicros: "800000000",
+      sideExposures: [side("event-one", "spread", "home"), side("event-two", "total", "over")]
+    });
+    expect(failureReason(multipleSides, "place", "800000000")).toBe("Side (eventId: event-one, market: spread, selection: home): Your current exposure is 800 shares. This bet adds 1 share, for 801 shares—over your 800-share limit. Side (eventId: event-two, market: total, selection: over): Your current exposure is 800 shares. This bet adds 1 share, for 801 shares—over your 800-share limit.");
+
+    const malformedSides = new ApiError("SIDE_BET_LIMIT", 400, {
+      maxSideBetMicros: "800000000",
+      sideExposures: [side("event-one", "spread", "home"), { ...side("event-two", "total", "over"), eventId: 2 }]
+    });
+    expect(failureReason(malformedSides, "place", "800000000")).toBe("Max bet: 800 shares.");
+  });
+
+  it("falls back to the generic max bet for an invalid side-exposure market/selection", () => {
+    const invalidPair = new ApiError("SIDE_BET_LIMIT", 400, {
+      maxSideBetMicros: "800000000",
+      sideExposures: [{
+        eventId: "event", market: "spread", selection: "over",
+        existingExposure: { numeratorMicros: "800000000", denominator: "1" },
+        proposedExposure: { numeratorMicros: "1000000", denominator: "1" },
+        resultingExposure: { numeratorMicros: "801000000", denominator: "1" }
+      }]
+    });
+    expect(failureReason(invalidPair, "place", "800000000")).toBe("Max bet: 800 shares.");
+  });
+
+  it("falls back to the generic max bet for internally inconsistent rational exposures", () => {
+    const inconsistentExposure = new ApiError("SIDE_BET_LIMIT", 400, {
+      maxSideBetMicros: "800000000",
+      sideExposures: [{
+        eventId: "event", market: "spread", selection: "home",
+        existingExposure: { numeratorMicros: "1600000000", denominator: "2" },
+        proposedExposure: { numeratorMicros: "3000000", denominator: "3" },
+        resultingExposure: { numeratorMicros: "3204000001", denominator: "4" }
+      }]
+    });
+    expect(failureReason(inconsistentExposure, "place", "800000000")).toBe("Max bet: 800 shares.");
   });
 
   it("invalidates pending placement work when a route changes or unmounts", () => {

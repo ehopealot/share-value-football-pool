@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage } from "../api";
+import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage, sideExposureLimitMessage } from "../api";
 import { vigFreeMoneylinePrice } from "../../odds/market-semantics";
 import { Layout } from "../components/Layout";
 import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
@@ -114,11 +114,11 @@ export function straightQuoteRequest(semantic: { pick: BoardPick; risk: string; 
 
 /** Batch item failures name the reason and keep the item retryable after its safe automatic status replays. */
 export const failureReason = (error: unknown, phase: "quote" | "place", maxSideBetMicros?: string): string =>
-  error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / 1000000n).toString()} shares.`
+  sideExposureLimitMessage(error) ?? (error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / 1000000n).toString()} shares.`
     : commandOutcome(error) === "stale" ? "Line changed."
       : commandOutcome(error) === "retryable" && phase === "place" ? "Placement result unknown."
         : commandOutcome(error) === "retryable" ? "Odds unavailable."
-          : errorMessage(error);
+          : errorMessage(error));
 
 type FailedEntry = { label: string; reason: string };
 type ReviewEntry = { item: TrayItem; pick: BoardPick; quote: any; mutationKey: string; label: string };
