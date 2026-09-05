@@ -4,17 +4,18 @@ import { canonicalize } from "./canonicalize";
 import { canonicalTeamIdentity } from "./market-semantics";
 import type { Clock } from "../platform/clock";
 import { systemClock } from "../platform/clock";
-import type { EventStatus, League, ProviderEvent, ProviderPoll } from "./types";
+import type { EventStatus, League, OddsProvider, ProviderEvent, ProviderPoll } from "./types";
 
-export interface IngestionProvider { events(league: League): Promise<ProviderPoll>; }
+export type IngestionProvider = OddsProvider;
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DISCOVERY_INTERVAL = 20 * MINUTE;
 const QUOTA_BACKOFF_INTERVAL = 6 * HOUR;
 const OFFER_STALE_AFTER = 30 * MINUTE;
 const terminal = (status: EventStatus) => status === "final" || status === "cancelled" || status === "no_contest";
+type PollableEvent = Pick<ProviderEvent, "commenceTime" | "status">;
 
-export function pollInterval(event: ProviderEvent, now: Date): number {
+export function pollInterval(event: PollableEvent, now: Date): number {
   const status: EventStatus = event.status ?? "scheduled";
   if (terminal(status)) return 5 * MINUTE;
   if (status === "in_progress" || now.getTime() >= new Date(event.commenceTime).getTime()) return 2 * MINUTE;
@@ -25,7 +26,7 @@ export function pollInterval(event: ProviderEvent, now: Date): number {
 export function finalReconciliationDue(finalizedAt: Date, lastPollAt: Date | undefined, now: Date): boolean {
   return [5 * MINUTE, 24 * HOUR].some((delay) => { const target = new Date(finalizedAt.getTime() + delay); return target <= now && (!lastPollAt || lastPollAt < target); });
 }
-export function shouldPollEvent(event: ProviderEvent, lastPollAt: Date | undefined, now: Date, quotaBackoffMs = 0, finalizedAt?: Date): boolean {
+export function shouldPollEvent(event: PollableEvent, lastPollAt: Date | undefined, now: Date, quotaBackoffMs = 0, finalizedAt?: Date): boolean {
   if (terminal(event.status ?? "scheduled") && finalizedAt) {
     return finalReconciliationDue(finalizedAt, lastPollAt, now) && (!lastPollAt || now.getTime() - lastPollAt.getTime() >= quotaBackoffMs);
   }
@@ -35,12 +36,12 @@ export function offerIsStale(retrievedAt: string, now: Date): boolean {
   return now.getTime() - new Date(retrievedAt).getTime() > OFFER_STALE_AFTER;
 }
 
-type EventScheduleRow = { provider_event_id: string; league: League; starts_at: string; status: EventStatus; last_polled_at: string | null; finalized_at: string | null };
+type EventScheduleRow = { starts_at: string; status: EventStatus; last_polled_at: string | null; finalized_at: string | null };
 type LeaguePollRow = { last_discovery_at: string | null };
 type ExistingEventRow = { provider_event_id: string; league: League; home_team: string; away_team: string; status: EventStatus; home_score: string | null; away_score: string | null; correction_version: string; finalized_at: string | null };
 type ClaimedIngestion = { poll_generation: number; last_polled_at: string | null; last_success_at: string | null; canonical_book_availability_json: string; quota_json: string | null };
 const score = (value: number | undefined): string | null => value === undefined ? null : String(value);
-const quotaBackoff = (poll: ProviderPoll) => poll.quota?.remaining !== undefined && poll.quota.remaining <= 1 ? QUOTA_BACKOFF_INTERVAL : 0;
+const quotaBackoff = (quota: ProviderPoll["quota"]) => quota?.remaining !== undefined && quota.remaining <= 1 ? QUOTA_BACKOFF_INTERVAL : 0;
 
 /** D1 is written before any later durable settlement reader can inspect result versions. */
 export class OddsIngestion {
@@ -70,17 +71,17 @@ export class OddsIngestion {
     const dueLeagues = await this.dueLeagues(now, backoffFrom(claimed.quota_json));
     if (dueLeagues.length === 0) return { events: 0, offers: 0 }; // preserve feed health and availability exactly
     try {
-      const fetched = await Promise.all(dueLeagues.map(async ({ league }) => ({ league, poll: await this.provider.events(league) })));
+      const fetched = await Promise.all(dueLeagues.map(async (league) => ({ league, poll: await this.provider.events(league) })));
       // Validate every completed provider response, including container identity, before canonicalization or D1 mutation.
-      const parsed = fetched.map(({ league, poll }) => ({ league, poll, events: poll.events.map((event) => providerEventSnapshot.parse(event)) }));
+      const parsed = fetched.map(({ league, poll }) => ({ league, events: poll.events.map((event) => providerEventSnapshot.parse(event)) }));
       assertUniqueNormalizedIds(parsed);
       // Provider event IDs identify immutable ordered sides. Check every prior
       // event before canonicalization or construction of any D1 mutation.
       const existingRows = (await this.db.prepare("SELECT provider_event_id, league, home_team, away_team, status, home_score, away_score, correction_version, finalized_at FROM sports_event").all<ExistingEventRow>()).results;
       const existingById = new Map(existingRows.map((row) => [row.provider_event_id, row]));
       for (const { events } of parsed) for (const event of events) assertPersistedOrderedSides(existingById.get(event.id), event);
-      const normalized = parsed.map(({ league, poll, events }) => ({
-        league, poll, events: events.map((event) => ({ event, canonical: canonicalize(event, at) }))
+      const normalized = parsed.map(({ league, events }) => ({
+        league, events: events.map((event) => ({ event, canonical: canonicalize(event, at) }))
       }));
       // Read all prior state and derive the complete replacement before constructing any mutation.
       const existingByLeague = new Map(normalized.map(({ league }) => [league, existingRows.filter((row) => row.league === league)] as const));
@@ -115,7 +116,7 @@ export class OddsIngestion {
         statements.push(this.db.prepare("INSERT INTO odds_league_poll (league, last_discovery_at, last_success_at, last_error) SELECT ?, ?, ?, NULL WHERE ? = (SELECT poll_generation FROM odds_ingestion WHERE provider = 'odds') ON CONFLICT(league) DO UPDATE SET last_discovery_at=excluded.last_discovery_at, last_success_at=excluded.last_success_at, last_error=NULL WHERE ? = (SELECT poll_generation FROM odds_ingestion WHERE provider = 'odds')").bind(league, at, at, generation, generation));
       }
       const quota = aggregateQuota(fetched.map(({ poll }) => poll.quota));
-      const successQuota = quota ? { ...quota, backoffMs: quotaBackoff({ events: [], quota }) } : undefined;
+      const successQuota = quota ? { ...quota, backoffMs: quotaBackoff(quota) } : undefined;
       // This final guarded result is the definitive indication that the whole atomic batch was current and applied.
       statements.push(this.db.prepare("UPDATE odds_ingestion SET quota_json=COALESCE(?, quota_json), last_polled_at=?, last_success_at=?, last_error=NULL, canonical_book_availability_json=? WHERE provider='odds' AND poll_generation=?").bind(successQuota ? JSON.stringify(successQuota) : null, at, at, JSON.stringify(availability), generation));
       const results = await this.db.batch(statements);
@@ -129,15 +130,15 @@ export class OddsIngestion {
       throw error;
     }
   }
-  private async dueLeagues(now: Date, quotaBackoffMs: number): Promise<Array<{ league: League; due: true }>> {
+  private async dueLeagues(now: Date, quotaBackoffMs: number): Promise<League[]> {
     const states = await Promise.all((["nfl", "ncaaf"] as const).map(async (league) => ({ league, due: await this.leagueDue(league, now, quotaBackoffMs) })));
-    return states.filter((state): state is { league: League; due: true } => state.due);
+    return states.filter((state) => state.due).map(({ league }) => league);
   }
   private async leagueDue(league: League, now: Date, quotaBackoffMs: number): Promise<boolean> {
     const state = await this.db.prepare("SELECT last_discovery_at FROM odds_league_poll WHERE league = ?").bind(league).first<LeaguePollRow>();
     const discoveryDue = !state?.last_discovery_at || now.getTime() - new Date(state.last_discovery_at).getTime() >= Math.max(DISCOVERY_INTERVAL, quotaBackoffMs);
-    const rows = await this.db.prepare("SELECT provider_event_id, league, starts_at, status, last_polled_at, finalized_at FROM sports_event WHERE league = ? AND omitted_at IS NULL").bind(league).all<EventScheduleRow>();
-    return discoveryDue || rows.results.some((row) => shouldPollEvent({ id: row.provider_event_id, sport: row.league, commenceTime: row.starts_at, homeTeam: "", awayTeam: "", status: row.status, bookmakers: [] }, row.last_polled_at ? new Date(row.last_polled_at) : undefined, now, quotaBackoffMs, row.finalized_at ? new Date(row.finalized_at) : undefined));
+    const rows = await this.db.prepare("SELECT starts_at, status, last_polled_at, finalized_at FROM sports_event WHERE league = ? AND omitted_at IS NULL").bind(league).all<EventScheduleRow>();
+    return discoveryDue || rows.results.some((row) => shouldPollEvent({ commenceTime: row.starts_at, status: row.status }, row.last_polled_at ? new Date(row.last_polled_at) : undefined, now, quotaBackoffMs, row.finalized_at ? new Date(row.finalized_at) : undefined));
   }
   private async claimGeneration(): Promise<ClaimedIngestion> {
     const claimed = await this.db.prepare("INSERT INTO odds_ingestion (provider, poll_generation, canonical_book_availability_json) VALUES ('odds', 1, '{}') ON CONFLICT(provider) DO UPDATE SET poll_generation=odds_ingestion.poll_generation+1 RETURNING poll_generation,last_polled_at,last_success_at,canonical_book_availability_json,quota_json").first<ClaimedIngestion>();

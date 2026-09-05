@@ -186,7 +186,7 @@ For a 10-point three-leg teaser, one push leaves too few legs and therefore refu
 
 ### 7.1 Provider boundary
 
-`OddsProvider` exposes provider-neutral operations for leagues, events, offers, scores, statuses, and corrections. The first production adapter targets **The Odds API** because it documents NFL/NCAAF keys, moneyline/spread/total markets, and scores over ordinary HTTPS. A deterministic fixture adapter powers local development and tests.
+`OddsProvider` exposes provider-neutral operations for leagues, events, offers, scores, statuses, and corrections. The first production adapter targets **The Odds API** because it documents NFL/NCAAF keys, moneyline/spread/total markets, and scores over ordinary HTTPS. Local development and tests seed deterministic provider-shaped fixtures directly into D1 and refresh their scheduled times before local odds reads.
 
 SportsLine's publicly delivered GraphQL data may be evaluated later, but the launch does not depend on reverse-engineering an undocumented endpoint. It may be added only if access controls are not bypassed and its terms permit server-side retention/display.
 
@@ -207,13 +207,12 @@ The ordered list is deployment configuration but is system-wide and versioned in
 
 A scheduled Worker adapts polling frequency to event proximity and configured provider quota:
 
-- more than 24 hours before start: no more than every 6 hours;
-- 1–24 hours: every 30 minutes;
-- within 1 hour before start: every 5 minutes;
+- league discovery and events more than 24 hours before start: every 20 minutes;
+- scheduled events within 24 hours of start: every 5 minutes;
 - started but not final: scores/status every 2 minutes when quota permits;
-- final: one reconciliation poll after 15 minutes and one after 24 hours.
+- final: one reconciliation poll after 5 minutes and one after 24 hours.
 
-The exact schedule may back off automatically when quota headers demand it. An offer older than its proximity window is marked stale and cannot be accepted. Provider outages never alter accepted wagers; they delay new wagers or settlement and display an explicit feed status.
+The exact schedule may back off automatically when quota headers demand it. An offer more than 30 minutes old is marked stale and cannot be accepted. Provider outages never alter accepted wagers; they delay new wagers or settlement and display an explicit feed status.
 
 ### 7.4 Settlement delivery
 
