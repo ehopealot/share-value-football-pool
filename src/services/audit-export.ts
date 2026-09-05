@@ -4,7 +4,7 @@ type Row = Record<string, SqlStorageValue>;
 const rows = (sql: SqlStorage, statement: string, ...params: SqlStorageValue[]) => [...sql.exec<Row>(statement, ...params)];
 const text = (value: SqlStorageValue | undefined | null) => value === null || value === undefined ? null : String(value);
 
-/** Immutable, exact-value audit representation; values remain canonical database text. */
+/** Point-in-time typed member snapshot; integer accounting and version fields retain canonical database text. */
 export function memberAuditExport(sql: SqlStorage, memberId: string, currentTime = new Date()): Record<string, unknown> {
   const pool = rows(sql, "SELECT id, slug, name, commissioner_id, signups_open, command_version FROM pool LIMIT 1")[0];
   if (!pool) throw new Error("POOL_NOT_INITIALIZED");
@@ -25,7 +25,7 @@ export function memberAuditExport(sql: SqlStorage, memberId: string, currentTime
   };
 }
 
-/** Infrastructure-only backup source. It intentionally includes immutable raw wager/audit rows. */
+/** Infrastructure-only backup source whose raw rows include mutable operational state and immutable audit history. */
 export function infrastructureAuditExport(sql: SqlStorage): Record<string, unknown> {
   const orphanSnapshot = rows(sql, "SELECT wager_leg_snapshot.wager_leg_id FROM wager_leg_snapshot LEFT JOIN wager_leg ON wager_leg.id = wager_leg_snapshot.wager_leg_id WHERE wager_leg.id IS NULL LIMIT 1")[0];
   if (orphanSnapshot) throw new Error(`WAGER_LEG_SNAPSHOT_ORPHAN:${String(orphanSnapshot.wager_leg_id)}`);

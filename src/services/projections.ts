@@ -10,14 +10,14 @@ export type ProjectionSnapshot = {
 export type ProjectionSnapshotReader = (message: PoolOutboxMessage) => Promise<ProjectionSnapshot>;
 const now = () => new Date().toISOString();
 
-/** Records the producer boundary once so Queue wait time is observable before consumption. */
+/** Records the producer boundary once so end-to-end projection delivery age, including producer send/retry time, is observable. */
 export async function recordQueuedProjection(db: D1Database, message: PoolOutboxMessage, queuedAt = now()): Promise<void> {
   await db.prepare("INSERT INTO projection_delivery (event_id, projection_version, attempts, queued_at, updated_at, last_error) VALUES (?, ?, 0, ?, ?, NULL) ON CONFLICT(event_id) DO NOTHING").bind(message.eventId, message.version, queuedAt, queuedAt).run();
 }
 
 const newer = "length(excluded.projection_version) > length(projection_state.projection_version) OR (length(excluded.projection_version) = length(projection_state.projection_version) AND excluded.projection_version > projection_state.projection_version)";
 
-/** D1 directory data is disposable: every successful Queue message rehydrates it from the authoritative PoolDO. */
+/** D1 directory data is disposable: accepted newer Queue messages rehydrate it from the authoritative PoolDO. */
 export class ProjectionConsumer {
   constructor(private readonly db: D1Database, private readonly readSnapshot: ProjectionSnapshotReader) {}
 
@@ -42,7 +42,7 @@ export class ProjectionConsumer {
   }
 
   private async recordAttempt(eventId: string): Promise<void> {
-    // Consumer recovery never replaces the producer timestamp that measures Queue wait time.
+    // Consumer recovery never replaces the producer timestamp measuring end-to-end projection delivery age, including producer send/retry time.
     await this.db.prepare("INSERT INTO projection_delivery (event_id, projection_version, attempts, queued_at, attempted_at, updated_at, last_error) VALUES (?, '0', 1, ?, ?, ?, NULL) ON CONFLICT(event_id) DO UPDATE SET attempts = projection_delivery.attempts + 1, attempted_at = excluded.attempted_at, updated_at = excluded.updated_at, last_error = NULL WHERE projection_delivery.delivered_at IS NULL").bind(eventId, now(), now(), now()).run();
   }
 
@@ -60,7 +60,7 @@ export class ProjectionConsumer {
   }
 }
 
-/** Least-privilege DO read used only by the Queue consumer; it never forwards browser input. */
+/** Token-authenticated DO reader for service-side projection consumers; it never forwards browser input. */
 export function durableProjectionSnapshotReader(pools: DurableObjectNamespace, token?: string): ProjectionSnapshotReader {
   return async (message) => {
     if (!token) throw new Error("PROJECTION_SERVICE_UNAVAILABLE");

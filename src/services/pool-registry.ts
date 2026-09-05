@@ -42,8 +42,8 @@ const initialization = (record: RegistryRecord, input: CreatePoolInput | undefin
 };
 
 /**
- * D1 reserves slugs and retains creation responses only. It never authorizes a
- * pool; initialization and every later pool decision are idempotent DO calls.
+ * D1 handles slug reservation and creation responses; PoolDO owns member
+ * authorization, authoritative state, and each command's replay policy.
  */
 export class PoolRegistry {
   constructor(private readonly db: D1Database, private readonly commands: PoolCommandClient, private readonly commandAuthenticatorKey?: string) {}
