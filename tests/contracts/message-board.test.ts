@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageBoardMutationResponse, MessageBoardPostResponse, ReadMessageBoardResponse, messageBoardPostRequest } from "../../src/contracts/http";
+import { MessageBoardMutationResponse, MessageBoardPostResponse, ReadMessageBoardResponse, messageBoardMutationRequest, messageBoardPostRequest } from "../../src/contracts/http";
 import { poolCommandSchema } from "../../src/durable/pool-commands";
 
 const createdAt = "2030-09-01T12:00:00.000Z";
@@ -34,8 +34,11 @@ describe("message board contracts", () => {
     expect(poolCommandSchema.parse(post)).toEqual(post);
     expect(messageBoardPostRequest.parse({ text: "Game on", idempotencyKey: "post-key", announcement: true })).toEqual({ text: "Game on", idempotencyKey: "post-key", announcement: true });
     expect(messageBoardPostRequest.parse({ text: "Game on", idempotencyKey: "post-key" })).toEqual({ text: "Game on", idempotencyKey: "post-key", announcement: false });
-    expect(poolCommandSchema.parse({ type: "ReplyToMessageBoardPost", commandId: "reply-key", actorId: "member", postId: "post-key", text: "I agree" })).toMatchObject({ type: "ReplyToMessageBoardPost", postId: "post-key" });
-    expect(poolCommandSchema.parse({ type: "ReadMessageBoard", commandId: "read-key", actorId: "member" })).toMatchObject({ type: "ReadMessageBoard", actorId: "member" });
+    const reply = { text: "I agree", idempotencyKey: "reply-key" };
+    expect(messageBoardMutationRequest.parse(reply)).toEqual(reply);
+    expect(() => messageBoardMutationRequest.parse({ ...reply, announcement: true })).toThrow();
+    expect(poolCommandSchema.parse({ type: "ReplyToMessageBoardPost", commandId: "reply-key", actorId: "member", postId: "post-key", text: "I agree" })).toEqual({ type: "ReplyToMessageBoardPost", commandId: "reply-key", actorId: "member", postId: "post-key", text: "I agree" });
+    expect(poolCommandSchema.parse({ type: "ReadMessageBoard", commandId: "read-key", actorId: "member" })).toEqual({ type: "ReadMessageBoard", commandId: "read-key", actorId: "member" });
 
     for (const text of ["", "   ", "x".repeat(1001)]) {
       expect(poolCommandSchema.safeParse({ ...post, commandId: `${post.commandId}-${text.length}`, text }).success).toBe(false);
@@ -44,5 +47,6 @@ describe("message board contracts", () => {
     expect(poolCommandSchema.safeParse({ ...post, extra: true }).success).toBe(false);
     expect(messageBoardPostRequest.safeParse({ text: "Game on", idempotencyKey: "post-key", announcement: "true" }).success).toBe(false);
     expect(poolCommandSchema.safeParse({ type: "ReplyToMessageBoardPost", commandId: "reply-key", actorId: "member", text: "No parent" }).success).toBe(false);
+    expect(poolCommandSchema.safeParse({ type: "ReplyToMessageBoardPost", commandId: "reply-key", actorId: "member", postId: "post-key", text: "I agree", announcement: true }).success).toBe(false);
   });
 });

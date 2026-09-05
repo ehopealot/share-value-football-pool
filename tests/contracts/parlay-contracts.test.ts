@@ -12,6 +12,7 @@ import {
   teaserWagerPlacementRequest,
   teaserWagerQuoteRequest
 } from "../../src/contracts/http";
+import { buildParlayPlacement, parseParlayQuoteSuccess } from "../../src/web/api";
 
 const time = "2030-09-01T12:00:00.000Z";
 
@@ -106,7 +107,8 @@ describe("parlay quote contracts", () => {
   });
 
   it("projects and places the complete fixed snapshot without browser ownership fields", () => {
-    expect(canonicalParlayQuoteProjection.parse({ ...snapshot, wagerId: "parlay-wager", actorId: "member-1", fingerprint: "fingerprint" })).toMatchObject({ actorId: "member-1", rulesetVersion: "PARLAY_2026_V1" });
+    const projection = { ...snapshot, wagerId: "parlay-wager", actorId: "member-1", fingerprint: "fingerprint" };
+    expect(canonicalParlayQuoteProjection.parse(projection)).toEqual(projection);
     const placement = {
       type: "PlaceParlayWager",
       commandId: "parlay-place",
@@ -120,13 +122,61 @@ describe("parlay quote contracts", () => {
       rulesetVersion: snapshot.rulesetVersion,
       legs: snapshot.legs
     };
-    expect(placeParlayWager.parse(placement)).toMatchObject({ type: "PlaceParlayWager", legs: snapshot.legs });
+    expect(placeParlayWager.parse(placement)).toEqual(placement);
     expect(() => placeParlayWager.parse({ ...placement, rulesetVersion: "other" })).toThrow();
-    expect(parlayWagerQuoteRequest.parse({ ...semantic, quoteKey: snapshot.quoteKey, commandId: snapshot.quoteKey })).toMatchObject({ quoteKey: snapshot.quoteKey });
+    const quoteRequest = parlayWagerQuoteRequest.parse({ ...semantic, quoteKey: "parlay-quote", commandId: "parlay-quote" });
+    expect(quoteRequest).toEqual({ ...semantic, quoteKey: "parlay-quote", commandId: "parlay-quote" });
     expect(() => parlayWagerQuoteRequest.parse({ ...semantic, quoteKey: snapshot.quoteKey, commandId: "other" })).toThrow();
-    const { type: _type, actorId: _actorId, ...httpPlacement } = placement;
-    expect(() => parlayWagerPlacementRequest.parse({ ...httpPlacement, mutationKey: placement.commandId })).not.toThrow();
-    expect(() => parlayWagerPlacementRequest.parse({ ...httpPlacement, mutationKey: "other" })).toThrow();
+    const parsedSnapshot = parseParlayQuoteSuccess(quoteRequest, snapshot);
+    expect(parsedSnapshot).toEqual(snapshot);
+    const expectSchemaValidParlayMismatch = (value: unknown) => {
+      expect(parlayWagerQuoteSnapshot.safeParse(value).success).toBe(true);
+      expect(() => parseParlayQuoteSuccess(quoteRequest, value)).toThrow();
+    };
+    for (const mismatch of [
+      { ...snapshot, quoteKey: "other-quote" },
+      { ...snapshot, seasonId: "other-season" },
+      { ...snapshot, riskMicros: "2000000" }
+    ]) expectSchemaValidParlayMismatch(mismatch);
+    // A parser-level ruleset mismatch is unreachable because both public parlay schemas intentionally require this literal.
+    expect(parlayWagerQuoteSnapshot.safeParse({ ...snapshot, rulesetVersion: "SHARE_POOL_2026_V1" }).success).toBe(false);
+
+    const thirdLeg = fullLeg({
+      eventId: "event-3",
+      canonicalOfferProof: { ...moneyline.canonicalOfferProof, eventId: "event-3", offerId: "event-3:moneyline:home" }
+    });
+    expectSchemaValidParlayMismatch({ ...snapshot, legs: [...snapshot.legs, thirdLeg] });
+    expectSchemaValidParlayMismatch({ ...snapshot, legs: [...snapshot.legs].reverse() });
+
+    const firstLegIdentityMismatches = [
+      { ...moneyline, eventId: "other-event", canonicalOfferProof: { ...moneyline.canonicalOfferProof, eventId: "other-event" } },
+      { ...moneyline, canonicalBook: "OtherBook", canonicalOfferProof: { ...moneyline.canonicalOfferProof, canonicalBook: "OtherBook" } },
+      { ...moneyline, market: "spread", originalLine: -3.5, adjustedLine: -3.5, originalOdds: -110, canonicalOfferProof: { ...moneyline.canonicalOfferProof, market: "spread", line: -3.5 } },
+      { ...moneyline, selection: "away", canonicalOfferProof: { ...moneyline.canonicalOfferProof, selection: "away" } },
+      { ...moneyline, canonicalOfferProof: { ...moneyline.canonicalOfferProof, offerId: "other-offer" } },
+      { ...moneyline, offerVersion: "offer-2", canonicalOfferProof: { ...moneyline.canonicalOfferProof, offerVersion: "offer-2" } }
+    ];
+    for (const leg of firstLegIdentityMismatches) expectSchemaValidParlayMismatch({ ...snapshot, legs: [leg, total] });
+    const browserPlacement = {
+      wagerId: "parlay-wager",
+      quoteKey: "parlay-quote",
+      quotedCommandVersion: "12",
+      mutationKey: "parlay-place",
+      commandId: "parlay-place",
+      seasonId: "season-1",
+      riskMicros: "1000000",
+      acceptedOdds: 191,
+      rulesetVersion: "PARLAY_2026_V1",
+      legs: [moneyline, total]
+    };
+    expect(buildParlayPlacement(parsedSnapshot, "parlay-wager", "parlay-place")).toEqual(browserPlacement);
+    expect(parlayWagerPlacementRequest.parse(browserPlacement)).toEqual(browserPlacement);
+    expect(() => parlayWagerPlacementRequest.parse({ ...browserPlacement, mutationKey: "other" })).toThrow();
+    for (const protectedFields of [
+      { actorId: "member-1" },
+      { ownerMemberId: "member-1" },
+      { fingerprint: "browser-fingerprint" }
+    ]) expect(() => parlayWagerPlacementRequest.parse({ ...browserPlacement, ...protectedFields })).toThrow();
   });
 
   it("continues to parse seven-leg teaser envelopes for legacy replay", () => {
