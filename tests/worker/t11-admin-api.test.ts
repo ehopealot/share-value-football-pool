@@ -72,11 +72,11 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect(memberBody.activity.orders[0]).toMatchObject({ memberId: "member", memberDisplayName: "Member", sharesMicros: "2000000", valueMicros: "2000000", priceMicros: "1000000", reason: "funding" });
     expect(memberBody.activity.wagers[0]).toMatchObject({ wagerId: "w1", type: "straight", status: "open", weekStart: expect.any(String), riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1" });
     expect(memberBody.activity.wagers[0].legs[0]).toMatchObject({ eventId: "w1", market: "spread", selection: "home" });
-    // The commissioner sees the identical redacted shape for another member's unstarted ticket.
+    // The commissioner sees the redacted ticket plus only its safe hidden-leg count.
     const ownerActivity = await owner.fetch(request(`/api/p/${slug}/activity`, undefined, "GET"));
     const ownerBody = await ownerActivity.json() as any;
-    expect(Object.keys(ownerBody.activity.wagers[0]).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
-    expect(ownerBody.activity.wagers[0]).toEqual({ wagerId: "w1", seasonId: "s1", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: memberBody.activity.wagers[0].confirmedAt, weekStart: memberBody.activity.wagers[0].weekStart, performanceMicros: "0" });
+    expect(Object.keys(ownerBody.activity.wagers[0]).sort()).toEqual(["confirmedAt", "hiddenLegCount", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
+    expect(ownerBody.activity.wagers[0]).toEqual({ wagerId: "w1", seasonId: "s1", memberId: "member", memberDisplayName: "Member", type: "straight", status: "open", confirmedAt: memberBody.activity.wagers[0].confirmedAt, weekStart: memberBody.activity.wagers[0].weekStart, performanceMicros: "0", hiddenLegCount: 1 });
 
     const history = await member.fetch(request(`/api/p/${slug}/history/s0`, undefined, "GET"));
     expect(history.status).toBe(200);

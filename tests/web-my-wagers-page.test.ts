@@ -14,7 +14,7 @@ describe("My wagers page", () => {
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th>');
     expect(source).toContain('displayWagerStartTimes(wager)');
     expect(source).toContain('formatActivityLeg(leg)');
-    expect(source).toContain('const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";');
+    expect(source).toContain('activityLegGradeClass(leg.grade)');
     expect(source).toContain('className={gradeClass}');
     expect(source).toContain('<strong key={index}>{segment.text}</strong>');
     expect(source).not.toContain('activitySelectedOutcomeClass(wager)');
@@ -34,12 +34,13 @@ describe("My wagers page", () => {
 
   it("keeps My Bets kickoffs aligned with their wager lines", () => {
     expect(styles).toContain('.wager-start-time { display: block; white-space: nowrap; }');
-    expect(styles).toContain('.my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-neutral { white-space: nowrap; }');
+    expect(styles).toContain('.my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-push, .my-wagers-page .activity-leg-neutral { white-space: nowrap; }');
     expect(styles).toContain('.activity-start-column { width: 7rem; }');
     expect(styles).not.toContain('.my-wagers-page .activity-start-column');
     expect(styles).toContain('.my-wagers-page .activity-wager-column { width: 52%; }');
     expect(styles).toMatch(/^\.activity-leg-loss \{ color: #b42318; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-win \{ color: #137333; \}$/m);
+    expect(styles).toMatch(/^\.activity-leg-push \{ color: #1a73e8; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-neutral \{ color: var\(--ink\); \}$/m);
   });
 });

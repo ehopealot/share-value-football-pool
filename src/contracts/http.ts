@@ -131,6 +131,7 @@ const wagerStatus = z.enum(["open", "won", "lost", "refunded"]);
 const settledOdds = z.number().int().safe().refine((odds) => odds !== 0);
 const wagerLeg = z.object({ eventId: z.string(), league: z.string(), canonicalBook: z.string(), retrievedAt: z.string().datetime(), policyVersion: z.string(), offerVersion: z.string(), market: z.string(), selection: z.string(), originalLine: z.string().optional(), originalOdds: z.number(), teaserAdjustment: z.string().optional(), adjustedLine: z.string().optional(), eventStartsAt: z.string().datetime(), homeTeam: z.string().optional(), awayTeam: z.string().optional(), grade: z.string().optional(), resultVersion: z.string().optional() });
 const ownerWagerLeg = wagerLeg.strict();
+const activityWagerLeg = wagerLeg.strict();
 
 /** Authoritative member reads use canonical accounting text and may omit protected ticket fields. */
 export const memberWager = z.object({
@@ -138,6 +139,8 @@ export const memberWager = z.object({
   riskMicros: decimalString.optional(), acceptedOdds: z.number().int().optional(), rulesetVersion: z.string().optional(), outcome: z.enum(["won", "lost", "refunded"]).optional(), returnMicros: decimalString.optional(), profitMicros: decimalString.optional(), settledOdds: settledOdds.nullable().optional(), settledAt: z.string().datetime().optional(),
   legs: z.array(wagerLeg).optional()
 });
+
+const activityWager = memberWager.extend({ legs: z.array(activityWagerLeg).optional(), hiddenLegCount: z.number().int().positive().optional() }).strict();
 
 const ownerWagerBase = z.object({
   wagerId: z.string().min(1), seasonId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), type: wagerType, confirmedAt: z.string().datetime(), weekStart: z.string().datetime(), performanceMicros: decimalString,
@@ -222,9 +225,9 @@ export const auditExportResponse = z.object({ format: z.literal("share-value-poo
 });
 export type AuditExportResponse = z.infer<typeof auditExportResponse>;
 
-export const activityOrder = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reason: z.string(), createdAt: z.string().datetime() });
+export const activityOrder = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reason: z.string(), createdAt: z.string().datetime() }).strict();
 export const ReadStandings = z.object({ commandVersion: decimalString, standings: z.array(z.object({ rank: z.number().int().positive(), userId: z.string().min(1), displayName: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString, totalMicros: decimalString, priceMicros: decimalString, notionalValueMicros: decimalString, gainMicros: decimalString })) });
-export const ReadActivity = z.object({ commandVersion: decimalString, activity: z.object({ orders: z.array(activityOrder), wagers: z.array(memberWager) }) });
+export const ReadActivity = z.object({ commandVersion: decimalString, activity: z.object({ orders: z.array(activityOrder), wagers: z.array(activityWager) }).strict() }).strict();
 /** Exact owner-only wager response, including nullable historical effective settlement odds. */
 export const ReadMyWagers = z.object({ commandVersion: decimalString, wagers: z.array(ownerWager) }).strict();
 const historyStanding = ReadStandings.shape.standings.element;
