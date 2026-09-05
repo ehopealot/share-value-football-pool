@@ -85,6 +85,7 @@ describe("straight and teaser grading", () => {
     expect(gradeTeaser(["win", "push", "win"], 10)).toEqual({ outcome: "refund", winningLegs: 2 });
     expect(gradeTeaser(["win", "loss", "void"], 10)).toEqual({ outcome: "loss", winningLegs: 1 });
     expect(gradeTeaser(["loss", "pending"], 6)).toEqual({ outcome: "loss", winningLegs: 0 });
+    expect(() => gradeTeaser(["win", "pending"], 6)).toThrow(/pending/i);
     expect(gradeTeaser(["void", "push"], 6)).toEqual({ outcome: "refund", winningLegs: 0 });
   });
 });

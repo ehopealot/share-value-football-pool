@@ -42,6 +42,12 @@ describe("fixed-point accounting", () => {
 
 describe("share-price display rounding", () => {
   it("uses half-even micros before displaying four decimals", () => {
-    expect(formatMicros(divideRoundHalfEven(10000506n * MICROS_PER_UNIT, 10000000n), 4)).toBe("1.0001");
+    const evenTie = divideRoundHalfEven(2_000_101n * MICROS_PER_UNIT, 2_000_000n);
+    const oddTie = divideRoundHalfEven(2_000_103n * MICROS_PER_UNIT, 2_000_000n);
+
+    expect(evenTie).toBe(1_000_050n);
+    expect(oddTie).toBe(1_000_052n);
+    expect(formatMicros(evenTie, 4)).toBe("1.0000");
+    expect(formatMicros(oddTie, 4)).toBe("1.0001");
   });
 });

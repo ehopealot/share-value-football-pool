@@ -2,6 +2,21 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { createSeason, executeOrder, executeQuotedOrder, holdings, lockRisk, quoteOrder, reverseSettlement, settleWager } from "../../src/domain/ledger";
 
+const exactHalfEven = (numerator: bigint, denominator: bigint) => {
+  const quotient = numerator / denominator;
+  const remainder = numerator % denominator;
+  return remainder * 2n > denominator || (remainder * 2n === denominator && quotient % 2n !== 0n) ? quotient + 1n : quotient;
+};
+const exactPriceMicros = (notionalMicros: bigint, floatMicros: bigint) => exactHalfEven(notionalMicros * 1_000_000n, floatMicros);
+const expectCachesToMatchJournal = (season: ReturnType<typeof createSeason>) => {
+  for (const [member, account] of Object.entries(season.accounts)) {
+    const entries = season.journal.filter((entry) => entry.member === member);
+    expect(entries.reduce((sum, entry) => sum + entry.availableDelta, 0n), `${member} available cache`).toBe(account.availableMicros);
+    expect(entries.reduce((sum, entry) => sum + entry.lockedDelta, 0n), `${member} locked cache`).toBe(account.lockedMicros);
+  }
+  expect(Object.values(season.accounts).reduce((sum, account) => sum + account.availableMicros + account.lockedMicros, 0n)).toBe(season.floatMicros);
+};
+
 describe("compatibility/reference ledger model invariants", () => {
   it("keeps journal, balances, ranking, and float consistent through recorded randomized commands", () => {
     fc.assert(fc.property(
@@ -35,6 +50,7 @@ describe("compatibility/reference ledger model invariants", () => {
           season = settleWager(season, command.member, `w-${season.commandVersion - 1n}`, command.outcome, command.outcome === "win" ? 1_000_000n : 0n);
           expect(season.journal.reduce((sum, entry) => sum + entry.floatDelta, 0n)).toBe(season.floatMicros);
           expect(new Set(season.journal.map((entry) => entry.id)).size).toBe(season.journal.length);
+          expectCachesToMatchJournal(season);
           for (const account of Object.values(season.accounts)) expect(account.availableMicros + account.lockedMicros).toBeGreaterThanOrEqual(0n);
         }
       }
@@ -52,14 +68,22 @@ describe("compatibility/reference ledger model invariants", () => {
         season = lockRisk(season, "amy", 1_000_000n, "non-unit-price");
         season = settleWager(season, "amy", "non-unit-price", "win", profitMicros);
         const sharesQuote = quoteOrder(season);
+        expect(sharesQuote.priceMicros).toBe(exactPriceMicros(season.notionalMicros, season.floatMicros));
         expect(sharesQuote.priceMicros).not.toBe(1_000_000n);
         const beforeSharesVersion = sharesQuote.commandVersion;
         season = executeQuotedOrder(season, "ben", { mode: "shares", amountMicros: shareOrderMicros, quote: sharesQuote });
+        const expectedShareOrderValue = exactHalfEven(shareOrderMicros * sharesQuote.priceMicros, 1_000_000n);
+        expect(season.journal.at(-1)).toMatchObject({ availableDelta: shareOrderMicros, lockedDelta: 0n, floatDelta: shareOrderMicros, notionalDelta: expectedShareOrderValue });
+        expect(quoteOrder(season).priceMicros).toBe(exactPriceMicros(season.notionalMicros, season.floatMicros));
         expect(quoteOrder(season).priceMicros - sharesQuote.priceMicros).toBeGreaterThanOrEqual(-1n);
         expect(quoteOrder(season).priceMicros - sharesQuote.priceMicros).toBeLessThanOrEqual(1n);
         expect(() => executeQuotedOrder(season, "ben", { mode: "shares", amountMicros: 1n, quote: { ...sharesQuote, commandVersion: beforeSharesVersion } })).toThrow(/stale/i);
         const valueQuote = quoteOrder(season);
+        expect(valueQuote.priceMicros).toBe(exactPriceMicros(season.notionalMicros, season.floatMicros));
         season = executeQuotedOrder(season, "ben", { mode: "value", amountMicros: valueOrderMicros, quote: valueQuote });
+        const expectedValueOrderShares = exactHalfEven(valueOrderMicros * 1_000_000n, valueQuote.priceMicros);
+        expect(season.journal.at(-1)).toMatchObject({ availableDelta: expectedValueOrderShares, lockedDelta: 0n, floatDelta: expectedValueOrderShares, notionalDelta: valueOrderMicros });
+        expect(quoteOrder(season).priceMicros).toBe(exactPriceMicros(season.notionalMicros, season.floatMicros));
         expect(quoteOrder(season).priceMicros - valueQuote.priceMicros).toBeGreaterThanOrEqual(-1n);
         expect(quoteOrder(season).priceMicros - valueQuote.priceMicros).toBeLessThanOrEqual(1n);
         expect(() => executeQuotedOrder(season, "ben", { mode: "value", amountMicros: 1n, quote: valueQuote })).toThrow(/stale/i);
