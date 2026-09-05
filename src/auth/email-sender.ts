@@ -18,7 +18,7 @@ export interface PoolJoinNotifier extends PoolNotifier {}
 const resendEndpoint = "https://api.resend.com/emails";
 const escapedHtmlCharacters: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
-function escapeHtmlAttribute(value: string): string {
+function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => escapedHtmlCharacters[character]!);
 }
 
@@ -31,7 +31,7 @@ function emailContent(message: EmailMessage): { subject: string; text: string; h
   return {
     subject,
     text: `${instruction} for Office Pool Reborn:\n\n${message.url}\n\n${fallback}`,
-    html: `<p>${instruction} for <strong>Office Pool Reborn</strong>.</p><p><a href="${escapeHtmlAttribute(message.url)}">${linkLabel}</a></p><p>${fallback}</p>`
+    html: `<p>${instruction} for <strong>Office Pool Reborn</strong>.</p><p><a href="${escapeHtml(message.url)}">${linkLabel}</a></p><p>${fallback}</p>`
   };
 }
 
@@ -64,21 +64,21 @@ export function createResendPoolNotifier(options: ResendEmailSenderOptions): Poo
       await sendResend(options, message.to, {
         subject: `New member in ${message.poolName}`,
         text: `${message.memberName} joined ${message.poolName}.`,
-        html: `<p><strong>${escapeHtmlAttribute(message.memberName)}</strong> joined <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`
+        html: `<p><strong>${escapeHtml(message.memberName)}</strong> joined <strong>${escapeHtml(message.poolName)}</strong>.</p>`
       });
     },
     async notifyCommissionerAnnouncement(message) {
       await sendResend(options, message.to, {
         subject: `Commissioner announcement — ${message.poolName}`,
         text: `${message.authorName} posted a commissioner announcement in ${message.poolName}:\n\n${message.text}\n\nView announcement: ${message.boardUrl}`,
-        html: `<p><strong>${escapeHtmlAttribute(message.authorName)}</strong> posted a commissioner announcement in <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p><p>${escapeHtmlAttribute(message.text)}</p><p><a href="${escapeHtmlAttribute(message.boardUrl)}">View announcement</a></p>`
+        html: `<p><strong>${escapeHtml(message.authorName)}</strong> posted a commissioner announcement in <strong>${escapeHtml(message.poolName)}</strong>.</p><p>${escapeHtml(message.text)}</p><p><a href="${escapeHtml(message.boardUrl)}">View announcement</a></p>`
       }, message.idempotencyKey);
     },
     async notifyMessageBoardReply(message) {
       await sendResend(options, message.to, {
         subject: `New reply in ${message.poolName}`,
         text: `${message.replierName} replied to your post in ${message.poolName}:\n\n${message.text}\n\nView reply: ${message.boardUrl}`,
-        html: `<p><strong>${escapeHtmlAttribute(message.replierName)}</strong> replied to your post in <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p><p>${escapeHtmlAttribute(message.text)}</p><p><a href="${escapeHtmlAttribute(message.boardUrl)}">View reply</a></p>`
+        html: `<p><strong>${escapeHtml(message.replierName)}</strong> replied to your post in <strong>${escapeHtml(message.poolName)}</strong>.</p><p>${escapeHtml(message.text)}</p><p><a href="${escapeHtml(message.boardUrl)}">View reply</a></p>`
       }, message.idempotencyKey);
     },
     async notifyShareOrderFulfilled(message) {
@@ -87,7 +87,7 @@ export function createResendPoolNotifier(options: ResendEmailSenderOptions): Poo
       await sendResend(options, message.to, {
         subject: `Shares added to ${message.poolName}`,
         text: `Your share order in ${message.poolName} is complete.\n\n${shares} shares were added to your balance (value: $${value}).`,
-        html: `<p>Your share order in <strong>${escapeHtmlAttribute(message.poolName)}</strong> is complete.</p><p><strong>${shares} shares</strong> were added to your balance (value: <strong>$${value}</strong>).</p>`
+        html: `<p>Your share order in <strong>${escapeHtml(message.poolName)}</strong> is complete.</p><p><strong>${shares} shares</strong> were added to your balance (value: <strong>$${value}</strong>).</p>`
       });
     },
     async notifyCommissionerTransfer(message) {
@@ -95,8 +95,8 @@ export function createResendPoolNotifier(options: ResendEmailSenderOptions): Poo
       const subject = isNew ? `You are now commissioner of ${message.poolName}` : `Commissioner changed for ${message.poolName}`;
       const text = isNew ? `${message.formerCommissionerName} made you commissioner of ${message.poolName}.` : `You made ${message.newCommissionerName} commissioner of ${message.poolName}.`;
       const html = isNew
-        ? `<p><strong>${escapeHtmlAttribute(message.formerCommissionerName)}</strong> made you commissioner of <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`
-        : `<p>You made <strong>${escapeHtmlAttribute(message.newCommissionerName)}</strong> commissioner of <strong>${escapeHtmlAttribute(message.poolName)}</strong>.</p>`;
+        ? `<p><strong>${escapeHtml(message.formerCommissionerName)}</strong> made you commissioner of <strong>${escapeHtml(message.poolName)}</strong>.</p>`
+        : `<p>You made <strong>${escapeHtml(message.newCommissionerName)}</strong> commissioner of <strong>${escapeHtml(message.poolName)}</strong>.</p>`;
       await sendResend(options, message.to, { subject, text, html });
     }
   };
