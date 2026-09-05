@@ -22,7 +22,7 @@ export function shapeAuditExportWagers(sql: SqlStorage, requesterId: string, now
 }
 
 function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, ownerOnly: boolean, seasonId: string | undefined, legRevealPolicy: LegRevealPolicy, exposeStartedTerms = false): { wagers: unknown[] } {
-  // This read powers My Wagers: unlike the member-visible activity ledger it never returns another member's ticket.
+  // Only the ownerOnly branch powers My Wagers and excludes every other member's ticket.
   const conditions = [ownerOnly ? "owner_id = ?" : undefined, seasonId ? "season_id = ?" : undefined].filter((condition): condition is string => Boolean(condition));
   const query = `SELECT wager.id, wager.season_id, wager.owner_id, member.display_name AS owner_display_name, wager.type, wager.risk_micros, wager.accepted_odds, wager.status, wager.ruleset_version, wager.confirmed_at, (SELECT MIN(event_starts_at) FROM wager_leg WHERE wager_id = wager.id) AS activity_week_start FROM wager JOIN member ON member.user_id = wager.owner_id${conditions.length ? ` WHERE ${conditions.join(" AND ")}` : ""} ORDER BY wager.confirmed_at, wager.rowid`;
   const wagers = [...sql.exec<Row>(query, ...(ownerOnly ? [viewerId] : []), ...(seasonId ? [seasonId] : []))].map((wager) => {

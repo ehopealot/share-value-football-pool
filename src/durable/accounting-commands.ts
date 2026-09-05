@@ -1,5 +1,5 @@
-import { divideRoundHalfEven, MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
-import { AccountingRepository, type Sql } from "./accounting-repository";
+import { parseIntegerText } from "../domain/fixed-point";
+import { AccountingRepository, calculateShareOrderAmounts, type Sql } from "./accounting-repository";
 
 export type OrderInput = {
   commandId: string; actorId: string; seasonId: string; memberId: string;
@@ -9,8 +9,7 @@ export type OrderInput = {
 export function quoteShareOrder(sql: Sql, seasonId: string, memberId: string, mode: "shares" | "value", amountMicros: string) {
   const quote = new AccountingRepository(sql).quote(seasonId);
   const requested = parseIntegerText(amountMicros);
-  const shares = mode === "shares" ? requested : divideRoundHalfEven(requested * MICROS_PER_UNIT, quote.priceMicros);
-  const value = mode === "value" ? requested : divideRoundHalfEven(shares * quote.priceMicros, MICROS_PER_UNIT);
+  const { sharesMicros: shares, valueMicros: value } = calculateShareOrderAmounts(mode, requested, quote.priceMicros);
   if (shares <= 0n || value <= 0n) throw new Error("ORDER_ROUNDS_BELOW_ONE_MICRO");
   return { seasonId, memberId, mode, amountMicros, priceMicros: quote.priceMicros.toString(), commandVersion: quote.commandVersion, sharesMicros: shares.toString(), valueMicros: value.toString() };
 }

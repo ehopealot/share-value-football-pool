@@ -1,10 +1,10 @@
-import { migratePoolStorage, migrateSeasonCreatedAt, poolSchema } from "./schema";
+import { migrateAdditivePoolStorage, migratePoolStorage, poolSchema } from "./schema";
 import { authenticatePoolSecret, hashPoolPassword, verifyPoolPassword } from "../security/pool-password";
 import { executeShareOrder, quoteShareOrder, reverseShareOrder } from "./accounting-commands";
 import { divideRoundHalfEven, MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
 import { validateTeaser } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
-import { OrderQuoteStaleError } from "./accounting-repository";
+import { calculateSharePriceMicros, OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
 import { placeWager } from "./wager-commands";
 import { runSettlementAlarm } from "./alarm";
@@ -34,7 +34,7 @@ const isNoticeOnlySettingsCommand = (command: PoolCommand) => command.type === "
 /** Board conversation and standalone commissioner notices are authoritative-only, without D1 projection or alarm work. */
 const shouldEnqueueOutbox = (command: PoolCommand) => !isReadCommand(command) && !isQuoteCommand(command) && command.type !== "CreateMessageBoardPost" && command.type !== "ReplyToMessageBoardPost" && !isNoticeOnlySettingsCommand(command);
 const canonical = (value: unknown) => JSON.stringify(value);
-/** The durable quote binding intentionally excludes snapshot and envelope metadata. */
+/** Retains every immutable placement term while excluding actor, fingerprint, owner, and command-version envelope fields. */
 const placementTerms = (value: { wagerId: string; quoteKey: string; seasonId: string; riskMicros: string; acceptedOdds: number; rulesetVersion: string; leg?: unknown; teaserPoints?: number; legs?: unknown }) => value.leg !== undefined
   ? { wagerId: value.wagerId, quoteKey: value.quoteKey, seasonId: value.seasonId, riskMicros: value.riskMicros, acceptedOdds: value.acceptedOdds, rulesetVersion: value.rulesetVersion, leg: value.leg }
   : { wagerId: value.wagerId, quoteKey: value.quoteKey, seasonId: value.seasonId, riskMicros: value.riskMicros, acceptedOdds: value.acceptedOdds, teaserPoints: value.teaserPoints, rulesetVersion: value.rulesetVersion, legs: value.legs };
@@ -56,14 +56,15 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
 };
 
 /**
- * The sole authoritative, serialized state machine for one pool. D1 records
- * are repairable discovery projections and are never read here.
+ * The sole authoritative, serialized state machine for one pool. D1 directory
+ * projections never authorize commands or drive accounting; alarms read D1
+ * provider evidence for settlement.
  */
 export class PoolDO {
   constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
     this.state.storage.transactionSync(() => {
-      migrateSeasonCreatedAt(this.state.storage.sql);
+      migrateAdditivePoolStorage(this.state.storage.sql);
       migratePoolStorage(this.state.storage.sql);
     });
   }
@@ -122,7 +123,7 @@ export class PoolDO {
     let result: PoolCommandResult;
     if (command.type === "InitializePool") result = this.initialize(sql, command);
     else result = this.authorized(sql, command);
-    if (shouldEnqueueOutbox(command)) {
+    if (shouldEnqueueOutbox(command) && "commandVersion" in result) {
       enqueueOutbox(sql, this.commandOutboxEvent(sql, command, result.commandVersion));
       if (command.type === "CloseSeason") {
         sql.exec("UPDATE season SET command_version = ? WHERE id = ?", result.commandVersion, command.seasonId);
@@ -208,8 +209,8 @@ export class PoolDO {
     if (command.type === "ReadPoolGate") {
       // Closed pools disclose no pool data to a nonmember; open pools disclose only their join label.
       if (!member) return pool.signups_open
-        ? { membership: "joinable", poolName: String(first(sql, "SELECT name FROM pool LIMIT 1")!.name), signupsOpen: true } as unknown as PoolCommandResult
-        : { membership: "closed", signupsOpen: false } as unknown as PoolCommandResult;
+        ? { membership: "joinable", poolName: String(first(sql, "SELECT name FROM pool LIMIT 1")!.name), signupsOpen: true }
+        : { membership: "closed", signupsOpen: false };
       if (member.status !== "active") throw new Error("SUSPENDED");
       return { commandVersion: String(pool.command_version), membership: "member" };
     }
@@ -370,15 +371,15 @@ export class PoolDO {
     }
     if (command.type === "QuoteShareOrder") {
       this.requireActiveMember(sql, command.memberId);
-      return quoteShareOrder(sql as unknown as import("./accounting-repository").Sql, command.seasonId, command.memberId, command.mode, command.amountMicros);
+      return quoteShareOrder(sql, command.seasonId, command.memberId, command.mode, command.amountMicros);
     }
     if (command.type === "ExecuteShareOrder") {
       this.requireActiveMember(sql, command.memberId);
-      const result = executeShareOrder(sql as unknown as import("./accounting-repository").Sql, command);
+      const result = executeShareOrder(sql, command);
       return { ...result, commandVersion: this.bumpVersion(sql) };
     }
     if (command.type === "ReverseShareOrder") {
-      const result = reverseShareOrder(sql as unknown as import("./accounting-repository").Sql, command);
+      const result = reverseShareOrder(sql, command);
       sql.exec("INSERT INTO administration_audit (id, actor_id, action, subject_id, reason, command_id, created_at) VALUES (?, ?, 'reverse_share_order', ?, ?, ?, ?)", crypto.randomUUID(), command.actorId, command.orderId, command.reason, command.commandId, now());
       return { ...result, commandVersion: this.bumpVersion(sql) };
     }
@@ -450,7 +451,7 @@ export class PoolDO {
     return version;
   }
 
-  protected async alarm(currentTime = Date.now()): Promise<void> {
+  protected async alarm(currentTime: number | AlarmInvocationInfo = Date.now()): Promise<void> {
     const settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime) : null;
     await drainOutbox(this.state, this.env.POOL_EVENTS, new Date(), this.env.DB);
     const outboxDeadline = this.env.POOL_EVENTS ? nextOutboxAttempt(this.state) : null;
@@ -470,17 +471,17 @@ export class PoolDO {
     };
   }
 
-  private standings(sql: SqlStorage, activeSeasonId: SqlStorageValue | undefined) {
-    if (activeSeasonId === null || activeSeasonId === undefined) return [];
-    const season = first(sql, "SELECT float_micros, notional_micros FROM season WHERE id = ?", activeSeasonId)!;
+  private standings(sql: SqlStorage, seasonId: SqlStorageValue | undefined) {
+    if (seasonId === null || seasonId === undefined) return [];
+    const season = first(sql, "SELECT float_micros, notional_micros FROM season WHERE id = ?", seasonId)!;
     const float = BigInt(String(season.float_micros)); const notional = BigInt(String(season.notional_micros));
-    const price = float === 0n ? MICROS_PER_UNIT : divideRoundHalfEven(notional * MICROS_PER_UNIT, float);
-    const rows = [...sql.exec<Row>("SELECT m.user_id, m.display_name, a.available_micros, a.locked_micros FROM member m JOIN share_account a ON a.member_id = m.user_id WHERE a.season_id = ?", activeSeasonId)].map((row) => {
+    const price = calculateSharePriceMicros(float, notional);
+    const rows = [...sql.exec<Row>("SELECT m.user_id, m.display_name, a.available_micros, a.locked_micros FROM member m JOIN share_account a ON a.member_id = m.user_id WHERE a.season_id = ?", seasonId)].map((row) => {
       const holdings = BigInt(String(row.available_micros)) + BigInt(String(row.locked_micros));
-      const issuedMicros = [...sql.exec<Row>("SELECT value_micros FROM share_order WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", activeSeasonId, row.user_id)].reduce((sum, order) => sum + BigInt(String(order.value_micros)), 0n);
+      const issuedMicros = [...sql.exec<Row>("SELECT value_micros FROM share_order WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", seasonId, row.user_id)].reduce((sum, order) => sum + BigInt(String(order.value_micros)), 0n);
       // The immutable ledger, not orders alone, records every holdings transition (including settlement).
       let running = 0n; let attained = "";
-      for (const entry of sql.exec<Row>("SELECT available_delta, locked_delta, created_at FROM ledger_entry WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", activeSeasonId, row.user_id)) { running += BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)); if (!attained && running === holdings) attained = String(entry.created_at); }
+      for (const entry of sql.exec<Row>("SELECT available_delta, locked_delta, created_at FROM ledger_entry WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", seasonId, row.user_id)) { running += BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)); if (!attained && running === holdings) attained = String(entry.created_at); }
       return { row, holdings, attained, issuedMicros };
     });
     const gain = (row: typeof rows[number]) => divideRoundHalfEven(row.holdings * price, MICROS_PER_UNIT) - row.issuedMicros;
@@ -501,7 +502,7 @@ export class PoolDO {
     if (season.state !== "closed") throw new Error("SEASON_NOT_CLOSED");
     const floatMicros = BigInt(String(season.float_micros));
     const notionalMicros = BigInt(String(season.notional_micros));
-    const priceMicros = floatMicros === 0n ? MICROS_PER_UNIT : divideRoundHalfEven(notionalMicros * MICROS_PER_UNIT, floatMicros);
+    const priceMicros = calculateSharePriceMicros(floatMicros, notionalMicros);
     const standings = this.standings(sql, seasonId);
     const accounts = standings.slice().sort((a, b) => a.userId.localeCompare(b.userId)).map((standing) => ({ memberId: standing.userId, memberDisplayName: standing.displayName, availableMicros: standing.availableMicros, lockedMicros: standing.lockedMicros, totalMicros: standing.totalMicros, holdingValueMicros: standing.notionalValueMicros, gainMicros: standing.gainMicros }));
     const text = (value: SqlStorageValue | null | undefined) => value === null || value === undefined ? null : String(value);

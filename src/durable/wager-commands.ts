@@ -1,7 +1,7 @@
 import { WHOLE_SHARE_MICROS, parseIntegerText } from "../domain/fixed-point";
 import { adjustTeaserLine, validateTeaser } from "../domain/grading";
 import { teaserOdds, TEASER_RULESET_ID } from "../domain/teaser-table";
-import { CANONICAL_BOOK_POLICY_VERSION } from "../odds/types";
+import { CANONICAL_BOOK_POLICY_VERSION, canonicalBooks } from "../odds/types";
 import { PARLAY_RULESET_ID, parlayOdds } from "../domain/parlay";
 import type { TeaserLeg } from "../domain/types";
 import type { PoolCommand } from "./pool-commands";
@@ -14,7 +14,7 @@ const now = () => new Date().toISOString();
 const gcd = (a: bigint, b: bigint): bigint => b === 0n ? a : gcd(b, a % b);
 const lcm = (a: bigint, b: bigint): bigint => a / gcd(a, b) * b;
 
-/** Enforces each member's limit with exact fractional teaser exposure, never rounded shares. */
+/** Enforces each member's limit with exact fractional per-leg exposure, including multi-leg wagers, never rounded shares. */
 function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): void {
   const legCount = BigInt(legs.length);
   for (const leg of legs) {
@@ -40,7 +40,7 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
   const account = first(sql, "SELECT available_micros, locked_micros FROM share_account WHERE season_id = ? AND member_id = ?", command.seasonId, command.actorId);
   if (!account || parseIntegerText(String(account.available_micros)) < risk) throw new Error("INSUFFICIENT_SHARES");
   const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
-  if (legs.some((leg) => !["DraftKings", "FanDuel", "BetMGM", "Caesars"].includes(leg.canonicalBook) || leg.policyVersion !== CANONICAL_BOOK_POLICY_VERSION || leg.canonicalOfferProof.eventId !== leg.eventId || leg.canonicalOfferProof.offerVersion !== leg.offerVersion || leg.canonicalOfferProof.canonicalBook !== leg.canonicalBook || leg.canonicalOfferProof.market !== leg.market || leg.canonicalOfferProof.selection !== leg.selection || (leg.market !== "moneyline" && leg.canonicalOfferProof.odds !== leg.originalOdds) || leg.canonicalOfferProof.line !== leg.originalLine)) throw new Error("INVALID_OFFER_SNAPSHOT");
+  if (legs.some((leg) => !canonicalBooks.some((book) => book === leg.canonicalBook) || leg.policyVersion !== CANONICAL_BOOK_POLICY_VERSION || leg.canonicalOfferProof.eventId !== leg.eventId || leg.canonicalOfferProof.offerVersion !== leg.offerVersion || leg.canonicalOfferProof.canonicalBook !== leg.canonicalBook || leg.canonicalOfferProof.market !== leg.market || leg.canonicalOfferProof.selection !== leg.selection || (leg.market !== "moneyline" && leg.canonicalOfferProof.odds !== leg.originalOdds) || leg.canonicalOfferProof.line !== leg.originalLine)) throw new Error("INVALID_OFFER_SNAPSHOT");
   if (command.type === "PlaceStraightWager") {
     const validSelection = command.leg.market === "total" ? ["over", "under"].includes(command.leg.selection) : ["home", "away"].includes(command.leg.selection);
     if (!validSelection || (command.leg.market === "moneyline" && (command.leg.originalLine !== null || command.leg.adjustedLine !== null || command.acceptedOdds !== command.leg.originalOdds)) || (command.leg.market !== "moneyline" && (command.leg.originalLine === null || command.leg.adjustedLine !== command.leg.originalLine || command.acceptedOdds !== 100))) throw new Error("INVALID_WAGER_LEG");
@@ -63,7 +63,7 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
       "INSERT INTO wager_leg (id, wager_id, event_id, league, canonical_book, retrieved_at, policy_version, offer_version, canonical_offer_id, canonical_proof_json, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, is_super_bowl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       `${command.wagerId}:${index}`, command.wagerId, leg.eventId, leg.league, leg.canonicalBook, leg.retrievedAt, leg.policyVersion, leg.offerVersion, leg.canonicalOfferProof.offerId, JSON.stringify(leg.canonicalOfferProof), leg.market, leg.selection, leg.originalLine === null ? null : String(leg.originalLine), leg.originalOdds, command.type === "PlaceTeaserWager" ? String(command.teaserPoints) : null, command.type === "PlaceTeaserWager" ? String((leg as Extract<Placement, { type: "PlaceTeaserWager" }>['legs'][number]).adjustedLine) : null, leg.eventStartsAt, 0
     );
-    if (leg.homeTeam && leg.awayTeam) sql.exec("INSERT INTO wager_leg_snapshot (wager_leg_id, home_team, away_team) VALUES (?, ?, ?)", `${command.wagerId}:${index}`, leg.homeTeam, leg.awayTeam);
+    sql.exec("INSERT INTO wager_leg_snapshot (wager_leg_id, home_team, away_team) VALUES (?, ?, ?)", `${command.wagerId}:${index}`, leg.homeTeam, leg.awayTeam);
     // Result coverage starts at the accepted event's kickoff, never at wager placement.
     sql.exec("INSERT OR IGNORE INTO event_reconciliation (event_id, event_starts_at, phase, attempts, error_attempts, next_attempt_at) VALUES (?, ?, 'open', 0, 0, ?)", leg.eventId, leg.eventStartsAt, leg.eventStartsAt);
   }
