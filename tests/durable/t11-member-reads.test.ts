@@ -29,8 +29,8 @@ const orderKeys = ["createdAt", "memberDisplayName", "memberId", "orderId", "pri
 
 describe("T11 authoritative member reads", () => {
   it("distinguishes round-half-even from truncation on exact .5 standings divisions", async () => {
-    // Price division: 3.000003 micros * 1e6 / 2,000,000 float shares = 1500000.5 exactly.
-    // Half-even rounds to even 1500002; truncation would report 1500001.
+    // Price division: 3,000,003 notional micros * 1e6 / 2,000,000 float microshares = 1,500,001.5 exactly.
+    // Half-even rounds to even 1,500,002 price micros; truncation would report 1,500,001.
     const priceSlug = `t11-price-${crypto.randomUUID()}`;
     await initialize(priceSlug, "Owner");
     await join(priceSlug, "a", "Aaa");
@@ -45,8 +45,8 @@ describe("T11 authoritative member reads", () => {
     expect(price.standings[0]).toMatchObject({ userId: "a", totalMicros: "1000000", priceMicros: "1500002", notionalValueMicros: "1500002", gainMicros: "1500002" });
     expect(price.standings[1]).toMatchObject({ userId: "owner", totalMicros: "0", priceMicros: "1500002", notionalValueMicros: "0", gainMicros: "0" });
 
-    // Value division: the exact 1.500000 price makes 1 microshare * 1.5 / 1e6 = 1.5 exactly.
-    // Half-even rounds to even 2.000000; truncation would report 1.000000 (and gain likewise).
+    // Value division: the exact 1,500,000-micro price makes 1 microshare * 1,500,000 / 1e6 = 1.5 value micros.
+    // Half-even rounds to even 2 value micros; truncation would report 1 (and gain likewise).
     const valueSlug = `t11-value-${crypto.randomUUID()}`;
     await initialize(valueSlug, "Owner");
     await join(valueSlug, "a", "Aaa");
@@ -83,7 +83,7 @@ describe("T11 authoritative member reads", () => {
     expect(Object.keys(result.standings[0]).sort()).toEqual(["availableMicros", "displayName", "gainMicros", "lockedMicros", "notionalValueMicros", "priceMicros", "rank", "totalMicros", "userId"]);
   }, 90_000);
 
-  it("orders standings by holdings, then earliest attainment, then display name", async () => {
+  it("orders zero-basis standings by holdings, then earliest attainment, then display name", async () => {
     const slug = `t11-order-${crypto.randomUUID()}`;
     await initialize(slug, "Zed");
     await join(slug, "a", "Aaa");
@@ -230,12 +230,19 @@ describe("T11 authoritative member reads", () => {
     await send(slug, { type: "CloseSeason", commandId: "close", actorId: "owner", seasonId: "closed", reason: "complete" });
     await send(slug, { type: "CreateSeasonAnnotation", commandId: "annotation-1", actorId: "owner", seasonId: "closed", text: "Immutable note" });
     await send(slug, { type: "CreateSeasonAnnotation", commandId: "annotation-2", actorId: "owner", seasonId: "closed", text: "Second note" });
+    await draftSeason(slug, "other", "Other");
+    const otherOrder = await fund(slug, "fund-other", "m", "other");
+    await placeWager(slug, "m", "w-other", "other");
+    await send(slug, { type: "CloseSeason", commandId: "close-other", actorId: "owner", seasonId: "other", reason: "other archive" });
+    await storage(slug, (state) => state.storage.sql.exec("UPDATE season SET closed_at = '2025-01-01T00:00:00.000Z' WHERE id = 'other'"));
     const history = await send(slug, { type: "ReadSeasonHistory", commandId: "history", actorId: "owner", seasonId: "closed" });
     expect(history.season).toMatchObject({ seasonId: "closed", label: "Closed", rulesetVersion: "SHARE_POOL_2026_V1", state: "closed", closeReason: "complete", floatMicros: "2000000", notionalMicros: "2000000", priceMicros: "1000000" });
     expect(history.accounts.find((account: any) => account.memberId === "m")).toMatchObject({ memberDisplayName: "Mem", availableMicros: "1000000", lockedMicros: "1000000", totalMicros: "2000000", holdingValueMicros: "2000000", gainMicros: "0" });
     expect(history.standings[0]).toMatchObject({ rank: 1, userId: "m", totalMicros: "2000000", notionalValueMicros: "2000000", gainMicros: "0" });
     expect(history.orders).toHaveLength(1);
     expect(history.orders[0]).toMatchObject({ seasonId: "closed", memberId: "m", memberDisplayName: "Mem" });
+    expect(history.orders.map((order: any) => order.orderId)).not.toContain(String(otherOrder.orderId));
+    expect(history.orders.every((order: any) => order.seasonId === "closed")).toBe(true);
     expect(history.ledger.length).toBeGreaterThanOrEqual(2);
     expect(history.ledger.every((entry: any) => entry.seasonId === "closed")).toBe(true);
     expect(history.settlements).toEqual([]);
