@@ -156,7 +156,7 @@ export function installLocalTestControls(app: Hono, controls: LocalTestControls)
   });
 }
 
-/** Seeds only deterministic fixture data; it never contacts an odds, email, or Turnstile service. */
+/** Provides deterministic local fixture and state-transition controls without contacting external odds, email, or Turnstile services. */
 export function localFixtureControls(db: D1Database, pools: DurableObjectNamespace, projectionServiceToken?: string): LocalTestControls {
   const seed = async (): Promise<{ seeded: true }> => {
     await db.batch([

@@ -1,8 +1,8 @@
 import { applyD1Migrations, env, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
-import { backupConfigured, backupPools, decodeBackupKey, encryptBackup } from "../../src/worker/backup-cron";
+import { backupConfigured, backupPools, decodeBackupKey, encryptBackup, runBackupCron } from "../../src/worker/backup-cron";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; BACKUPS: R2Bucket; POOL_COMMAND_AUTHENTICATOR_KEY: string; POOL_BACKUP_SERVICE_TOKEN: string };
 let migrated = false;
@@ -180,6 +180,10 @@ describe("member export and encrypted infrastructure backup", () => {
     expect(() => decodeBackupKey("not base64")).toThrow("BACKUP_KEY_INVALID");
     expect(() => decodeBackupKey(btoa("short"))).toThrow("BACKUP_KEY_INVALID");
     expect(backupConfigured({ BACKUP_ENCRYPTION_KEY: key })).toBe(false);
+    const cronError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(runBackupCron({ db: bindings.DB, pools: bindings.POOL_DO, bucket: bindings.BACKUPS, encryptionKey: "not base64", backupServiceToken: bindings.POOL_BACKUP_SERVICE_TOKEN })).resolves.toBeUndefined();
+    expect(cronError).toHaveBeenCalledWith({ event: "backup_cron_failed", reason: "run_failure" });
+    cronError.mockRestore();
     const first = await encryptBackup({ format: "share-value-pool-audit-v1", value: "exact" }, decodeBackupKey(key));
     const second = await encryptBackup({ format: "share-value-pool-audit-v1", value: "exact" }, decodeBackupKey(key));
     expect(first).toMatchObject({ format: "share-value-pool-backup-aes-gcm-v1", algorithm: "AES-GCM", nonce: expect.any(String), ciphertext: expect.any(String) });
@@ -257,8 +261,13 @@ describe("member export and encrypted infrastructure backup", () => {
     expect(await infrastructureResponse.text()).toBe("Internal Server Error");
 
     expect((await bindings.BACKUPS.list({ prefix: `${poolId}/` })).objects).toEqual([]);
-    expect(await backupPools({ db: bindings.DB, pools: bindings.POOL_DO, bucket: bindings.BACKUPS, encryptionKey: key, backupServiceToken: bindings.POOL_BACKUP_SERVICE_TOKEN })).toEqual({ attempted: 1, stored: 0 });
+    const dependencies = { db: bindings.DB, pools: bindings.POOL_DO, bucket: bindings.BACKUPS, encryptionKey: key, backupServiceToken: bindings.POOL_BACKUP_SERVICE_TOKEN };
+    expect(await backupPools(dependencies)).toEqual({ attempted: 1, stored: 0 });
     expect((await bindings.BACKUPS.list({ prefix: `${poolId}/` })).objects).toEqual([]);
+    const cronError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(runBackupCron(dependencies)).resolves.toBeUndefined();
+    expect(cronError).toHaveBeenCalledWith({ event: "backup_cron_failed", reason: "partial_failure", attempted: 1, stored: 0 });
+    cronError.mockRestore();
   }, 90_000);
 
   it("fails closed without storing a backup when a team snapshot has no wager leg", async () => {
