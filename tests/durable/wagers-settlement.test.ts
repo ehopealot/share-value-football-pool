@@ -196,7 +196,7 @@ describe("PoolDO wagers and settlement", () => {
     const teaser: any = { type: "PlaceTeaserWager", commandId: "side-limit-teaser", actorId: "member", wagerId: "side-limit-teaser", seasonId: "s1", riskMicros: "1600000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-side-one"), adjustedLine: 3 }, { ...leg("teaser-side-two"), adjustedLine: 3 }] };
     expect(await send(teaserSlug, teaser)).toMatchObject({ wagerId: "side-limit-teaser" });
     expect(await send(teaserSlug, { ...teaser, commandId: "side-limit-teaser-second", wagerId: "side-limit-teaser-second" })).toMatchObject({ wagerId: "side-limit-teaser-second" });
-    expect((await send(teaserSlug, { ...teaser, commandId: "side-limit-ticket-over", wagerId: "side-limit-ticket-over", riskMicros: "1601000000", legs: [{ ...leg("ticket-limit-one"), adjustedLine: 3 }, { ...leg("ticket-limit-two"), adjustedLine: 3 }] })).code).toBe("SIDE_BET_LIMIT");
+    expect(await send(teaserSlug, { ...teaser, commandId: "side-limit-ticket-over", wagerId: "side-limit-ticket-over", riskMicros: "1601000000", legs: [{ ...leg("ticket-limit-one"), adjustedLine: 3 }, { ...leg("ticket-limit-two"), adjustedLine: 3 }] })).toEqual({ code: "SIDE_BET_LIMIT", maxSideBetMicros: "1600000000" });
     expect((await send(teaserSlug, { ...teaser, commandId: "side-limit-exposure-over", wagerId: "side-limit-exposure-over", riskMicros: "2000000" })).code).toBe("SIDE_BET_LIMIT");
 
     const mixedSlug = await fundedPool(`side-limit-parlay-${crypto.randomUUID()}`);
@@ -224,6 +224,32 @@ describe("PoolDO wagers and settlement", () => {
         resultingExposure: { numeratorMicros: "801000000", denominator: "1" }
       }]
     });
+  }, 30_000);
+
+  it("returns every violating side when a straight, teaser, or parlay also exceeds the ticket cap", async () => {
+    const cases = [
+      { name: "straight", legCount: 1, place: (legs: any[]) => ({ type: "PlaceStraightWager", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: legs[0] }) },
+      { name: "teaser", legCount: 2, place: (legs: any[]) => ({ type: "PlaceTeaserWager", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: legs.map((item) => ({ ...item, adjustedLine: 3 })) }) },
+      { name: "parlay", legCount: 2, place: (legs: any[]) => ({ type: "PlaceParlayWager", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs }) }
+    ];
+    for (const testCase of cases) {
+      const slug = await fundedPool(`ticket-and-side-limit-${testCase.name}-${crypto.randomUUID()}`);
+      await storage(slug, (state) => state.storage.sql.exec("UPDATE share_account SET available_micros = '10000000000' WHERE season_id = 's1' AND member_id = 'member'"));
+      const submittedLegs = Array.from({ length: testCase.legCount }, (_, index) => leg(`${testCase.name}-limited-side-${index}`));
+      for (const [index, limitedLeg] of submittedLegs.entries()) {
+        expect(await send(slug, { type: "PlaceStraightWager", commandId: `${testCase.name}-existing-${index}`, actorId: "member", wagerId: `${testCase.name}-existing-${index}`, seasonId: "s1", riskMicros: "800000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: limitedLeg })).toMatchObject({ wagerId: `${testCase.name}-existing-${index}` });
+      }
+      const riskMicros = testCase.legCount === 1 ? "801000000" : "1602000000";
+      expect(await send(slug, { ...testCase.place(submittedLegs), commandId: `${testCase.name}-ticket-and-side-over`, actorId: "member", wagerId: `${testCase.name}-ticket-and-side-over`, seasonId: "s1", riskMicros })).toMatchObject({
+        code: "SIDE_BET_LIMIT", maxSideBetMicros: "800000000",
+        sideExposures: submittedLegs.map((limitedLeg) => ({
+          eventId: limitedLeg.eventId, market: "spread", selection: "home",
+          existingExposure: { numeratorMicros: testCase.legCount === 1 ? "800000000" : "1600000000", denominator: String(testCase.legCount) },
+          proposedExposure: { numeratorMicros: riskMicros, denominator: String(testCase.legCount) },
+          resultingExposure: { numeratorMicros: testCase.legCount === 1 ? "1601000000" : "3202000000", denominator: String(testCase.legCount) }
+        }))
+      });
+    }
   }, 30_000);
 
   it("places identical straight, teaser, and parlay quotes after the pool command version advances", async () => {
