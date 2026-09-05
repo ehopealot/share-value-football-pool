@@ -63,7 +63,6 @@ export const teaserSemanticIssues = (v: { teaserPoints: z.infer<typeof teaserPoi
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["legs"], message: error instanceof Error ? error.message : "invalid teaser selections" });
   }
 };
-export const quoteTeaserSemantic = quoteTeaserSemanticBase.superRefine(teaserSemanticIssues);
 export const parlayQuoteRequestLeg = straightQuoteRequestLeg;
 export const quoteParlaySemanticBase = z.object({ wagerId, seasonId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, rulesetVersion: z.literal(PARLAY_RULESET_ID), legs: z.array(parlayQuoteRequestLeg).min(2).max(6) }).strict();
 export const parlaySemanticIssues = (v: { legs: Array<{ eventId: string; market: "spread" | "total" | "moneyline"; selection: "home" | "away" | "over" | "under" }> }, ctx: z.RefinementCtx) => {
@@ -103,17 +102,6 @@ export const placeTeaserWager = placeTeaserWagerShape.superRefine((value, ctx) =
 });
 export const placeParlayWagerShape = parlayWagerQuoteSnapshotBase.omit({ ownerMemberId: true, quoteKey: true, commandVersion: true }).extend({ type: z.literal("PlaceParlayWager"), commandId: z.string().min(1), actorId: z.string().min(1), wagerId, quoteKey, quotedCommandVersion: canonicalIntegerText }).strict();
 export const placeParlayWager = placeParlayWagerShape.superRefine(parlaySnapshotIssues);
-export type PlaceStraightWager = z.infer<typeof placeStraightWager>;
-export type PlaceTeaserWager = z.infer<typeof placeTeaserWager>;
-export type PlaceParlayWager = z.infer<typeof placeParlayWager>;
-
-export const shareOrderQuote = z.object({ priceMicros: canonicalIntegerText, commandVersion: canonicalIntegerText });
-export const quoteShareOrderCommand = z.object({ commandId: z.string().min(1), actorId: z.string().min(1), seasonId: z.string().min(1), memberId: z.string().min(1) });
-export const executeShareOrderCommand = quoteShareOrderCommand.extend({ mode: orderMode, amountMicros: positiveCanonicalIntegerText, quote: shareOrderQuote, reason: z.string().trim().min(1).max(500) });
-export const reverseShareOrderCommand = z.object({ commandId: z.string().min(1), actorId: z.string().min(1), orderId: z.string().min(1), reason: z.string().trim().min(1).max(500) });
-export const commandEnvelope = z.object({ commandId: z.string().min(1), actorId: z.string().min(1), type: z.string().min(1), payload: z.unknown() });
-export type CommandEnvelope = z.infer<typeof commandEnvelope>;
-export const idempotencyConflict = "IDEMPOTENCY_CONFLICT" as const;
 
 /** Service-only settlement is deliberately not an HTTP/browser command envelope. */
 export const internalSettlementCommand = z.object({ poolId: z.string().min(1), serviceToken: z.string().min(1) });

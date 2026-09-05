@@ -20,6 +20,7 @@ export const updateMemberNicknameRequest = z.object({ displayName: z.string().tr
 const commissionerNotice = z.string().trim().min(1).max(500);
 export const updatePoolSettingsRequest = z.object({ poolName: z.string().trim().min(1).max(100).optional(), password: password.optional(), signupsOpen: z.boolean().optional(), maxSideBet: z.string().regex(/^[1-9]\d*$/).optional(), commissionerNotice: commissionerNotice.nullable().optional(), idempotencyKey }).strict().refine((body) => body.poolName !== undefined || body.password !== undefined || body.signupsOpen !== undefined || body.maxSideBet !== undefined || body.commissionerNotice !== undefined, "At least one setting is required.");
 export const createSeasonRequest = z.object({ seasonId: z.string().min(1).max(128), label: z.string().trim().min(1).max(100), defaultOrder: z.object({ mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/) }).optional(), idempotencyKey });
+/** `reason` is a deprecated no-op retained for parse compatibility; active OpenSeason and ConfirmSuperBowl routes ignore it. */
 export const seasonCommandRequest = z.object({ idempotencyKey, reason: z.string().trim().min(1).max(500).optional() });
 const auditReason = z.string().trim().min(1).max(500);
 export const reverseShareOrderRequest = z.object({ idempotencyKey, reason: auditReason });
@@ -29,7 +30,7 @@ export const voidWagerRequest = z.object({ idempotencyKey, reason: auditReason }
 export const regradeWagerRequest = z.object({ idempotencyKey, reason: auditReason, correctedResults: z.array(correctedEventResult).min(1).max(7) }).strict();
 export const seasonAnnotationRequest = z.object({ idempotencyKey, text: z.string().trim().min(1).max(2000) });
 export const shareOrderQuoteRequest = z.object({ seasonId: z.string().min(1).max(128), memberId: z.string().min(1).max(128), mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/), idempotencyKey });
-export const executeShareOrderRequest = shareOrderQuoteRequest.extend({ mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/), quote: z.object({ priceMicros: z.string().regex(/^(?:0|[1-9]\d*)$/), commandVersion: z.string().regex(/^(?:0|[1-9]\d*)$/) }), reason: z.string().trim().min(1).max(500) });
+export const executeShareOrderRequest = shareOrderQuoteRequest.extend({ quote: z.object({ priceMicros: z.string().regex(/^(?:0|[1-9]\d*)$/), commandVersion: z.string().regex(/^(?:0|[1-9]\d*)$/) }), reason: z.string().trim().min(1).max(500) });
 /** A board read changes only the caller's durable HWM, so it still needs a strict POST body. */
 export const messageBoardReadRequest = z.object({}).strict();
 export const messageBoardMutationRequest = z.object({ text: z.string().trim().min(1).max(1000), idempotencyKey }).strict();
@@ -243,8 +244,3 @@ export type ReadStandings = z.infer<typeof ReadStandings>;
 export type ReadActivity = z.infer<typeof ReadActivity>;
 export type ReadMyWagers = z.infer<typeof ReadMyWagers>;
 export type ReadSeasonHistory = z.infer<typeof ReadSeasonHistory>;
-
-export const commandResponse = z.object({ commandVersion: z.string(), code: z.string().optional() });
-export const createPoolResponse = commandResponse.extend({ poolId: z.string(), slug: z.string(), status: z.enum(["initializing", "ready", "failed"]), lastError: z.string().optional() });
-export type CreatePoolRequest = z.infer<typeof createPoolRequest>;
-export type CreatePoolResponse = z.infer<typeof createPoolResponse>;

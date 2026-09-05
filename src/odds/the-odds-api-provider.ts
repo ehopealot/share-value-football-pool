@@ -5,7 +5,8 @@ import type { EventStatus, League, OddsProvider, ProviderBook, ProviderEvent, Pr
 const sportKey: Record<League, string> = { nfl: "americanfootball_nfl", ncaaf: "americanfootball_ncaaf" };
 type ApiEvent = ReturnType<typeof theOddsApiOddsResponse.parse>[number];
 type ApiScoreEvent = ReturnType<typeof theOddsApiScoresResponse.parse>[number];
-const market = (value: ApiEvent["bookmakers"] extends infer _ ? { key: "spreads" | "totals" | "h2h"; outcomes: Array<{ name: string; price: number; point?: number }> } : never): ProviderMarket => ({
+type ApiMarket = NonNullable<ApiEvent["bookmakers"]>[number]["markets"][number];
+const market = (value: ApiMarket): ProviderMarket => ({
   key: value.key === "spreads" ? "spread" : value.key === "totals" ? "total" : "moneyline",
   outcomes: value.outcomes.map((outcome): ProviderOutcome => ({ name: outcome.name, price: outcome.price, ...(outcome.point === undefined ? {} : { point: outcome.point }) }))
 });
