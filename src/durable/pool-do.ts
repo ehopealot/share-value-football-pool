@@ -12,7 +12,7 @@ import { correctWager, voidWager } from "./settlement";
 import { enqueueOutbox, drainOutbox, nextOutboxAttempt, type PoolOutboxMessage } from "./outbox";
 import { shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
-import { TEASER_RULESET_ID } from "../domain/teaser-table";
+import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
 
 /**
@@ -344,7 +344,7 @@ export class PoolDO {
       if (command.defaultOrder) {
         if (parseIntegerText(command.defaultOrder.amountMicros) <= 0n) throw new Error("INVALID_DEFAULT_ORDER");
       }
-      sql.exec("INSERT INTO season (id, label, ruleset_version, state, created_at, float_micros, notional_micros, default_mode, default_amount_micros, command_version) VALUES (?, ?, ?, 'draft', ?, '0', '0', ?, ?, ?)", command.seasonId, command.label, TEASER_RULESET_ID, now(), command.defaultOrder?.mode ?? null, command.defaultOrder?.amountMicros ?? null, String(pool.command_version));
+      sql.exec("INSERT INTO season (id, label, ruleset_version, state, created_at, float_micros, notional_micros, default_mode, default_amount_micros, command_version) VALUES (?, ?, ?, 'draft', ?, '0', '0', ?, ?, ?)", command.seasonId, command.label, SHARE_POOL_RULESET_ID, now(), command.defaultOrder?.mode ?? null, command.defaultOrder?.amountMicros ?? null, String(pool.command_version));
       for (const persistentMember of sql.exec<Row>("SELECT user_id FROM member")) {
         sql.exec("INSERT INTO share_account (season_id, member_id, available_micros, locked_micros, row_version) VALUES (?, ?, '0', '0', '0')", command.seasonId, persistentMember.user_id);
       }

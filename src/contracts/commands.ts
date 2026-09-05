@@ -1,20 +1,23 @@
 import { z } from "zod";
+import { CANONICAL_INTEGER_TEXT_PATTERN } from "../domain/fixed-point";
 import { validateTeaser } from "../domain/grading";
 import { PARLAY_RULESET_ID, validateParlay } from "../domain/parlay";
+import { TEASER_POINT_OPTIONS } from "../domain/teaser-table";
 import type { TeaserLeg } from "../domain/types";
 
-export const canonicalIntegerText = z.string().regex(/^(?:0|-?[1-9]\d*)$/, "Expected canonical integer text.");
+export const canonicalIntegerText = z.string().regex(CANONICAL_INTEGER_TEXT_PATTERN, "Expected canonical integer text.");
 export const positiveCanonicalIntegerText = canonicalIntegerText.superRefine((value, ctx) => {
   // The regex above is the guard for BigInt: malformed text must be a normal
   // validation failure, not an exception escaping command handling.
-  if (/^(?:0|-?[1-9]\d*)$/.test(value) && BigInt(value) <= 0n) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Amount must be positive." });
+  if (CANONICAL_INTEGER_TEXT_PATTERN.test(value) && BigInt(value) <= 0n) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Amount must be positive." });
 });
 export const americanOdds = z.number().int().refine(Number.isSafeInteger, "American odds must be a safe integer.").refine((value) => value !== 0, "American odds cannot be zero.");
 export const timestamp = z.string().datetime();
 export const quoteKey = z.string().min(1).max(128);
 export const wagerId = z.string().min(1).max(128);
 export const orderMode = z.enum(["shares", "value"]);
-export const teaserPoints = z.union([z.literal(6), z.literal(6.5), z.literal(7), z.literal(7.5), z.literal(10)]);
+const [teaser6, teaser6_5, teaser7, teaser7_5, teaser10] = TEASER_POINT_OPTIONS;
+export const teaserPoints = z.union([z.literal(teaser6), z.literal(teaser6_5), z.literal(teaser7), z.literal(teaser7_5), z.literal(teaser10)]);
 /** Canonical correction evidence contains public event results only, never immutable wager selections. */
 export const correctedEventResult = z.discriminatedUnion("status", [
   z.object({ eventId: z.string().min(1).max(128), league: z.enum(["nfl", "ncaaf"]), status: z.literal("final"), homeScore: z.number().int().nonnegative(), awayScore: z.number().int().nonnegative(), correctionVersion: z.string().min(1).max(500) }).strict(),

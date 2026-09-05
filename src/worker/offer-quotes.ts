@@ -2,7 +2,7 @@ import { offerIsStale } from "../odds/ingestion";
 import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
 import { CANONICAL_BOOK_POLICY_VERSION, type MarketName, type ProviderEvent } from "../odds/types";
 import type { PoolCommand } from "../durable/pool-commands";
-import { TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
+import { SHARE_POOL_RULESET_ID, TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
 import { adjustTeaserLine } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
 import { PARLAY_RULESET_ID, parlayOdds } from "../domain/parlay";
@@ -55,7 +55,7 @@ export async function canonicalizeWagerQuote(db: D1Database, proposed: Placement
   const canonicalLegs = proposedLegs.map((leg, index) => canonicalLeg(snapshot.rows[index], snapshot.ingestion, leg, now));
   if (proposed.type === "PlaceStraightWager") {
     const leg = canonicalLegs[0]!;
-    return { ...proposed, acceptedOdds: leg.market === "moneyline" ? leg.originalOdds : 100, rulesetVersion: TEASER_RULESET_ID, leg: { ...leg, adjustedLine: leg.originalLine } } as Placement;
+    return { ...proposed, acceptedOdds: leg.market === "moneyline" ? leg.originalOdds : 100, rulesetVersion: SHARE_POOL_RULESET_ID, leg: { ...leg, adjustedLine: leg.originalLine } } as Placement;
   }
   if (proposed.type === "PlaceParlayWager") {
     const legs = canonicalLegs.map((leg) => ({ ...leg, adjustedLine: leg.originalLine }));
@@ -105,7 +105,7 @@ export async function revalidateWagerOffers(db: D1Database, command: Placement, 
   // Payout terms are fixed authority, never client-selected presentation values.
   if (command.type === "PlaceStraightWager") {
     const expectedOdds = command.leg.market === "moneyline" ? command.leg.originalOdds : 100;
-    if (command.acceptedOdds !== expectedOdds || command.rulesetVersion !== TEASER_RULESET_ID) throw new Error("NON_CANONICAL_QUOTE");
+    if (command.acceptedOdds !== expectedOdds || command.rulesetVersion !== SHARE_POOL_RULESET_ID) throw new Error("NON_CANONICAL_QUOTE");
   } else if (command.type === "PlaceTeaserWager") {
     const expectedOdds = teaserOdds(command.legs.length, command.teaserPoints);
     if (expectedOdds === undefined || command.acceptedOdds !== expectedOdds || command.rulesetVersion !== TEASER_RULESET_ID) throw new Error("NON_CANONICAL_QUOTE");

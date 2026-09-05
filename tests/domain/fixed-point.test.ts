@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { assertCanonicalIntegerText, divideRoundHalfEven, formatMicros, microsFromDecimal, multiplyDivideRoundHalfEven, parseIntegerText, WHOLE_SHARE_MICROS, MICROS_PER_UNIT } from "../../src/domain/fixed-point";
+import { assertCanonicalIntegerText, CANONICAL_INTEGER_TEXT_PATTERN, divideRoundHalfEven, formatMicros, microsFromDecimal, multiplyDivideRoundHalfEven, parseIntegerText, WHOLE_SHARE_MICROS, MICROS_PER_UNIT } from "../../src/domain/fixed-point";
 import { americanProfitMicros } from "../../src/domain/odds";
 
 describe("fixed-point accounting", () => {
   it("accepts canonical BigInt integer text at and beyond Number safe bounds", () => {
     expect(parseIntegerText("9007199254740993")).toBe(9007199254740993n);
+    expect(CANONICAL_INTEGER_TEXT_PATTERN.test("-42")).toBe(true);
+    expect(CANONICAL_INTEGER_TEXT_PATTERN.test("01")).toBe(false);
     expect(() => assertCanonicalIntegerText("01")).toThrow();
     expect(() => assertCanonicalIntegerText("+1")).toThrow();
     expect(() => assertCanonicalIntegerText("1.0")).toThrow();

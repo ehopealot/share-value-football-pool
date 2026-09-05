@@ -8,7 +8,8 @@ import { selectableOutcomes, selectionForOutcome } from "../selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, writeTeaserSlip } from "../teaser-slip";
 import { buildParlaySlip, writeParlaySlip } from "../parlay-slip";
 import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, toggleMarketExclusive, writeSelectionTray, type TrayItem } from "../selection-tray";
-import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
+import { formatMicros, MICROS_PER_UNIT, parseIntegerText } from "../../domain/fixed-point";
+import { SHARE_POOL_RULESET_ID } from "../../domain/teaser-table";
 import { formatAmericanOdds, formatKickoff, formatSignedLine } from "../odds-format";
 import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
@@ -109,12 +110,12 @@ export const filterGamesByTeam = (games: GameRow[], filter: string): GameRow[] =
 export function straightQuoteRequest(semantic: { pick: BoardPick; risk: string; wagerId: string; quoteKey: string }, seasonId: string) {
   const { offer } = semantic.pick; const selection = selectionForOutcome(offer, semantic.pick.outcome);
   if (!selection) throw new Error("CURRENT_OFFER_UNAVAILABLE");
-  return { wagerId: semantic.wagerId, seasonId, riskMicros: (BigInt(semantic.risk) * 1000000n).toString(), rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: offer.eventId, canonicalBook: offer.canonicalBook, market: offer.market, selection, offerId: `${offer.eventId}:${offer.market}:${selection}`, offerVersion: offer.offerVersion }, quoteKey: semantic.quoteKey, commandId: semantic.quoteKey };
+  return { wagerId: semantic.wagerId, seasonId, riskMicros: (BigInt(semantic.risk) * MICROS_PER_UNIT).toString(), rulesetVersion: SHARE_POOL_RULESET_ID, leg: { eventId: offer.eventId, canonicalBook: offer.canonicalBook, market: offer.market, selection, offerId: `${offer.eventId}:${offer.market}:${selection}`, offerVersion: offer.offerVersion }, quoteKey: semantic.quoteKey, commandId: semantic.quoteKey };
 }
 
 /** Batch item failures name the reason and keep the item retryable after its safe automatic status replays. */
 export const failureReason = (error: unknown, phase: "quote" | "place", maxSideBetMicros?: string): string =>
-  error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / 1000000n).toString()} shares.`
+  error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / MICROS_PER_UNIT).toString()} shares.`
     : commandOutcome(error) === "stale" ? "Line changed."
       : commandOutcome(error) === "retryable" && phase === "place" ? "Placement result unknown."
         : commandOutcome(error) === "retryable" ? "Odds unavailable."

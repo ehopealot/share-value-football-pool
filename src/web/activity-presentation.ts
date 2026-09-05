@@ -1,5 +1,5 @@
 import type { ReadActivity } from "../contracts/http";
-import { formatMicros, parseIntegerText } from "../domain/fixed-point";
+import { formatMicros, MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
 import { formatAmericanOdds } from "./odds-format";
 import { sortWagersByStartTime } from "./wager-presentation";
 import { displayTeamName } from "./team-display";
@@ -49,7 +49,7 @@ export function activityWagerPerformanceClass(wager: WagerOutcome): string {
 /** Public Activity stakes may omit protected accepted odds. */
 export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedOdds">): { amount: string; odds?: string } | undefined {
   if (wager.riskMicros === undefined) return undefined;
-  return { amount: (parseIntegerText(wager.riskMicros) / 1_000_000n).toString(), ...(wager.acceptedOdds === undefined ? {} : { odds: formatAmericanOdds(wager.acceptedOdds) }) };
+  return { amount: (parseIntegerText(wager.riskMicros) / MICROS_PER_UNIT).toString(), ...(wager.acceptedOdds === undefined ? {} : { odds: formatAmericanOdds(wager.acceptedOdds) }) };
 }
 
 /** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */

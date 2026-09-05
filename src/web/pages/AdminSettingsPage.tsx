@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage, invalidatePoolView } from "../api";
+import { MICROS_PER_UNIT } from "../../domain/fixed-point";
 import { useFrozenAdminCommand } from "../admin-command";
 import { Layout } from "../components/Layout";
 
@@ -14,7 +15,7 @@ export function AdminSettingsPage() {
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const settings = useFrozenAdminCommand<Record<string, unknown>>();
-  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / 1000000n).toString()); setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase()); }).catch((e) => setLoadError(errorMessage(e)));
+  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / MICROS_PER_UNIT).toString()); setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase()); }).catch((e) => setLoadError(errorMessage(e)));
   useEffect(load, [slug]);
   if (loadError) return <Layout signedIn><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!view) return <Layout><p role="status">Loading settings…</p></Layout>;
