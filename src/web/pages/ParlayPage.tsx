@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { MICROS_PER_UNIT } from "../../domain/fixed-point";
 import { PARLAY_RULESET_ID, parlayOdds } from "../../domain/parlay";
 import { api, buildParlayPlacement, commandOutcome, errorMessage } from "../api";
 import { Confirmation } from "../components/Confirmation";
@@ -66,7 +67,7 @@ export const parlayAdvisoryOdds = (legs: ParlayLeg[]): number | undefined => {
   try { return parlayOdds(legs); } catch { return undefined; }
 };
 export const parlayQuoteRequest = (request: ParlaySemantic, seasonId: string) => ({
-  wagerId: request.wagerId, seasonId, riskMicros: (BigInt(request.risk) * 1000000n).toString(), rulesetVersion: PARLAY_RULESET_ID,
+  wagerId: request.wagerId, seasonId, riskMicros: (BigInt(request.risk) * MICROS_PER_UNIT).toString(), rulesetVersion: PARLAY_RULESET_ID,
   legs: request.legs.map((leg) => ({ eventId: leg.eventId, canonicalBook: leg.canonicalBook, market: leg.market, selection: leg.selection, offerId: `${leg.eventId}:${leg.market}:${leg.selection}`, offerVersion: leg.offerVersion })), quoteKey: request.quoteKey, commandId: request.quoteKey
 });
 const marketName = (market: ParlayLeg["market"]) => `${market.slice(0, 1).toUpperCase()}${market.slice(1)}`;
@@ -152,7 +153,7 @@ export function ParlayPage() {
   }
   if (state.tag === "quoting") return <Layout signedIn><h1>Reviewing parlay wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg parlay · Risk {state.request.risk || "0"}</p></Layout>;
   const odds = editor && parlayAdvisoryOdds(editor.legs);
-  const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * 1000000n).toString(), odds).total : undefined;
+  const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * MICROS_PER_UNIT).toString(), odds).total : undefined;
   const invalid = !editor || editor.legs.length < 2 || editor.legs.length > 6 ? "Choose two to six legs." : riskError;
   return <Layout signedIn><h1>Parlay builder</h1><p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<ParlayLegTable legs={editor!.legs} onRemove={(index) => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }} />{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={!!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>Review parlay wager</button></div></Layout>;
 }

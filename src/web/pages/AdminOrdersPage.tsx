@@ -3,13 +3,13 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, buildShareOrderExecution, commandOutcome, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { Confirmation } from "../components/Confirmation";
-import { formatMicros, microsFromDecimal } from "../../domain/fixed-point";
+import { formatMicros, MICROS_PER_UNIT, microsFromDecimal } from "../../domain/fixed-point";
 import { projectAdminOrders, type ProjectedOrder } from "./admin-orders-lifecycle";
 import type { ReadPoolView, shareOrderQuoteSnapshot } from "../../contracts/http";
 import type { z } from "zod";
 
 const display = (value: string, decimals: 2 | 4 | 6 = 2) => formatMicros(BigInt(value), decimals);
-const wholeShares = (value: string) => (BigInt(value) / 1000000n).toString();
+const wholeShares = (value: string) => (BigInt(value) / MICROS_PER_UNIT).toString();
 type Semantic = { seasonId: string; memberId: string; mode: "shares" | "value"; amount: string; quoteKey: string };
 type Quote = z.infer<typeof shareOrderQuoteSnapshot>;
 type OrderState =

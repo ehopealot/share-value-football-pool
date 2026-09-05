@@ -1,3 +1,7 @@
+/**
+ * Compatibility/reference model retained for existing imports and tests.
+ * Production accounting authority lives in the durable SQL repositories and commands.
+ */
 export type SeasonState = "draft" | "active" | "closed";
 export type CloseReason = "float_exhausted" | undefined;
 

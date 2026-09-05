@@ -1,5 +1,8 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { createSeason, executeQuotedOrder, quoteOrder } from "../../src/domain/ledger";
+import type { SeasonLedger } from "../../src/domain/season";
 import type { PoolCommand } from "../../src/durable/pool-commands";
 
 const pools = (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO;
@@ -31,6 +34,16 @@ async function activePool(slug = `orders-${crypto.randomUUID()}`) {
   return slug;
 }
 
+const seedNonUnitAccounting = (slug: string) => storage(slug, (state) => state.storage.sql.exec("UPDATE pool SET command_version = '4'; UPDATE season SET float_micros = '3000000', notional_micros = '10000000', command_version = '4' WHERE id = 's1'; UPDATE share_account SET available_micros = '3000000', row_version = '4' WHERE season_id = 's1' AND member_id = 'member'; INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES ('seed-order', 's1', 'member', 'owner', 'shares', '3000000', '3000000', '10000000', '3333333', NULL, 'valid non-unit seed', 'seed-command', '2026-01-01T00:00:00.000Z'); INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES ('ledger:seed-order', 's1', 'member', 'owner', '3000000', '0', '3000000', '10000000', 'seed-order', 'order', '2026-01-01T00:00:00.000Z')"));
+const seededCompatibilitySeason = (): SeasonLedger => ({
+  ...createSeason(),
+  floatMicros: 3_000_000n,
+  notionalMicros: 10_000_000n,
+  commandVersion: 4n,
+  accounts: { member: { availableMicros: 3_000_000n, lockedMicros: 0n, attainedAt: 1 } },
+  journal: [{ id: "ledger:seed-order", member: "member", availableDelta: 3_000_000n, lockedDelta: 0n, floatDelta: 3_000_000n, notionalDelta: 10_000_000n, kind: "order", causationId: "seed-order" }]
+});
+
 describe("PoolDO share orders", () => {
   it("persists account/cache/journal equality through execute, replay, and reversal", async () => {
     const slug = await activePool();
@@ -45,9 +58,41 @@ describe("PoolDO share orders", () => {
     await accountingInvariant(slug, 2);
   }, 30_000);
 
+  it("differentially checks generated active-season orders against the compatibility model", async () => {
+    await fc.assert(fc.asyncProperty(
+      fc.array(fc.record({
+        member: fc.constantFrom("owner", "member"),
+        mode: fc.constantFrom("shares" as const, "value" as const),
+        amountMicros: fc.bigInt({ min: 2n, max: 10_000_000n })
+      }), { minLength: 1, maxLength: 6 }),
+      async (orders) => {
+        const slug = await activePool();
+        await seedNonUnitAccounting(slug);
+        let model = seededCompatibilitySeason();
+        for (const [index, order] of orders.entries()) {
+          const durableQuote = await send(slug, { type: "QuoteShareOrder", commandId: `generated-quote-${index}`, actorId: "owner", seasonId: "s1", memberId: order.member, mode: order.mode, amountMicros: order.amountMicros.toString() });
+          const modelQuote = quoteOrder(model);
+          expect(durableQuote.priceMicros).toBe(modelQuote.priceMicros.toString());
+
+          const executed = await send(slug, { type: "ExecuteShareOrder", commandId: `generated-order-${index}`, actorId: "owner", seasonId: "s1", memberId: order.member, mode: order.mode, amountMicros: order.amountMicros.toString(), quote: { priceMicros: String(durableQuote.priceMicros), commandVersion: String(durableQuote.commandVersion) }, reason: "generated differential order" });
+          model = executeQuotedOrder(model, order.member, { mode: order.mode, amountMicros: order.amountMicros, quote: modelQuote });
+          const modelEntry = model.journal.at(-1)!;
+          expect(executed).toMatchObject({ sharesMicros: modelEntry.availableDelta.toString(), valueMicros: modelEntry.notionalDelta.toString(), priceMicros: modelQuote.priceMicros.toString() });
+
+          const persisted = await storage(slug, (state) => ({
+            account: [...state.storage.sql.exec<{ available_micros: string; locked_micros: string }>("SELECT available_micros, locked_micros FROM share_account WHERE season_id = 's1' AND member_id = ?", order.member)][0],
+            season: [...state.storage.sql.exec<{ float_micros: string; notional_micros: string }>("SELECT float_micros, notional_micros FROM season WHERE id = 's1'")][0]
+          }));
+          expect(persisted.account).toEqual({ available_micros: model.accounts[order.member]!.availableMicros.toString(), locked_micros: model.accounts[order.member]!.lockedMicros.toString() });
+          expect(persisted.season).toEqual({ float_micros: model.floatMicros.toString(), notional_micros: model.notionalMicros.toString() });
+        }
+      }
+    ), { seed: 20260822, path: "0", numRuns: 5 });
+  }, 60_000);
+
   it("uses both forms with non-unit prices and round-half-even persistence", async () => {
     const slug = await activePool();
-    await storage(slug, (state) => state.storage.sql.exec("UPDATE pool SET command_version = '4'; UPDATE season SET float_micros = '3000000', notional_micros = '10000000', command_version = '4' WHERE id = 's1'; UPDATE share_account SET available_micros = '3000000', row_version = '4' WHERE season_id = 's1' AND member_id = 'member'; INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES ('seed-order', 's1', 'member', 'owner', 'shares', '3000000', '3000000', '10000000', '3333333', NULL, 'valid non-unit seed', 'seed-command', '2026-01-01T00:00:00.000Z'); INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES ('ledger:seed-order', 's1', 'member', 'owner', '3000000', '0', '3000000', '10000000', 'seed-order', 'order', '2026-01-01T00:00:00.000Z')"));
+    await seedNonUnitAccounting(slug);
     await accountingInvariant(slug, 1);
     const valueQuote = await send(slug, { type: "QuoteShareOrder", commandId: "value-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "1000000" });
     expect(valueQuote).toMatchObject({ priceMicros: "3333333" });

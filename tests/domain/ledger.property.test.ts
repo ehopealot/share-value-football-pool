@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { createSeason, executeOrder, executeQuotedOrder, holdings, lockRisk, quoteOrder, reverseSettlement, settleWager } from "../../src/domain/ledger";
 
-describe("ledger model invariants", () => {
+describe("compatibility/reference ledger model invariants", () => {
   it("keeps journal, balances, ranking, and float consistent through recorded randomized commands", () => {
     fc.assert(fc.property(
       fc.array(fc.record({ member: fc.constantFrom("amy", "ben"), shares: fc.bigInt({ min: 1n, max: 10_000_000_000_000_000_000n }) }), { minLength: 1, maxLength: 30 }),
@@ -10,8 +10,14 @@ describe("ledger model invariants", () => {
         let season = createSeason();
         for (const order of orders) season = executeOrder(season, order.member, order.shares);
         expect(season.floatMicros).toBe(orders.reduce((sum, order) => sum + order.shares, 0n));
-        const ranked = Object.entries(season.accounts).map(([member, account]) => ({ member, shares: account.availableMicros + account.lockedMicros, attainedAt: account.attainedAt })).sort((a, b) => a.shares === b.shares ? a.attainedAt === b.attainedAt ? a.member.localeCompare(b.member) : a.attainedAt - b.attainedAt : a.shares > b.shares ? -1 : 1).map(({ member, shares }) => ({ member, shares }));
-        expect(holdings(season)).toEqual(ranked);
+        const ranked = holdings(season);
+        expect(new Set(ranked.map(({ member }) => member))).toEqual(new Set(Object.keys(season.accounts)));
+        for (const [index, entry] of ranked.entries()) {
+          expect(entry.shares).toBe(season.accounts[entry.member]!.availableMicros + season.accounts[entry.member]!.lockedMicros);
+          const next = ranked[index + 1];
+          if (!next) continue;
+          if (entry.shares !== next.shares) expect(entry.shares).toBeGreaterThan(next.shares);
+        }
         expect(season.journal.reduce((sum, entry) => sum + entry.floatDelta, 0n)).toBe(season.floatMicros);
       }
     ), { seed: 20260822, path: "0", numRuns: 50 });

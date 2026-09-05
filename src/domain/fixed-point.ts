@@ -1,10 +1,9 @@
 export const MICROS_PER_UNIT = 1_000_000n;
 export const WHOLE_SHARE_MICROS = MICROS_PER_UNIT;
-
-const canonicalInteger = /^(?:0|-?[1-9]\d*)$/;
+export const CANONICAL_INTEGER_TEXT_PATTERN = /^(?:0|-?[1-9]\d*)$/;
 
 export function assertCanonicalIntegerText(value: string): asserts value is string {
-  if (!canonicalInteger.test(value)) throw new Error("Accounting values must be canonical integer text.");
+  if (!CANONICAL_INTEGER_TEXT_PATTERN.test(value)) throw new Error("Accounting values must be canonical integer text.");
 }
 
 export function parseIntegerText(value: string): bigint {
