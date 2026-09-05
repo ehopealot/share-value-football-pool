@@ -63,11 +63,21 @@ export async function backupPools(dependencies: BackupDependencies): Promise<{ a
 
 type BackupConfiguration = { BACKUPS: R2Bucket; BACKUP_ENCRYPTION_KEY: string; POOL_BACKUP_SERVICE_TOKEN: string };
 
+type BackupFailureReason = "partial_failure" | "run_failure";
+const logBackupFailure = (reason: BackupFailureReason, counts?: { attempted: number; stored: number }) => {
+  console.error({ event: "backup_cron_failed", reason, ...counts });
+};
+
 export function backupConfigured(env: { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; POOL_BACKUP_SERVICE_TOKEN?: string }): env is BackupConfiguration {
   if (!env.BACKUPS || !env.BACKUP_ENCRYPTION_KEY || !env.POOL_BACKUP_SERVICE_TOKEN) return false;
   try { decodeBackupKey(env.BACKUP_ENCRYPTION_KEY); return true; } catch { return false; }
 }
 
 export async function runBackupCron(env: BackupDependencies): Promise<void> {
-  try { await backupPools(env); } catch { /* invalid configuration and D1 failures remain disabled/fail-closed */ }
+  try {
+    const result = await backupPools(env);
+    if (result.stored < result.attempted) logBackupFailure("partial_failure", result);
+  } catch {
+    logBackupFailure("run_failure");
+  }
 }

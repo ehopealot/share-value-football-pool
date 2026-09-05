@@ -369,18 +369,21 @@ describe("later wager and member HTTP API", () => {
     expect(notifyShareOrderFulfilled).toHaveBeenCalledWith({ to: "member-api@example.test", poolName: "API Pool", sharesMicros: "2500000", valueMicros: "2500000" });
   }, 90_000);
 
-  it("keeps fulfilled funding successful when the deprecated notification dependency fails", async () => {
+  it("keeps fulfilled funding successful and logs no user data when notification delivery fails", async () => {
     const poolId = `api-order-email-failure-${crypto.randomUUID()}`;
     const slug = `api-order-email-failure-${crypto.randomUUID()}`;
     await setupPool(poolId, slug);
     const quote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "email-failure-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" })).json() as { priceMicros: string; commandVersion: string };
     const notifyShareOrderFulfilled = vi.fn(async () => { throw new Error("EMAIL_DELIVERY_FAILED"); });
+    const deliveryError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled, notifyCommissionerAnnouncement: async () => {} } });
     const response = await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote, reason: "Funding received", idempotencyKey: "email-failure-order" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ sharesMicros: "1000000", valueMicros: "1000000" });
     expect(notifyShareOrderFulfilled).toHaveBeenCalledOnce();
     expect(notifyShareOrderFulfilled).toHaveBeenCalledWith({ to: "member-api@example.test", poolName: "API Pool", sharesMicros: "1000000", valueMicros: "1000000" });
+    expect(deliveryError).toHaveBeenCalledWith({ event: "notification_delivery_failed", notification: "share_order_fulfilled" });
+    deliveryError.mockRestore();
   }, 90_000);
 
   it("preserves complete stale order replacement terms through the Worker boundary", async () => {
