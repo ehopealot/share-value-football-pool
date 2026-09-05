@@ -1,9 +1,11 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { screenshotRoutes, screenshotViewports } from "./screenshot-plan.mjs";
 import { verifyDesignFile } from "./verify-design-md.mjs";
 
 const root = resolve(process.env.FINISH_REVIEW_ROOT ?? process.cwd());
 const requiredCriteria = ["density", "overflow", "focus", "exclusions"];
+const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const requiredHeading = (document, heading) => new RegExp(`^## ${heading}$`, "m").test(document);
 const readRequired = (relative) => {
   const file = resolve(root, relative);
@@ -22,9 +24,13 @@ export function verifyFinishArtifacts() {
   if (!/^(0|2)$/.test(detectorExit)) throw new Error("artifacts/detector.exit must record detector status 0 or 2.");
   const screenshots = resolve(root, "artifacts/screenshots");
   if (!existsSync(screenshots)) throw new Error("artifacts/screenshots is required.");
-  const finalShots = readdirSync(screenshots).filter((name) => name.startsWith("final-") && name.endsWith(".png"));
-  if (!finalShots.length) throw new Error("At least one final screenshot is required.");
-  for (const name of finalShots) if (statSync(resolve(screenshots, name)).size === 0) throw new Error(`Final screenshot is empty: ${name}.`);
+  const finalShots = screenshotRoutes("finish-review", "season-id", "Finish Review Pool", "Accessibility 2026").flatMap((route) => screenshotViewports.map((viewport) => `final-${route.name}-${viewport.name}.png`));
+  for (const name of finalShots) {
+    const file = resolve(screenshots, name);
+    if (!existsSync(file)) throw new Error(`Final screenshot is required: ${name}.`);
+    const image = readFileSync(file);
+    if (image.length < pngSignature.length || !image.subarray(0, pngSignature.length).equals(pngSignature)) throw new Error(`Final screenshot is not a valid PNG: ${name}.`);
+  }
   const verdict = readRequired("docs/finish-verdict.md");
   if (!requiredHeading(verdict, "Detector findings")) throw new Error("Finish verdict must include a Detector findings section.");
   if (!requiredHeading(verdict, "Screenshot criteria")) throw new Error("Finish verdict must include a Screenshot criteria section.");

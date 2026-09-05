@@ -5,12 +5,14 @@ import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 const roots: string[] = [];
+const finalShotNames = ["overview", "odds", "teaser", "my-wagers", "standings", "activity", "rules", "orders", "history"].flatMap((route) => ["desktop", "mobile"].map((viewport) => `final-${route}-${viewport}.png`));
+const minimalPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const fixture = () => {
   const root = mkdtempSync(join(tmpdir(), "office-pool-finish-artifacts-")); roots.push(root);
   mkdirSync(join(root, "artifacts/screenshots"), { recursive: true }); mkdirSync(join(root, "docs"), { recursive: true });
   writeFileSync(join(root, "DESIGN.md"), `---\ntitle: Office Pool Reborn Design\ngenerated-from: final-source-dist-and-screenshots\n---\n\n# Office Pool Reborn Design\n\n## Visual direction\nCompact, table-first pool operations.\n\n## Palette\n- Navy: \`#002b5c\`\n- Blue: \`#135a99\`\n- Orange: \`#c75000\`\n- Paper: \`#ffffff\`\n\n## Typography\nArial and Verdana.\n\n## Layout\nCentered desktop canvas with fluid narrow screens.\n\n## Components\nMasthead, ribbon, tables, forms, and bet slip.\n\n## Responsive and accessibility\nVisible focus, reduced motion, table scrolling, and AA contrast.\n`);
   writeFileSync(join(root, "artifacts/detector.json"), "[]\n"); writeFileSync(join(root, "artifacts/detector.exit"), "0\n");
-  writeFileSync(join(root, "artifacts/screenshots/final-odds-desktop.png"), "fixture screenshot");
+  for (const name of finalShotNames) writeFileSync(join(root, "artifacts/screenshots", name), minimalPng);
   writeFileSync(join(root, "docs/finish-verdict.md"), `# Finish verdict\n\n## Detector findings\nNo detector findings.\n\n## Screenshot criteria\n- Density: compact table-first layout retained.\n- Overflow: tables scroll inside their containers.\n- Focus: visible focus token verified.\n- Exclusions: no cards, gradients, or shadows.\n`);
   return root;
 };
@@ -22,6 +24,20 @@ describe("finish artifact validator", () => {
     const result = spawnSync(process.execPath, ["scripts/verify-finish-artifacts.mjs"], { cwd: process.cwd(), env: { ...process.env, FINISH_REVIEW_ROOT: root }, encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Finish artifacts verified.");
+  });
+
+  it("rejects a corrupt expected screenshot", () => {
+    const root = fixture(); writeFileSync(join(root, "artifacts/screenshots/final-odds-desktop.png"), "not a PNG");
+    const result = spawnSync(process.execPath, ["scripts/verify-finish-artifacts.mjs"], { cwd: process.cwd(), env: { ...process.env, FINISH_REVIEW_ROOT: root }, encoding: "utf8" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Final screenshot is not a valid PNG: final-odds-desktop.png");
+  });
+
+  it("rejects a missing expected screenshot", () => {
+    const root = fixture(); rmSync(join(root, "artifacts/screenshots/final-history-mobile.png"));
+    const result = spawnSync(process.execPath, ["scripts/verify-finish-artifacts.mjs"], { cwd: process.cwd(), env: { ...process.env, FINISH_REVIEW_ROOT: root }, encoding: "utf8" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Final screenshot is required: final-history-mobile.png");
   });
 
   it("rejects a verdict without every screenshot criterion", () => {

@@ -134,6 +134,17 @@ describe("Message board presentation and nav state", () => {
       await expect(readMessageBoardAndInvalidate("pool")).resolves.toEqual(board);
       await expect(createMessageBoardPostAndInvalidate("pool", { text: "Post", idempotencyKey: "post-key", announcement: false })).resolves.toEqual({ commandVersion: "9", postId: "post-2", isAnnouncement: false, replayed: false });
       await expect(replyToMessageBoardPostAndInvalidate("pool", "post-1", { text: "Reply", idempotencyKey: "reply-key" })).resolves.toEqual({ commandVersion: "10" });
+
+      const readFailure = new Error("read failed");
+      const postFailure = new Error("post failed");
+      const replyFailure = new Error("reply failed");
+      read.mockRejectedValueOnce(readFailure);
+      post.mockRejectedValueOnce(postFailure);
+      reply.mockRejectedValueOnce(replyFailure);
+      await expect(readMessageBoardAndInvalidate("pool")).rejects.toBe(readFailure);
+      await expect(createMessageBoardPostAndInvalidate("pool", { text: "Failed post", idempotencyKey: "failed-post-key", announcement: false })).rejects.toBe(postFailure);
+      await expect(replyToMessageBoardPostAndInvalidate("pool", "post-1", { text: "Failed reply", idempotencyKey: "failed-reply-key" })).rejects.toBe(replyFailure);
+
       expect(read).toHaveBeenCalledWith("pool");
       expect(post).toHaveBeenCalledWith("pool", { text: "Post", idempotencyKey: "post-key", announcement: false });
       expect(reply).toHaveBeenCalledWith("pool", "post-1", { text: "Reply", idempotencyKey: "reply-key" });

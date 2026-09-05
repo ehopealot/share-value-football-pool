@@ -35,6 +35,6 @@ describe("pool password production strength", () => {
 
   it("keeps the vitest Worker on the intended test-only defines", () => {
     const vitestConfig = JSON.parse(readFileSync(resolve(root, "tests/fixtures/wrangler.vitest.jsonc"), "utf8")) as { define?: Record<string, string> };
-    expect(vitestConfig.define).toMatchObject({ "globalThis.POOL_PASSWORD_SCRYPT_LOG_N": "10", "globalThis.POOL_OUTBOX_DRAIN_GRACE_MS": "3600000" });
+    expect(vitestConfig.define).toEqual({ "globalThis.POOL_PASSWORD_SCRYPT_LOG_N": "10", "globalThis.POOL_OUTBOX_DRAIN_GRACE_MS": "3600000" });
   });
 });
