@@ -22,9 +22,9 @@ export function AdminCorrectionsPage() {
   };
   useEffect(load, [slug]);
   useEffect(() => { if (error || loadError) errorRef.current?.focus(); }, [error, loadError]);
-  if (loadError) return <Layout signedIn><h1>Wager corrections</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
+  if (loadError) return <Layout><h1>Wager corrections</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!data || !view || !audit) return <Layout><p role="status">Loading corrections…</p></Layout>;
-  if (view.currentMember.role !== "commissioner") return <Layout signedIn><h1>Wager corrections</h1><p role="alert" tabIndex={-1}>Only the commissioner can correct eligible active-season wagers.</p></Layout>;
+  if (view.currentMember.role !== "commissioner") return <Layout><h1>Wager corrections</h1><p role="alert" tabIndex={-1}>Only the commissioner can correct eligible active-season wagers.</p></Layout>;
   const eligibleWagers = view.activeSeason ? data.activity.wagers.filter((wager) => wager.seasonId === view.activeSeason?.id) : [];
   const run = async (id: string, action: "void" | "regrade") => {
     if (!reason.trim()) return setError("Enter a correction reason.");
@@ -43,7 +43,7 @@ export function AdminCorrectionsPage() {
     } catch (e) { setError(errorMessage(e)); }
   };
   const edit = () => { correction.retire(); setError(""); };
-  return <Layout signedIn><h1>Wager corrections</h1><p>Void or regrade eligible active-season wagers with an audit reason. Corrections append immutable history.</p>
+  return <Layout><h1>Wager corrections</h1><p>Void or regrade eligible active-season wagers with an audit reason. Corrections append immutable history.</p>
     {error && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error}</p>}
     <label>Reason <input disabled={correction.pending} value={reason} onChange={(e) => { edit(); setReason(e.target.value); }} /></label>
     <label>Corrected event results <textarea disabled={correction.pending} value={correctedResults} onChange={(e) => { edit(); setCorrectedResults(e.target.value); }} placeholder='[{"eventId":"provider-event","league":"nfl","status":"final","homeScore":24,"awayScore":17,"correctionVersion":"official-2"}]' /></label>

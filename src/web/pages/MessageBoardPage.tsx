@@ -123,9 +123,9 @@ export function MessageBoardPage() {
     } catch (error) { setReplyError(errorMessage(error)); }
   };
 
-  if (loading) return <Layout signedIn><div className="message-board-page"><h1>Message board</h1><p role="status">Loading messages…</p><p><Link to={`/p/${slug}/overview`}>Pool home</Link></p></div></Layout>;
-  if (loadError || !board) return <Layout signedIn><div className="message-board-page"><h1>Message board</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{loadError || "Message board unavailable."} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></div></Layout>;
-  return <Layout signedIn><div className="message-board-page"><h1>Message board</h1>
+  if (loading) return <Layout><div className="message-board-page"><h1>Message board</h1><p role="status">Loading messages…</p><p><Link to={`/p/${slug}/overview`}>Pool home</Link></p></div></Layout>;
+  if (loadError || !board) return <Layout><div className="message-board-page"><h1>Message board</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{loadError || "Message board unavailable."} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></div></Layout>;
+  return <Layout><div className="message-board-page"><h1>Message board</h1>
     <form className="message-board-post-form" onSubmit={submitPost}><label htmlFor="message-board-post">New post</label><textarea id="message-board-post" value={postText} onChange={(event) => { post.retire(); setPostError(""); setPostText(event.target.value); }} maxLength={1000} required disabled={post.pending} />{board.canAnnounce && <label className="message-board-announcement-option"><input type="checkbox" checked={postAnnouncement} disabled={post.pending} onChange={(event) => { post.retire(); setPostError(""); setPostAnnouncement(event.target.checked); }} /> Send as a commissioner announcement and email active members (except you).</label>}<button type="submit" disabled={!postText.trim() || post.pending}>{postAnnouncement ? "Post announcement and email league" : "Post"}</button></form>
     {postError && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{postError}</p>}
     {replyError && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{replyError}</p>}

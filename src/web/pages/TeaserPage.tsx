@@ -4,12 +4,12 @@ import { api, buildTeaserPlacement, commandOutcome, errorMessage } from "../api"
 import { Layout } from "../components/Layout";
 import { Confirmation } from "../components/Confirmation";
 import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
-import { adjustedLine, readTeaserSlip, validateTeaser, writeTeaserSlip, type TeaserLeg } from "../teaser-slip";
+import { adjustedLine, readTeaserSlip, teaserLegForOutcome, validateTeaser, writeTeaserSlip, type TeaserLeg } from "../teaser-slip";
 import { MICROS_PER_UNIT } from "../../domain/fixed-point";
 import { TEASER_POINT_OPTIONS, TEASER_RULESET_ID, teaserOdds, type TeaserPoints } from "../../domain/teaser-table";
 import { ticketReturns } from "../wager-presentation";
 import { outcomeForSelection } from "../selection-matcher";
-import { formatAmericanOdds } from "../odds-format";
+import { formatAmericanOdds, formatSignedLine } from "../odds-format";
 import { teaserRiskError } from "../selection-tray";
 import { PageGeneration } from "../page-generation";
 import { displayTeamName } from "../team-display";
@@ -44,7 +44,7 @@ export async function recoverTeaserSemantic(slug: string, request: Semantic): Pr
     const offer = board.offers.find((candidate: any) => candidate.eventId === leg.eventId && candidate.market === leg.market);
     const outcome = offer && outcomeForSelection(offer, leg.selection);
     if (!offer || !outcome || typeof outcome.point !== "number") return { tag: "unavailable" };
-    legs.push({ eventId: offer.eventId, league: offer.league, canonicalBook: offer.canonicalBook, retrievedAt: offer.retrievedAt, policyVersion: offer.policyVersion, offerVersion: offer.offerVersion, canonicalOfferProof: { offerId: `${offer.eventId}:${offer.market}:${leg.selection}`, eventId: offer.eventId, offerVersion: offer.offerVersion, canonicalBook: offer.canonicalBook, market: offer.market, selection: leg.selection, odds: outcome.price, line: outcome.point }, market: offer.market, selection: leg.selection, originalLine: outcome.point, originalOdds: outcome.price, eventStartsAt: offer.startsAt, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam } as TeaserLeg);
+    legs.push(teaserLegForOutcome({ ...offer, market: leg.market }, { price: outcome.price, point: outcome.point }, leg.selection));
   }
   return { tag: "recovered", editor: { legs, points: request.points, risk: request.risk, wagerId: request.wagerId, quoteKey: crypto.randomUUID() } };
 }
@@ -54,14 +54,13 @@ export const teaserRecoveryTransition = (recovered: Awaited<ReturnType<typeof re
   ? { state: { tag: "editing" as const, editor: recovered.editor }, slip: recovered.editor.legs, error: "The line changed. Review the replacement terms and explicitly confirm again." }
   : { state: { tag: "editing" as const, editor: fresh([], request.points, request.risk) }, slip: [], error: "A teaser line changed and one or more legs are no longer available. Choose current legs and review again." };
 export const teaserTerminalTransition = (request: Semantic): TeaserViewState => ({ tag: "editing", editor: fresh(request.legs, request.points, request.risk) });
-const signed = (line: number) => `${line > 0 ? "+" : ""}${line}`;
 export const pickAtLine = (leg: TeaserLeg, line: number) => {
   if (leg.market === "total") return `${leg.selection === "over" ? "O" : "U"}${line}`;
   const team = leg.selection === "away" ? leg.awayTeam : leg.homeTeam;
-  return `${displayTeamName(leg.league, team ?? leg.selection)} ${signed(line)}`;
+  return `${displayTeamName(leg.league, team ?? leg.selection)} ${formatSignedLine(line)}`;
 };
-const teaserAdjustment = (leg: TeaserLeg, points: number) => signed(adjustedLine(leg, points) - leg.originalLine);
-export const teaserSelectedDetail = (leg: TeaserLeg, points: number) => leg.market === "total" ? `${adjustedLine(leg, points)}` : signed(adjustedLine(leg, points));
+const teaserAdjustment = (leg: TeaserLeg, points: number) => formatSignedLine(adjustedLine(leg, points) - leg.originalLine);
+export const teaserSelectedDetail = (leg: TeaserLeg, points: number) => leg.market === "total" ? `${adjustedLine(leg, points)}` : formatSignedLine(adjustedLine(leg, points));
 
 export function TeaserPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [view, setView] = useState<any>(); const [state, setState] = useState<State>(() => ({ tag: "editing", editor: fresh([], 6) })); const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const generations = useRef(new PageGeneration());
@@ -121,11 +120,11 @@ export function TeaserPage() {
   };
   if (reviewed) {
     const placementUnknown = reviewed.tag === "placement-unknown";
-    return <Layout signedIn><Confirmation snapshot={{ kind: "teaser", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place teaser"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
+    return <Layout><Confirmation snapshot={{ kind: "teaser", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place teaser"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
   }
-  if (state.tag === "quoting") return <Layout signedIn><h1>Reviewing teaser wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg, {state.request.points}-point teaser · Risk {state.request.risk || "0"}</p></Layout>;
+  if (state.tag === "quoting") return <Layout><h1>Reviewing teaser wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg, {state.request.points}-point teaser · Risk {state.request.risk || "0"}</p></Layout>;
   const invalid = validateTeaser(editor!.legs, editor!.points) || riskError;
   const odds = editor && teaserOdds(editor.legs.length, editor.points);
   const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * MICROS_PER_UNIT).toString(), odds).total : undefined;
-  return <Layout signedIn><h1>Teaser builder</h1><p>Select spread or total offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<fieldset disabled={pending}><legend>Point adjustment</legend>{TEASER_POINT_OPTIONS.map(points => <label key={points}><input type="radio" checked={editor!.points === points} onChange={() => edit({ ...editor!, points })} />{points} points</label>)}</fieldset><div className="table-scroll" tabIndex={0}><table><thead><tr><th>Matchup</th><th>Original line</th><th>Adjustment</th><th>Action</th></tr></thead><tbody>{editor!.legs.map((leg, i) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? <SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={teaserSelectedDetail(leg, editor!.points)} /> : "Game details unavailable"}</td><td>{pickAtLine(leg, leg.originalLine)}</td><td>{teaserAdjustment(leg, editor!.points)}</td><td><button disabled={pending} onClick={() => { const legs = editor!.legs.filter((_, index) => index !== i); writeTeaserSlip(slug, legs); edit({ ...editor!, legs }); }}>Remove</button></td></tr>)}</tbody></table></div>{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="teaser-terms"><strong>Odds:</strong> {formatAmericanOdds(odds)} · <strong>Payout:</strong> {payout ?? "Enter a risk"}</p>}<div className="teaser-risk-actions"><label>Risk <input disabled={pending} type="number" min="1" step="1" value={editor!.risk} onChange={e => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action teaser-review-action" disabled={pending || !!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>{pending ? "Reviewing…" : "Review teaser wager"}</button></div></Layout>;
+  return <Layout><h1>Teaser builder</h1><p>Select spread or total offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<fieldset disabled={pending}><legend>Point adjustment</legend>{TEASER_POINT_OPTIONS.map(points => <label key={points}><input type="radio" checked={editor!.points === points} onChange={() => edit({ ...editor!, points })} />{points} points</label>)}</fieldset><div className="table-scroll" tabIndex={0}><table><thead><tr><th>Matchup</th><th>Original line</th><th>Adjustment</th><th>Action</th></tr></thead><tbody>{editor!.legs.map((leg, i) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? <SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={teaserSelectedDetail(leg, editor!.points)} /> : "Game details unavailable"}</td><td>{pickAtLine(leg, leg.originalLine)}</td><td>{teaserAdjustment(leg, editor!.points)}</td><td><button disabled={pending} onClick={() => { const legs = editor!.legs.filter((_, index) => index !== i); writeTeaserSlip(slug, legs); edit({ ...editor!, legs }); }}>Remove</button></td></tr>)}</tbody></table></div>{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="teaser-terms"><strong>Odds:</strong> {formatAmericanOdds(odds)} · <strong>Payout:</strong> {payout ?? "Enter a risk"}</p>}<div className="teaser-risk-actions"><label>Risk <input disabled={pending} type="number" min="1" step="1" value={editor!.risk} onChange={e => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action teaser-review-action" disabled={pending || !!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>{pending ? "Reviewing…" : "Review teaser wager"}</button></div></Layout>;
 }
