@@ -61,7 +61,9 @@ export async function backupPools(dependencies: BackupDependencies): Promise<{ a
   return { attempted: result.results.length, stored };
 }
 
-export function backupConfigured(env: { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; POOL_BACKUP_SERVICE_TOKEN?: string }): boolean {
+type BackupConfiguration = { BACKUPS: R2Bucket; BACKUP_ENCRYPTION_KEY: string; POOL_BACKUP_SERVICE_TOKEN: string };
+
+export function backupConfigured(env: { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; POOL_BACKUP_SERVICE_TOKEN?: string }): env is BackupConfiguration {
   if (!env.BACKUPS || !env.BACKUP_ENCRYPTION_KEY || !env.POOL_BACKUP_SERVICE_TOKEN) return false;
   try { decodeBackupKey(env.BACKUP_ENCRYPTION_KEY); return true; } catch { return false; }
 }

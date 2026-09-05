@@ -145,7 +145,7 @@ describe("later wager and member HTTP API", () => {
     const app = createWorkerApp({
       db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY,
       currentUser: async () => ({ id: "owner", name: "Owner" }),
-      poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement }
+      poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement }
     });
     const pending: Promise<unknown>[] = [];
     const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
@@ -172,7 +172,7 @@ describe("later wager and member HTTP API", () => {
 
     expect((await app.fetch(request(path, body), {}, executionContext)).status).toBe(200);
     expect(pending).toHaveLength(1);
-    const member = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement } });
+    const member = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement } });
     const memberPending: Promise<unknown>[] = [];
     const memberContext = { waitUntil: (promise: Promise<unknown>) => { memberPending.push(promise); } } as ExecutionContext;
     const rejected = await member.fetch(request(path, { text: "Forged blast", idempotencyKey: "member-announcement", announcement: true }), {}, memberContext);
@@ -191,7 +191,7 @@ describe("later wager and member HTTP API", () => {
     const app = createWorkerApp({
       db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY,
       currentUser: async () => ({ id: "owner", name: "Owner" }),
-      poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => { deliveryStartedAt.push(Date.now()); } }
+      poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => { deliveryStartedAt.push(Date.now()); } }
     });
     const pending: Promise<unknown>[] = [];
     const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
@@ -216,7 +216,7 @@ describe("later wager and member HTTP API", () => {
     const deferred = new Promise<void>((resolve) => { release = resolve; });
     const notifyMessageBoardReply = vi.fn(async (_message: { to: string; poolName: string; replierName: string; text: string; boardUrl: string; idempotencyKey: string }) => await deferred);
     const notifier = { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => {}, notifyMessageBoardReply };
-    const memberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolJoinNotifier: notifier });
+    const memberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolNotifier: notifier });
     const pending: Promise<unknown>[] = [];
     const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
     const path = `/api/p/${slug}/board/posts/${postId}/replies`;
@@ -243,7 +243,7 @@ describe("later wager and member HTTP API", () => {
 
     const ownerPost = await send(poolId, { type: "CreateMessageBoardPost", commandId: "self-reply-post", actorId: "owner", text: "Owner thread" });
     const ownerPostId = String((await ownerPost.json() as { postId: string }).postId);
-    const ownerApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: notifier });
+    const ownerApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolNotifier: notifier });
     expect((await ownerApp.fetch(request(`/api/p/${slug}/board/posts/${ownerPostId}/replies`, { text: "My own reply", idempotencyKey: "self-reply" }), {}, executionContext)).status).toBe(200);
     expect(pending).toHaveLength(1);
 
@@ -252,7 +252,7 @@ describe("later wager and member HTTP API", () => {
     const suspendedPost = await send(poolId, { type: "CreateMessageBoardPost", commandId: "suspended-author-post", actorId: "member", text: "Suspended author thread" });
     const suspendedPostId = String((await suspendedPost.json() as { postId: string }).postId);
     await send(poolId, { type: "SuspendMember", commandId: "suspend-original-author", actorId: "owner", memberId: "member" });
-    const secondMemberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "second-member", name: "Second Member" }), poolJoinNotifier: notifier });
+    const secondMemberApp = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "second-member", name: "Second Member" }), poolNotifier: notifier });
     expect((await secondMemberApp.fetch(request(`/api/p/${slug}/board/posts/${suspendedPostId}/replies`, { text: "No delivery", idempotencyKey: "suspended-author-reply" }), {}, executionContext)).status).toBe(200);
     expect(pending).toHaveLength(2);
     await pending[1];
@@ -270,7 +270,7 @@ describe("later wager and member HTTP API", () => {
       JSON.stringify({ commandVersion: "5" }), "2099-01-01T00:00:00.000Z"
     ));
     const notifyCommissionerAnnouncement = vi.fn(async () => {});
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement } });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement } });
     const pending: Promise<unknown>[] = [];
     const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
     const response = await app.fetch(request(`/api/p/${slug}/board/posts`, { text: "Legacy ordinary post", idempotencyKey: "legacy-post" }), {}, executionContext);
@@ -291,7 +291,7 @@ describe("later wager and member HTTP API", () => {
       JSON.stringify({ commandVersion: "5" }), "2099-01-01T00:00:00.000Z"
     ));
     const notifyMessageBoardReply = vi.fn(async () => {});
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => {}, notifyMessageBoardReply } });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => {}, notifyMessageBoardReply } });
     const pending: Promise<unknown>[] = [];
     const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
 
@@ -361,7 +361,7 @@ describe("later wager and member HTTP API", () => {
     await setupPool(poolId, slug);
     const quote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "email-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2500000" })).json() as { priceMicros: string; commandVersion: string };
     const notifyShareOrderFulfilled = vi.fn(async () => {});
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled, notifyCommissionerAnnouncement: async () => {} } });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled, notifyCommissionerAnnouncement: async () => {} } });
     const body = { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2500000", quote, reason: "Funding received", idempotencyKey: "email-order" };
     expect((await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, body))).status).toBe(200);
     expect((await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, body))).status).toBe(200);
@@ -369,15 +369,18 @@ describe("later wager and member HTTP API", () => {
     expect(notifyShareOrderFulfilled).toHaveBeenCalledWith({ to: "member-api@example.test", poolName: "API Pool", sharesMicros: "2500000", valueMicros: "2500000" });
   }, 90_000);
 
-  it("keeps fulfilled funding successful when notification work fails", async () => {
+  it("keeps fulfilled funding successful when the deprecated notification dependency fails", async () => {
     const poolId = `api-order-email-failure-${crypto.randomUUID()}`;
     const slug = `api-order-email-failure-${crypto.randomUUID()}`;
     await setupPool(poolId, slug);
     const quote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "email-failure-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" })).json() as { priceMicros: string; commandVersion: string };
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => { throw new Error("EMAIL_DELIVERY_FAILED"); }, notifyCommissionerAnnouncement: async () => {} } });
+    const notifyShareOrderFulfilled = vi.fn(async () => { throw new Error("EMAIL_DELIVERY_FAILED"); });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), poolJoinNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled, notifyCommissionerAnnouncement: async () => {} } });
     const response = await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote, reason: "Funding received", idempotencyKey: "email-failure-order" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ sharesMicros: "1000000", valueMicros: "1000000" });
+    expect(notifyShareOrderFulfilled).toHaveBeenCalledOnce();
+    expect(notifyShareOrderFulfilled).toHaveBeenCalledWith({ to: "member-api@example.test", poolName: "API Pool", sharesMicros: "1000000", valueMicros: "1000000" });
   }, 90_000);
 
   it("preserves complete stale order replacement terms through the Worker boundary", async () => {

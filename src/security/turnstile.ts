@@ -5,18 +5,19 @@ export type AuthAbuseGuardOptions = {
   secret?: string;
   /** Canonical production hostname; local callers derive the request hostname. */
   expectedHostname?: string;
-  /** Deliberate local-development opt-in. Never set this in a production Worker. */
+  /** Deliberate local-development opt-in. Never enable this in a production Worker; false or omission fails closed. */
   allowInsecureLocalAuth?: boolean;
   limiter: RateLimiter;
   fetcher?: typeof fetch;
 };
 
+/** Shared literal-string predicate; URL-derived request hostnames match localhost/127.0.0.1, while bare ::1 remains accepted for compatibility. */
+export const isLoopbackHostname = (hostname: string | undefined) => hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+
 /**
  * Verifies a browser Turnstile response. A missing secret is rejected unless the
  * caller explicitly enables the documented local-only escape hatch.
  */
-const isLoopbackHostname = (hostname: string | undefined) => hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
-
 export async function verifyTurnstile(input: { secret?: string; token?: string; action?: string; remoteIp?: string; hostname?: string; fetcher?: typeof fetch; allowInsecureLocalAuth?: boolean }): Promise<boolean> {
   // The missing-token bypass exists solely for the explicitly loopback-bound local harness.
   if (input.allowInsecureLocalAuth === true && isLoopbackHostname(input.hostname)) return true;

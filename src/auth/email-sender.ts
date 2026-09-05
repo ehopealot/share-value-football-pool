@@ -4,13 +4,16 @@ export type EmailKind = "verification" | "password-reset";
 export interface EmailMessage { kind: EmailKind; to: string; token: string; url: string; }
 export interface EmailSender { send(message: EmailMessage): Promise<void>; }
 export interface ResendEmailSenderOptions { apiKey: string; from: string; fetcher?: typeof fetch; }
-export interface PoolJoinNotifier {
+export interface PoolNotifier {
   notifyPoolJoin(message: { to: string; poolName: string; memberName: string }): Promise<void>;
   notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>;
   notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>;
   notifyCommissionerAnnouncement(message: { to: string; poolName: string; authorName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
   notifyMessageBoardReply?(message: { to: string; poolName: string; replierName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
 }
+
+/** @deprecated Use PoolNotifier. */
+export interface PoolJoinNotifier extends PoolNotifier {}
 
 const resendEndpoint = "https://api.resend.com/emails";
 const escapedHtmlCharacters: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -53,8 +56,8 @@ export function createResendEmailSender(options: ResendEmailSenderOptions): Emai
   return { async send(message) { await sendResend(options, message.to, emailContent(message)); } };
 }
 
-/** Notifies the current commissioner after a new member joins; delivery never exposes member email data. */
-export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions): PoolJoinNotifier {
+/** Sends pool notifications through Resend. */
+export function createResendPoolNotifier(options: ResendEmailSenderOptions): PoolNotifier {
   const amount = (micros: string) => formatMicros(BigInt(micros), 2);
   return {
     async notifyPoolJoin(message) {
@@ -97,4 +100,9 @@ export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions):
       await sendResend(options, message.to, { subject, text, html });
     }
   };
+}
+
+/** @deprecated Use createResendPoolNotifier. */
+export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions): PoolJoinNotifier {
+  return createResendPoolNotifier(options);
 }

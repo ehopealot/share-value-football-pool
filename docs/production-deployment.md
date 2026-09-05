@@ -47,7 +47,7 @@ Each command prompts for a value without putting it in shell history. Run every 
 ./node_modules/.bin/wrangler secret put BACKUP_ENCRYPTION_KEY --config wrangler.jsonc
 ```
 
-Set `ODDS_API_KEY` the same way if production odds ingestion is enabled. `BETTER_AUTH_SECRET` and `RESEND_API_KEY` are required before the Worker serves any production request. All other listed values are service-only; do not prefix them with `VITE_`.
+Set `ODDS_API_KEY` the same way if production odds ingestion is enabled. `BETTER_AUTH_SECRET` and `RESEND_API_KEY` are required before the Worker serves app or browser traffic; the independently token-gated settlement service route remains available without them. All other listed values are service-only; do not prefix them with `VITE_`.
 
 Confirm only the binding names afterward:
 
