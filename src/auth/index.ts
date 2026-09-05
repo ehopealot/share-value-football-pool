@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { betterAuthSchema } from "../db/schema";
 import type { EmailSender } from "./email-sender";
 
-/** Creates the actual Better Auth instance; application code never handles account passwords or tokens. */
+/** Creates the Better Auth instance, which owns credential and token generation, storage, and validation while this boundary forwards generated auth-mail data. */
 export function createAuthBoundary(input: { db: D1Database; baseURL: string; secret: string; emailSender: EmailSender; autoVerifyEmail?: boolean }) {
   const secure = new URL(input.baseURL).protocol === "https:";
   const autoVerifyEmail = input.autoVerifyEmail === true;
