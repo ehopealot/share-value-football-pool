@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
-import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
+import { displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -18,7 +18,7 @@ function WagerLine({ leg }: { leg: Leg }) {
 }
 
 function WagerLines({ wager }: { wager: Wager }) {
-  const legs = wager.legs ?? [];
+  const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   return <div className="wager-legs">{legs.map((leg) => <WagerLine key={`${leg.eventId}:${leg.market}:${leg.selection}`} leg={leg}/>)}</div>;
 }
 
@@ -29,7 +29,7 @@ function Staked({ wager }: { wager: Wager }) {
 
 function WagerRows({ wager }: { wager: Wager }) {
   const payout = wager.status === "open" ? ticketReturns(wager.riskMicros, wager.acceptedOdds).total : shares(wager.returnMicros);
-  const legs = wager.legs ?? [];
+  const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   const starts = displayWagerStartTimes(wager);
   const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < legs.length - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
   if (!legs.length) return <tr><td></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td>{payout}</td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;

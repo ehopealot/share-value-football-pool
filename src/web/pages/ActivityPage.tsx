@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
-import { displayWagerStartTimes } from "../wager-presentation";
+import { displayWagerStartTimes, sortWagerLegsByStartTime } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -16,8 +16,9 @@ function WagerLine({ leg }: { leg: Leg }) {
 }
 
 export function WagerLines({ wager }: { wager: Wager }) {
-  if (!wager.legs?.length) return <>Selection hidden until game time.</>;
-  return <div className="activity-wager-lines">{wager.legs.map((leg) => <WagerLine key={`${leg.eventId}:${leg.market}:${leg.selection}`} leg={leg}/>)}</div>;
+  const legs = sortWagerLegsByStartTime(wager.legs ?? []);
+  if (!legs.length) return <>Selection hidden until game time.</>;
+  return <div className="activity-wager-lines">{legs.map((leg) => <WagerLine key={`${leg.eventId}:${leg.market}:${leg.selection}`} leg={leg}/>)}</div>;
 }
 
 function Staked({ wager }: { wager: Wager }) {
@@ -26,7 +27,7 @@ function Staked({ wager }: { wager: Wager }) {
 }
 
 function WagerRows({ wager }: { wager: Wager }) {
-  const legs = wager.legs ?? [];
+  const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   const hiddenLegCount = wager.hiddenLegCount ?? 0;
   const rowCount = legs.length + (hiddenLegCount > 0 ? 1 : 0);
   const starts = displayWagerStartTimes(wager);

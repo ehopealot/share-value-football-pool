@@ -18,13 +18,13 @@ describe("owner ticket presentation", () => {
     expect(ticketReturns("9007199254740993", 100)).toEqual({ profit: "9007199254.74", total: "18014398509.48" });
   });
 
-  it("shows every local leg start and orders parlays by their earliest leg", () => {
+  it("shows every local leg start in kickoff order and orders parlays by their earliest leg", () => {
     const late = wager({ wagerId: "late", legs: [{ eventStartsAt: "2026-09-08T20:00:00.000Z" }] });
     const parlay = wager({ wagerId: "parlay", type: "parlay", legs: [{ eventStartsAt: "2026-09-07T20:00:00.000Z" }, { eventStartsAt: "2026-09-06T18:00:00.000Z" }] });
     const early = wager({ wagerId: "early", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }] });
 
     expect(displayWagerStartTimes(early)).toEqual([formatKickoff("2026-09-06T20:00:00.000Z")]);
-    expect(displayWagerStartTimes(parlay)).toEqual([formatKickoff("2026-09-07T20:00:00.000Z"), formatKickoff("2026-09-06T18:00:00.000Z")]);
+    expect(displayWagerStartTimes(parlay)).toEqual([formatKickoff("2026-09-06T18:00:00.000Z"), formatKickoff("2026-09-07T20:00:00.000Z")]);
     expect(sortWagersByStartTime([late, early, parlay]).map((item) => item.wagerId)).toEqual(["parlay", "early", "late"]);
   });
 
