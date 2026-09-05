@@ -17,9 +17,9 @@ export function AdminSettingsPage() {
   const settings = useFrozenAdminCommand<Record<string, unknown>>();
   const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / MICROS_PER_UNIT).toString()); setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase()); }).catch((e) => setLoadError(errorMessage(e)));
   useEffect(load, [slug]);
-  if (loadError) return <Layout signedIn><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
+  if (loadError) return <Layout><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!view) return <Layout><p role="status">Loading settings…</p></Layout>;
-  if (view.currentMember.role !== "commissioner") return <Layout signedIn><h1>Pool settings</h1><p role="alert">Only the commissioner can change pool settings.</p></Layout>;
+  if (view.currentMember.role !== "commissioner") return <Layout><h1>Pool settings</h1><p role="alert">Only the commissioner can change pool settings.</p></Layout>;
   const save = async (identity: string, createBody: () => Record<string, unknown>) => {
     setError("");
     try { await settings.run(identity, () => ({ ...createBody(), idempotencyKey: crypto.randomUUID() }), (body) => api.command(slug, "/admin/settings", body)); setPassword(""); invalidatePoolView(); load(); }
@@ -27,7 +27,7 @@ export function AdminSettingsPage() {
   };
   const edit = () => { settings.retire(); setError(""); };
   const nextSignups = !view.pool.signupsOpen;
-  return <Layout signedIn><div className="pool-settings">
+  return <Layout><div className="pool-settings">
     <h1>Pool settings</h1>{error && <p role="alert" className="error-summary">{error}</p>}
     <section className="pool-settings-section" aria-labelledby="pool-name-settings-heading">
       <h2 id="pool-name-settings-heading">Pool name</h2>

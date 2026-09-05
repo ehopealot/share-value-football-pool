@@ -5,12 +5,13 @@ import { PARLAY_RULESET_ID, parlayOdds } from "../../domain/parlay";
 import { api, buildParlayPlacement, commandOutcome, errorMessage } from "../api";
 import { Confirmation } from "../components/Confirmation";
 import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
-import { formatAmericanOdds } from "../odds-format";
+import { formatAmericanOdds, formatSignedLine } from "../odds-format";
 import { parlayLegForOutcome, readParlaySlip, writeParlaySlip, type ParlayLeg } from "../parlay-slip";
 import { outcomeForSelection } from "../selection-matcher";
 import { parlayRiskError } from "../selection-tray";
 import { ticketReturns } from "../wager-presentation";
 import { Layout } from "../components/Layout";
+import { PageGeneration, type PageGenerationTicket } from "../page-generation";
 
 export type ParlaySemantic = { legs: ParlayLeg[]; risk: string; quoteKey: string; wagerId: string };
 type ParlayReview = { tag: "reviewing"; request: ParlaySemantic; quote: any; mutationKey: string };
@@ -32,16 +33,8 @@ const parlayLegTableColumns = ["Matchup", "Market", "Action"] as const;
 export const parlayQuoteAttemptTransition = (request: ParlaySemantic) => ({ state: { tag: "quoting" as const, request }, error: "" });
 export const parlayPlacementAttemptTransition = (attempt: ParlayPlacementAttempt) => ({ state: { tag: "submitting" as const, request: attempt.request, quote: attempt.quote, mutationKey: attempt.mutationKey }, error: "" });
 
-type ParlayPageTicket = { id: number; slug: string };
-/** Fences every async continuation to the page instance that issued it. */
-export class ParlayPageGeneration {
-  private next = 0;
-  private active?: ParlayPageTicket;
-  start(slug: string): ParlayPageTicket { const ticket = { id: ++this.next, slug }; this.active = ticket; return ticket; }
-  capture(slug: string): ParlayPageTicket | undefined { return this.active?.slug === slug ? this.active : undefined; }
-  current(ticket: ParlayPageTicket): boolean { return this.active?.id === ticket.id && this.active.slug === ticket.slug; }
-  invalidate(ticket: ParlayPageTicket): void { if (this.current(ticket)) this.active = undefined; }
-}
+/** Named compatibility seam for the shared page-generation fence. */
+export class ParlayPageGeneration extends PageGeneration {}
 
 /** Rebuilds each stale selection from the current board, not an error payload. */
 export async function recoverParlaySemantic(slug: string, request: ParlaySemantic): Promise<{ tag: "recovered"; editor: ParlaySemantic } | { tag: "unavailable" }> {
@@ -71,8 +64,7 @@ export const parlayQuoteRequest = (request: ParlaySemantic, seasonId: string) =>
   legs: request.legs.map((leg) => ({ eventId: leg.eventId, canonicalBook: leg.canonicalBook, market: leg.market, selection: leg.selection, offerId: `${leg.eventId}:${leg.market}:${leg.selection}`, offerVersion: leg.offerVersion })), quoteKey: request.quoteKey, commandId: request.quoteKey
 });
 const marketName = (market: ParlayLeg["market"]) => `${market.slice(0, 1).toUpperCase()}${market.slice(1)}`;
-const signed = (line: number) => `${line > 0 ? "+" : ""}${line}`;
-const parlaySelectedDetail = (leg: ParlayLeg) => leg.originalLine === null ? undefined : leg.market === "total" ? `${leg.originalLine}` : signed(leg.originalLine);
+const parlaySelectedDetail = (leg: ParlayLeg) => leg.originalLine === null ? undefined : leg.market === "total" ? `${leg.originalLine}` : formatSignedLine(leg.originalLine);
 
 export function ParlayLegTable({ legs, onRemove }: { legs: ParlayLeg[]; onRemove: (index: number) => void }) {
   return <div className="table-scroll" tabIndex={0}><table><caption>Selected parlay legs</caption><thead><tr>{parlayLegTableColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{legs.map((leg, index) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? <SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={parlaySelectedDetail(leg)} /> : "Game details unavailable"}</td><td>{marketName(leg.market)}</td><td><button onClick={() => onRemove(index)}>Remove</button></td></tr>)}</tbody></table></div>;
@@ -100,7 +92,7 @@ export function ParlayPage() {
   const pending = state.tag === "quoting" || state.tag === "submitting";
   const edit = (next: ParlaySemantic) => { setError(""); setState({ tag: "editing", editor: editParlaySemantic(next) }); };
   const returnToEditor = (request: ParlaySemantic) => setState({ tag: "editing", editor: fresh(request.legs, request.risk) });
-  const recover = async (request: ParlaySemantic, ticket: ParlayPageTicket) => {
+  const recover = async (request: ParlaySemantic, ticket: PageGenerationTicket) => {
     const recovered = await recoverParlaySemantic(slug, request);
     if (!generations.current.current(ticket)) return;
     const transition = parlayRecoveryTransition(recovered, request);
@@ -149,11 +141,11 @@ export function ParlayPage() {
   };
   if (reviewed) {
     const placementUnknown = reviewed.tag === "placement-unknown";
-    return <Layout signedIn><Confirmation snapshot={{ kind: "parlay", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place parlay"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
+    return <Layout><Confirmation snapshot={{ kind: "parlay", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place parlay"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
   }
-  if (state.tag === "quoting") return <Layout signedIn><h1>Reviewing parlay wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg parlay · Risk {state.request.risk || "0"}</p></Layout>;
+  if (state.tag === "quoting") return <Layout><h1>Reviewing parlay wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg parlay · Risk {state.request.risk || "0"}</p></Layout>;
   const odds = editor && parlayAdvisoryOdds(editor.legs);
   const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * MICROS_PER_UNIT).toString(), odds).total : undefined;
   const invalid = !editor || editor.legs.length < 2 || editor.legs.length > 6 ? "Choose two to six legs." : riskError;
-  return <Layout signedIn><h1>Parlay builder</h1><p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<ParlayLegTable legs={editor!.legs} onRemove={(index) => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }} />{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={!!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>Review parlay wager</button></div></Layout>;
+  return <Layout><h1>Parlay builder</h1><p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<ParlayLegTable legs={editor!.legs} onRemove={(index) => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }} />{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={!!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>Review parlay wager</button></div></Layout>;
 }

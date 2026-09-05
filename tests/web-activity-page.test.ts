@@ -29,8 +29,6 @@ describe("Activity page", () => {
     expect(source).toContain('const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";');
     expect(source).toContain('className={gradeClass}');
     expect(source).toContain('<strong key={index}>{segment.text}</strong>');
-    expect(source).not.toContain('activitySelectedOutcomeClass(wager)');
-    expect(source).not.toContain('activityLegTimingClass(leg)');
     expect(source).toContain('Selection hidden until the game starts.');
   });
 

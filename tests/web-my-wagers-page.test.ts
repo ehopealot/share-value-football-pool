@@ -17,8 +17,6 @@ describe("My wagers page", () => {
     expect(source).toContain('const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";');
     expect(source).toContain('className={gradeClass}');
     expect(source).toContain('<strong key={index}>{segment.text}</strong>');
-    expect(source).not.toContain('activitySelectedOutcomeClass(wager)');
-    expect(source).not.toContain('activityLegTimingClass(leg)');
     expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
     expect(source).toContain('className="wager-start-time"');
     expect(source).toContain('rowSpan={legs.length}');

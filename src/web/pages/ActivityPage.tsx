@@ -46,12 +46,12 @@ export function ActivityPage() {
   const errorRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => { void api.activity(slug).then(setData).catch((e) => setError(errorMessage(e))); }, [slug]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  if (error) return <Layout signedIn><h1>Activity</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
+  if (error) return <Layout><h1>Activity</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!data) return <Layout><p role="status">Loading activity…</p></Layout>;
   const weeks = [...new Set(data.activity.wagers.map((wager) => wager.weekStart))].sort().reverse();
   const week = weeks.includes(selectedWeek) ? selectedWeek : weeks[0];
   const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
-  return <Layout signedIn><div className="activity-page"><h1 className="visually-hidden">Activity</h1>
+  return <Layout><div className="activity-page"><h1 className="visually-hidden">Activity</h1>
     <section><h2>Bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>{members.map((member) => <MemberActivitySection key={member.memberId} member={member} />)}</> : <p>No bets yet.</p>}</section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
