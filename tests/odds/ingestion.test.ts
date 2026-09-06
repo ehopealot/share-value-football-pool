@@ -150,13 +150,35 @@ describe("odds ingestion", () => {
     expect(() => canonicalize(normalized, "2026-09-10T00:00:00.000Z")).toThrow("Duplicate market key");
   });
 
-  it("calls the injected provider fetcher without binding it to the adapter instance", async () => {
-    const responses = [new Response(JSON.stringify(nflFixture)), new Response(JSON.stringify(nflScoresFixture))];
-    let receiver: unknown = "not-called";
-    const fetcher = function(this: unknown) { receiver = this; return Promise.resolve(responses.shift()!); } as typeof fetch;
+  it("calls the injected provider fetcher unbound with exact league request URLs", async () => {
+    const apiKey = "reserved/+?=& key";
+    const requests: string[] = [];
+    const responses = [
+      new Response(JSON.stringify(nflFixture)), new Response(JSON.stringify(nflScoresFixture)),
+      new Response(JSON.stringify(ncaafFixture)), new Response(JSON.stringify(ncaafScoresFixture))
+    ];
+    const receivers: unknown[] = [];
+    const fetcher = function(this: unknown, input: RequestInfo | URL) {
+      receivers.push(this);
+      requests.push(String(input));
+      return Promise.resolve(responses.shift()!);
+    } as typeof fetch;
 
-    await expect(new TheOddsApiProvider("key", fetcher).events("nfl")).resolves.toMatchObject({ events: expect.any(Array) });
-    expect(receiver).toBeUndefined();
+    const provider = new TheOddsApiProvider(apiKey, fetcher);
+    await expect(provider.events("nfl")).resolves.toMatchObject({ events: expect.any(Array) });
+    await expect(provider.events("ncaaf")).resolves.toMatchObject({ events: expect.any(Array) });
+    expect(receivers).toEqual([undefined, undefined, undefined, undefined]);
+    expect(requests).toHaveLength(4);
+    for (const [index, sport] of [[0, "americanfootball_nfl"], [2, "americanfootball_ncaaf"]] as const) {
+      const odds = new URL(requests[index]!);
+      expect(odds.origin).toBe("https://api.the-odds-api.com");
+      expect(odds.pathname).toBe(`/v4/sports/${sport}/odds/`);
+      expect([...odds.searchParams.entries()]).toEqual([["apiKey", apiKey], ["regions", "us"], ["markets", "h2h,spreads,totals"], ["oddsFormat", "american"]]);
+      const scores = new URL(requests[index + 1]!);
+      expect(scores.origin).toBe("https://api.the-odds-api.com");
+      expect(scores.pathname).toBe(`/v4/sports/${sport}/scores/`);
+      expect([...scores.searchParams.entries()]).toEqual([["apiKey", apiKey], ["daysFrom", "3"]]);
+    }
   });
 
   it.each(["forward", "reverse"] as const)("rejects %s same-ID odds and score responses with swapped ordered sides", async (direction) => {
@@ -659,12 +681,10 @@ describe("odds ingestion", () => {
     await new OddsIngestion(db, limited, { now: () => new Date("2026-09-03T06:00:00.000Z") }).poll();
     expect(limited.calls).toEqual(["nfl", "ncaaf"]);
     const storedQuota = String((await db.prepare("SELECT quota_json FROM odds_ingestion WHERE provider='odds'").first<{ quota_json: string }>())!.quota_json);
-    expect(storedQuota).toContain('"remaining":1');
-    expect(storedQuota).toContain('"used":99');
-    expect(storedQuota).toContain('"backoffMs":21600000');
+    expect(JSON.parse(storedQuota)).toEqual({ remaining: 1, used: 99, backoffMs: 21_600_000 });
   });
 
-  it("reads multi-leg quote decisions from one old-or-new D1 ingestion snapshot", async () => {
+  it("reads every multi-leg quote from one D1 ingestion snapshot", async () => {
     const first = event({ id: "snapshot-one" });
     const second = event({ id: "snapshot-two", homeTeam: "Second Home", awayTeam: "Second Away" });
     await new OddsIngestion(db, new Provider([first, second]), { now: () => new Date("2026-09-10T00:00:00.000Z") }).poll();
@@ -674,19 +694,40 @@ describe("odds ingestion", () => {
       markets: book.markets.map((market) => ({ ...market, outcomes: market.outcomes.map((outcome) => ({ ...outcome, price: outcome.price < 0 ? outcome.price - 1 : outcome.price + 1 })) }))
     })) });
     await db.exec("UPDATE sports_event SET last_polled_at = '2026-09-09T00:00:00.000Z'; UPDATE odds_league_poll SET last_discovery_at = '2026-09-09T00:00:00.000Z';");
-    const nextPoll = new OddsIngestion(db, new Provider([changed(first), changed(second)]), { now: () => new Date("2026-09-10T00:05:00.000Z") }).poll();
-    const quote = (legs: Array<{ eventId: string; market: "spread" | "total"; selection: "home" | "over" }>) => canonicalizeWagerQuote(db, {
-      type: "PlaceTeaserWager", commandId: crypto.randomUUID(), actorId: "member", wagerId: crypto.randomUUID(), quoteKey: crypto.randomUUID(), quotedCommandVersion: "0", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs
+    const applyNextPoll = () => new OddsIngestion(db, new Provider([changed(first), changed(second)]), { now: () => new Date("2026-09-10T00:05:00.000Z") }).poll();
+    let released = false;
+    let quoteReadBatches = 0;
+    let releaseFollowingBatches!: () => void;
+    const followingBatches = new Promise<void>((resolve) => { releaseFollowingBatches = resolve; });
+    const interleavedDb = {
+      prepare: (query: string) => db.prepare(query),
+      batch: async <T = unknown>(statements: D1PreparedStatement[]) => {
+        const batchNumber = ++quoteReadBatches;
+        if (batchNumber > 1) await followingBatches;
+        try {
+          const snapshot = await db.batch<T>(statements);
+          if (batchNumber === 1) {
+            released = true;
+            await applyNextPoll();
+          }
+          return snapshot;
+        } finally {
+          if (batchNumber === 1) releaseFollowingBatches();
+        }
+      }
+    } as D1Database;
+    const decision = await canonicalizeWagerQuote(interleavedDb, {
+      type: "PlaceTeaserWager", commandId: "snapshot-command", actorId: "member", wagerId: "snapshot-wager", quoteKey: "snapshot-quote", quotedCommandVersion: "0", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [
+        { eventId: first.id, market: "spread", selection: "home" },
+        { eventId: second.id, market: "spread", selection: "home" }
+      ]
     } as any, new Date("2026-09-10T00:05:00.000Z"));
-    const reads = await Promise.all([
-      ...Array.from({ length: 8 }, () => quote([{ eventId: first.id, market: "spread", selection: "home" }, { eventId: first.id, market: "total", selection: "over" }])),
-      ...Array.from({ length: 8 }, () => quote([{ eventId: first.id, market: "spread", selection: "home" }, { eventId: second.id, market: "spread", selection: "home" }])),
-      nextPoll
-    ]);
-    for (const decision of reads.slice(0, -1) as any[]) {
-      expect(new Set(decision.legs.map((leg: any) => leg.retrievedAt)).size).toBe(1);
-      expect(["2026-09-10T00:00:00.000Z", "2026-09-10T00:05:00.000Z"]).toContain(decision.legs[0].retrievedAt);
-    }
+    expect(released).toBe(true);
+    expect(quoteReadBatches).toBe(1);
+    expect(decision.type).toBe("PlaceTeaserWager");
+    if (decision.type !== "PlaceTeaserWager") throw new Error("Expected teaser quote decision");
+    expect(new Set(decision.legs.map((leg) => leg.retrievedAt))).toEqual(new Set(["2026-09-10T00:00:00.000Z"]));
+    expect((await db.prepare("SELECT DISTINCT retrieved_at FROM market_offer ORDER BY retrieved_at").all()).results).toEqual([{ retrieved_at: "2026-09-10T00:05:00.000Z" }]);
   });
 
   it("reconciles omitted offers, rejects invalid input before D1 writes, and validates documented league fixtures", async () => {
@@ -708,6 +749,14 @@ describe("odds ingestion", () => {
     expect(failedFeed).toMatchObject({ last_polled_at: "2026-09-05T00:00:00.000Z", ...beforeSuccess });
     expect(failedFeed!.last_error).toMatch(/^Malformed provider response:/);
     expect(failedFeed!.last_error.length).toBeLessThanOrEqual(512);
+
+    const sensitiveSuffix = "SENSITIVE_PROVIDER_SUFFIX";
+    const providerError = new Error(`provider failure ${"x".repeat(600)}${sensitiveSuffix}`);
+    const failingProvider: IngestionProvider = { events: async () => { throw providerError; } };
+    await expect(new OddsIngestion(db, failingProvider, { now: () => new Date("2026-09-05T00:20:00.000Z") }).poll()).rejects.toBe(providerError);
+    const storedProviderError = (await db.prepare("SELECT last_error FROM odds_ingestion WHERE provider='odds'").first<{ last_error: string }>())!.last_error;
+    expect(storedProviderError).toBe(providerError.message.slice(0, 512));
+    expect(storedProviderError).not.toContain(sensitiveSuffix);
 
     const responses = [new Response(JSON.stringify(nflFixture), { headers: { "x-requests-remaining": "7", "x-requests-used": "93" } }), new Response(JSON.stringify(nflScoresFixture.filter((event) => event.id === "fixture-nfl-final"))), new Response(JSON.stringify(ncaafFixture)), new Response(JSON.stringify(ncaafScoresFixture))];
     const adapter = new TheOddsApiProvider("key", async () => responses.shift()!, () => new Date("2026-02-09T04:00:00.000Z"));
