@@ -30,14 +30,11 @@ describe("T11 member read contracts", () => {
     expect(ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }] }).standings).toHaveLength(1);
     expect(() => ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "01", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }] })).toThrow();
   });
-  it("requires redacted wager shapes, safe season identity, and immutable history fields", () => {
-    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).toMatchObject({ seasonId: "s", weekStart: "2025-12-29T00:00:00.000Z", performanceMicros: "0" });
-    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).not.toHaveProperty("riskMicros");
-    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, seasonId: undefined }] } })).toThrow();
-    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, memberId: undefined }] } })).toThrow();
-    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, memberDisplayName: undefined }] } })).toThrow();
-    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, weekStart: undefined }] } })).toThrow();
-    expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, performanceMicros: undefined }] } })).toThrow();
+  it("requires member-visible wager identity and immutable history fields", () => {
+    expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).toEqual(wager);
+    for (const field of ["wagerId", "seasonId", "memberId", "memberDisplayName", "type", "status", "confirmedAt", "weekStart", "performanceMicros"] as const) {
+      expect(() => ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [{ ...wager, [field]: undefined }] } })).toThrow();
+    }
     const history = ReadSeasonHistory.parse({
       commandVersion: "1",
       season: { seasonId: "s", label: "Closed", rulesetVersion: "SHARE_POOL_2026_V1", state: "closed", openedAt: "2026-01-01T00:00:00.000Z", closedAt: "2026-02-01T00:00:00.000Z", closeReason: "complete", floatMicros: "3", notionalMicros: "5", priceMicros: "1666667" },
