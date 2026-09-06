@@ -12,6 +12,15 @@ export class OrderQuoteStaleError extends Error {
 const text = (value: bigint) => value.toString();
 const one = (sql: Sql, query: string, ...bindings: unknown[]) => [...sql.exec(query, ...bindings)][0];
 
+export const calculateSharePriceMicros = (floatMicros: bigint, notionalMicros: bigint): bigint =>
+  floatMicros === 0n ? MICROS_PER_UNIT : divideRoundHalfEven(notionalMicros * MICROS_PER_UNIT, floatMicros);
+
+export const calculateShareOrderAmounts = (mode: "shares" | "value", requestedMicros: bigint, priceMicros: bigint) => {
+  const sharesMicros = mode === "shares" ? requestedMicros : divideRoundHalfEven(requestedMicros * MICROS_PER_UNIT, priceMicros);
+  const valueMicros = mode === "value" ? requestedMicros : divideRoundHalfEven(sharesMicros * priceMicros, MICROS_PER_UNIT);
+  return { sharesMicros, valueMicros };
+};
+
 type ApplyOrderInput = {
   id: string; commandId: string; seasonId: string; memberId: string; actorId: string;
   mode: "shares" | "value"; requestedMicros: bigint; priceMicros: bigint;
@@ -27,7 +36,7 @@ export class AccountingRepository {
     if (!row) throw new Error("SEASON_NOT_FOUND");
     const float = parseIntegerText(String(row.float_micros));
     const notional = parseIntegerText(String(row.notional_micros));
-    return { priceMicros: float === 0n ? MICROS_PER_UNIT : divideRoundHalfEven(notional * MICROS_PER_UNIT, float), commandVersion: String(row.command_version) };
+    return { priceMicros: calculateSharePriceMicros(float, notional), commandVersion: String(row.command_version) };
   }
 
   account(seasonId: string, memberId: string) {
@@ -42,15 +51,13 @@ export class AccountingRepository {
     if (season.state !== "active") throw new Error("SEASON_NOT_ACTIVE");
     const quote = this.quote(input.seasonId);
     if (quote.commandVersion !== input.commandVersion || quote.priceMicros !== input.priceMicros) {
-      const shares = input.mode === "shares" ? input.requestedMicros : divideRoundHalfEven(input.requestedMicros * MICROS_PER_UNIT, quote.priceMicros);
-      const value = input.mode === "value" ? input.requestedMicros : divideRoundHalfEven(shares * quote.priceMicros, MICROS_PER_UNIT);
+      const { sharesMicros, valueMicros } = calculateShareOrderAmounts(input.mode, input.requestedMicros, quote.priceMicros);
       throw new OrderQuoteStaleError(
-        { ...quote, sharesMicros: shares, valueMicros: value },
+        { ...quote, sharesMicros, valueMicros },
         { seasonId: input.seasonId, memberId: input.memberId, mode: input.mode, amountMicros: input.requestedMicros.toString() }
       );
     }
-    const shares = input.mode === "shares" ? input.requestedMicros : divideRoundHalfEven(input.requestedMicros * MICROS_PER_UNIT, quote.priceMicros);
-    const value = input.mode === "value" ? input.requestedMicros : divideRoundHalfEven(shares * quote.priceMicros, MICROS_PER_UNIT);
+    const { sharesMicros: shares, valueMicros: value } = calculateShareOrderAmounts(input.mode, input.requestedMicros, quote.priceMicros);
     if (shares <= 0n || value <= 0n) throw new Error("ORDER_ROUNDS_BELOW_ONE_MICRO");
     const account = this.account(input.seasonId, input.memberId);
     const nextVersion = (BigInt(quote.commandVersion) + 1n).toString();

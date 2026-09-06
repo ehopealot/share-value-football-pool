@@ -1,5 +1,5 @@
 import { D1ResultSource, type FinalResultVersion, type ResultSource } from "../odds/result-source";
-import { settleWagers } from "./settlement";
+import { providerResultIdentity, settleWagers } from "./settlement";
 type Row = Record<string, SqlStorageValue>;
 const FINAL_15_MINUTES = 15 * 60 * 1000;
 const FINAL_24_HOURS = 24 * 60 * 60 * 1000;
@@ -8,7 +8,7 @@ const retryDelay = (attempts: number) => Math.min(60 * 60 * 1000, 2 * 60 * 1000 
 const at = (ms: number) => new Date(ms).toISOString();
 const terminal = (r: FinalResultVersion | undefined) => r !== undefined && (r.status === "cancelled" || r.status === "no_contest" || (r.status === "final" && r.homeScore !== null && r.awayScore !== null));
 
-/** Uses the provider's proximity schedule after kickoff; ordinary open/incomplete results never consume error retries. */
+/** Uses the local proximity-to-kickoff polling schedule; ordinary open/incomplete results never consume error retries. */
 const normalPollDelay = (eventStartsAt: SqlStorageValue, now: number) => {
   const untilStart = new Date(String(eventStartsAt)).getTime() - now;
   if (untilStart > 24 * 60 * 60 * 1000) return 6 * 60 * 60 * 1000;
@@ -18,7 +18,7 @@ const normalPollDelay = (eventStartsAt: SqlStorageValue, now: number) => {
 };
 
 /** Reconciles due event lifecycles and retains terminal snapshots for multi-leg tickets. */
-export async function runSettlementAlarm(state: DurableObjectState, db: D1Database, source: ResultSource = new D1ResultSource(db), now = Date.now()): Promise<number | null> {
+export async function runSettlementAlarm(state: DurableObjectState, db: D1Database, source: ResultSource = new D1ResultSource(db), now: number | AlarmInvocationInfo = Date.now()): Promise<number | null> {
   // Cloudflare may invoke an alarm handler with implementation metadata; never let that turn a lifecycle alarm into an invalid timestamp.
   now = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
   const discoveryDue = [...state.storage.sql.exec<Row>("SELECT r.season_id, r.attempts, r.error_attempts FROM season_super_bowl_reconciliation r JOIN season s ON s.id = r.season_id AND s.state = 'active' LEFT JOIN season_super_bowl sb ON sb.season_id = r.season_id WHERE sb.season_id IS NULL AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at", at(now))];
@@ -53,7 +53,7 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
       const snapshots = snapshotRows.map((r) => JSON.parse(String(r.result_json)) as FinalResultVersion);
       const observedAt = new Map(snapshotRows.map((row) => {
         const result = JSON.parse(String(row.result_json)) as FinalResultVersion;
-        return [`${result.eventId}\u0000${result.league}\u0000${result.correctionVersion}`, String(row.observed_at)];
+        return [providerResultIdentity(result), String(row.observed_at)];
       }));
       settleWagers(state.storage.sql, snapshots, observedAt);
       for (const lifecycle of due) {

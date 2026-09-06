@@ -1,7 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PoolCommand } from "../../src/durable/pool-commands";
-import { migrateSeasonCreatedAt } from "../../src/durable/schema";
+import { migrateAdditivePoolStorage } from "../../src/durable/schema";
 import { PoolDO } from "../../src/durable/pool-do";
 
 const pools = (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO;
@@ -68,9 +68,9 @@ describe("PoolDO authority", () => {
       sql.exec("CREATE TABLE season (id TEXT PRIMARY KEY, label TEXT NOT NULL, state TEXT NOT NULL, opened_at TEXT, closed_at TEXT, close_reason TEXT, float_micros TEXT NOT NULL, notional_micros TEXT NOT NULL, default_mode TEXT, default_amount_micros TEXT, command_version TEXT NOT NULL)");
       sql.exec("INSERT INTO season (id, label, state, opened_at, closed_at, float_micros, notional_micros, command_version) VALUES ('draft', 'Draft', 'draft', NULL, NULL, '0', '0', '0'), ('active', 'Active', 'active', '2026-01-02T00:00:00.000Z', NULL, '0', '0', '0'), ('closed-b', 'Closed B', 'closed', NULL, '2026-02-01T00:00:00.000Z', '0', '0', '0'), ('closed-a', 'Closed A', 'closed', NULL, '2026-02-01T00:00:00.000Z', '0', '0', '0')");
       sql.exec("UPDATE pool SET active_season_id = 'active'");
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       const firstPass = [...sql.exec<{ id: string; created_at: string; ruleset_version: string }>("SELECT id, created_at, ruleset_version FROM season ORDER BY id")];
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       return { columns: [...sql.exec<{ name: string }>("PRAGMA table_info(season)")], firstPass, secondPass: [...sql.exec<{ id: string; created_at: string; ruleset_version: string }>("SELECT id, created_at, ruleset_version FROM season ORDER BY id")] };
     });
     expect(legacyRows.columns).toContainEqual(expect.objectContaining({ name: "created_at" }));
@@ -86,9 +86,9 @@ describe("PoolDO authority", () => {
     const repairedRows = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
       const sql = state.storage.sql;
       sql.exec("UPDATE season SET created_at = NULL WHERE id = 'active'; UPDATE season SET created_at = '' WHERE id = 'draft'");
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       const firstPass = [...sql.exec<{ id: string; created_at: string }>("SELECT id, created_at FROM season WHERE id IN ('active', 'draft') ORDER BY id")];
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       return { firstPass, secondPass: [...sql.exec<{ id: string; created_at: string }>("SELECT id, created_at FROM season WHERE id IN ('active', 'draft') ORDER BY id")] };
     });
     expect(repairedRows.firstPass).toEqual([
@@ -120,9 +120,9 @@ describe("PoolDO authority", () => {
       sql.exec("DROP TABLE message_board_entry");
       sql.exec("CREATE TABLE message_board_entry (id TEXT PRIMARY KEY, parent_post_id TEXT, author_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL, activity_at TEXT NOT NULL)");
       sql.exec("INSERT INTO message_board_entry VALUES ('legacy-post', NULL, 'owner', 'Legacy post', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')");
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       const firstPass = [...sql.exec<{ id: string; is_announcement: number }>("SELECT id, is_announcement FROM message_board_entry")];
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       return { columns: [...sql.exec<{ name: string }>("PRAGMA table_info(message_board_entry)")], firstPass, secondPass: [...sql.exec<{ id: string; is_announcement: number }>("SELECT id, is_announcement FROM message_board_entry")] };
     });
     expect(migrated.columns).toContainEqual(expect.objectContaining({ name: "is_announcement" }));
@@ -140,9 +140,9 @@ describe("PoolDO authority", () => {
       sql.exec("CREATE TABLE pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', active_season_id TEXT, command_version TEXT NOT NULL)");
       sql.exec("INSERT INTO pool (id, slug, name, commissioner_id, password_hash, password_version, signups_open, max_side_bet_micros, active_season_id, command_version) SELECT id, slug, name, commissioner_id, password_hash, password_version, signups_open, max_side_bet_micros, active_season_id, command_version FROM legacy_pool");
       sql.exec("DROP TABLE legacy_pool");
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       const firstPass = [...sql.exec<{ commissioner_notice: string | null }>("SELECT commissioner_notice FROM pool")];
-      migrateSeasonCreatedAt(sql);
+      migrateAdditivePoolStorage(sql);
       return { columns: [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")], firstPass, secondPass: [...sql.exec<{ commissioner_notice: string | null }>("SELECT commissioner_notice FROM pool")] };
     });
     expect(migrated.columns).toContainEqual(expect.objectContaining({ name: "commissioner_notice" }));

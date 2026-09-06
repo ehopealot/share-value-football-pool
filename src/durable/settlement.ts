@@ -11,19 +11,20 @@ import type { TeaserPoints } from "../domain/teaser-table";
 type Sql = { exec(query: string, ...params: SqlStorageValue[]): Iterable<Record<string, SqlStorageValue>> };
 type Row = Record<string, SqlStorageValue>;
 const first = (sql: Sql, query: string, ...params: SqlStorageValue[]) => [...sql.exec(query, ...params)][0];
+const currentSettlement = (sql: Sql, wagerId: SqlStorageValue) => first(sql, "SELECT s.* FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement r WHERE r.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wagerId);
 const iso = () => new Date().toISOString();
 
 type GradedResult = { grades: LegGrade[]; outcome: "win" | "loss" | "refund"; profit: bigint; odds: number | null };
 const resultKey = (eventId: string, league: string) => `${eventId}\u0000${league}`;
-const providerIdentity = (result: FinalResultVersion) => `${resultKey(result.eventId, result.league)}\u0000${result.correctionVersion}`;
+export const providerResultIdentity = (result: FinalResultVersion) => `${resultKey(result.eventId, result.league)}\u0000${result.correctionVersion}`;
 const appendProviderResults = (sql: Sql, seasonId: string, results: readonly FinalResultVersion[], observedAt: ReadonlyMap<string, string>): void => {
   const compare = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0;
-  const ordered = [...new Map(results.map((result) => [providerIdentity(result), result])).values()].sort((left, right) =>
+  const ordered = [...new Map(results.map((result) => [providerResultIdentity(result), result])).values()].sort((left, right) =>
     compare(left.eventId, right.eventId) || compare(left.league, right.league) || compare(left.correctionVersion, right.correctionVersion)
   );
   let next = Number(first(sql, "SELECT COALESCE(MAX(append_order), 0) AS value FROM season_provider_result WHERE season_id = ?", seasonId)?.value ?? 0) + 1;
   for (const result of ordered) {
-    const inserted = [...sql.exec("INSERT OR IGNORE INTO season_provider_result (season_id, event_id, league, correction_version, result_json, observed_at, append_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING append_order", seasonId, result.eventId, result.league, result.correctionVersion, JSON.stringify(result), observedAt.get(providerIdentity(result)) ?? iso(), next)][0];
+    const inserted = [...sql.exec("INSERT OR IGNORE INTO season_provider_result (season_id, event_id, league, correction_version, result_json, observed_at, append_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING append_order", seasonId, result.eventId, result.league, result.correctionVersion, JSON.stringify(result), observedAt.get(providerResultIdentity(result)) ?? iso(), next)][0];
     if (inserted) next++;
   }
 };
@@ -78,7 +79,7 @@ const updateObservedLegs = (sql: Sql, legs: readonly Row[], grades: readonly Leg
   }
 };
 
-/** Applies final/corrected D1 results only to this DO's already-open immutable ticket legs. */
+/** Applies final/corrected D1 results to accepted immutable ticket legs in active seasons. */
 export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], observedAt: ReadonlyMap<string, string> = new Map()): number {
   const byEvent = new Map(results.map((result) => [resultKey(result.eventId, result.league), result]));
   let settled = 0;
@@ -99,7 +100,7 @@ export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], o
     if (observedLegs.every((leg) => String(leg.result_version ?? "") === byEvent.get(resultKey(String(leg.event_id), String(leg.league)))!.correctionVersion)) continue;
     const grades = gradesFor(legs, byEvent);
     const graded = gradeResults(wager, legs, source, grades);
-    const prior = first(sql, "SELECT s.* FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement r WHERE r.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wager.id);
+    const prior = currentSettlement(sql, wager.id);
     if (prior && String(prior.actor_id) !== "system" && grades.includes("pending")) continue;
     if (!graded) {
       // Only an automatic loss applied from incomplete provider evidence may be
@@ -165,7 +166,7 @@ function applyLedger(sql: Sql, wager: Row, available: bigint, locked: bigint, fl
   sql.exec("INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, '0', ?, ?, ?)", crypto.randomUUID(), wager.season_id, wager.owner_id, actorId, available.toString(), locked.toString(), float.toString(), causation, kind, iso());
 }
 function applyAdministrativeCorrection(sql: Sql, wager: Row, actorId: string, reason: string, commandId: string, outcome: "win" | "loss" | "refund", profit: bigint, odds: number | null, resultVersion: string, replacement: string, grades?: readonly string[]): Array<{ id: string; reason: "float_exhausted" | "super_bowl_final" }> {
-  const prior = first(sql, "SELECT s.* FROM settlement s WHERE s.wager_id = ? AND s.outcome <> 'reversal' AND NOT EXISTS (SELECT 1 FROM settlement r WHERE r.reversal_of = s.id) ORDER BY s.created_at DESC LIMIT 1", wager.id);
+  const prior = currentSettlement(sql, wager.id);
   const source = prior ? String(prior.source_result_json) : JSON.stringify({ status: "open", wagerId: wager.id });
   if (prior) reversePrior(sql, wager, prior, actorId, reason);
   const risk = parseIntegerText(String(wager.risk_micros));
@@ -214,7 +215,7 @@ function closeEligibleSeasons(sql: Sql, observedResults: readonly FinalResultVer
         const candidate = JSON.parse(String(snapshot.result_json)) as FinalResultVersion;
         if (candidate.status === "final") {
           finalSuperBowl = candidate;
-          causalObservedAt = new Map([[providerIdentity(candidate), String(snapshot.observed_at)]]);
+          causalObservedAt = new Map([[providerResultIdentity(candidate), String(snapshot.observed_at)]]);
         }
       }
     }

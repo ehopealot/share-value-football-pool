@@ -53,4 +53,7 @@ export const poolCommandSchema = poolCommandSchemaBase.superRefine((command, ctx
   if (command.type === "PlaceParlayWager" && !placeParlayWager.safeParse(command).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid parlay placement" });
 });
 export type PoolCommand = z.infer<typeof poolCommandSchema>;
-export type PoolCommandResult = Record<string, unknown> & { commandVersion: string };
+export type PoolCommandResult =
+  | (Record<string, unknown> & { commandVersion: string })
+  | { membership: "joinable"; poolName: string; signupsOpen: true }
+  | { membership: "closed"; signupsOpen: false };
