@@ -1,10 +1,8 @@
 import { test, expect } from "./fixtures/local-worker";
 import type { Page } from "@playwright/test";
 
-type Mailbox = () => Promise<Array<{ kind: "verification" | "password-reset"; to: string; token: string }>>;
-
-/** Signs up, verifies through the development mailbox, and signs in — awaiting the completed session transition. */
-async function signInAccount(page: Page, baseURL: string, mailbox: Mailbox, name: string, email: string) {
+/** Signs up through local auto-verification and signs in, awaiting the completed session transition. */
+async function signInAccount(page: Page, baseURL: string, name: string, email: string) {
   // The fixture uses random loopback ports; discard a cookie from a reused port before real sign-up.
   await page.context().clearCookies();
   await page.goto(`${baseURL}/sign-up`);
@@ -20,8 +18,8 @@ async function signInAccount(page: Page, baseURL: string, mailbox: Mailbox, name
   await expect(page.getByRole("heading", { name: "Your pools" })).toBeVisible();
 }
 
-async function signIn(page: Page, baseURL: string, mailbox: Mailbox, name = "T11 Commissioner", email = "t11-commissioner@example.test") {
-  await signInAccount(page, baseURL, mailbox, name, email);
+async function signIn(page: Page, baseURL: string, name = "T11 Commissioner", email = "t11-commissioner@example.test") {
+  await signInAccount(page, baseURL, name, email);
 }
 
 async function createPool(page: Page, baseURL: string, slug: string, poolName: string, password: string) {
@@ -136,7 +134,7 @@ async function standingsRowTexts(page: Page, displayName: string) {
 
 test("member navigation reaches real standings, activity, rules, history, and constrained administration", async ({ page, worker }) => {
   const slug = "t11-member-views";
-  await signIn(page, worker.baseURL, worker.mailbox);
+  await signIn(page, worker.baseURL);
   await createPool(page, worker.baseURL, slug, "T11 Member Views", "member-views-password");
   await page.getByRole("link", { name: "Standings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Standings" })).toBeVisible();
@@ -150,7 +148,7 @@ test("member navigation reaches real standings, activity, rules, history, and co
 
 test("rules page reports authoritative season and exact stored feed/source observations", async ({ page, worker }) => {
   const slug = "t11-rules-feed";
-  await signIn(page, worker.baseURL, worker.mailbox, "Rules Commissioner", "rules-commissioner@example.test");
+  await signIn(page, worker.baseURL, "Rules Commissioner", "rules-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "Rules Feed Pool", "rules-feed-password");
   await page.goto(`${worker.baseURL}/p/${slug}/rules`);
   await expect(page.getByText("No active or closed season is available", { exact: false })).toBeVisible();
@@ -186,7 +184,7 @@ test("rules page reports authoritative season and exact stored feed/source obser
 test("an ordinary member has no administration or hidden-pick privilege at navigation, page, or HTTP boundaries", async ({ page, browser, worker }) => {
   const slug = "t11-member-denial";
   await worker.resetAuthLimiter();
-  await signIn(page, worker.baseURL, worker.mailbox, "T11 Denial Commissioner", "t11-denial-commissioner@example.test");
+  await signIn(page, worker.baseURL, "T11 Denial Commissioner", "t11-denial-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11 Denial", "member-views-password");
   await openSeason(page, worker.baseURL, slug, "2025");
   expect(await controlStatus(page, "/__local-test/season", { poolSlug: slug, state: "closed" })).toBe(200);
@@ -197,14 +195,14 @@ test("an ordinary member has no administration or hidden-pick privilege at navig
   const ticketContext = await browser.newContext(); const ticketOwner = await ticketContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signIn(ticketOwner, worker.baseURL, worker.mailbox, "T11 Denial Ticket Owner", "t11-denial-ticket-owner@example.test");
+    await signIn(ticketOwner, worker.baseURL, "T11 Denial Ticket Owner", "t11-denial-ticket-owner@example.test");
     await joinPool(ticketOwner, worker.baseURL, slug, "member-views-password");
     await issueShares(page, worker.baseURL, slug, "2", "T11 Denial Ticket Owner");
     await reseedUpcomingEvent(ticketOwner);
     await placeAwaySpreadWager(ticketOwner, worker.baseURL, slug);
     const wagerId = await lastWagerId(ticketOwner, slug);
     await worker.resetAuthLimiter();
-    await signIn(member, worker.baseURL, worker.mailbox, "T11 Denial Member", "t11-denial-member@example.test");
+    await signIn(member, worker.baseURL, "T11 Denial Member", "t11-denial-member@example.test");
     await joinPool(member, worker.baseURL, slug, "member-views-password");
     await member.goto(`${worker.baseURL}/p/${slug}/overview`);
     for (const name of ["Season", "Share orders", "Members", "Corrections", "Settings"]) await expect(member.getByRole("link", { name, exact: true })).toHaveCount(0);
@@ -255,7 +253,7 @@ test("canonical Super Bowl confirmation and final result automatically close the
   test.setTimeout(480_000);
   const slug = "t11-super-bowl";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, "T11 Super Commissioner", "t11-super-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, "T11 Super Commissioner", "t11-super-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11 Super Bowl", "super-bowl-password");
   await openSeason(page, worker.baseURL, slug, "2026");
 
@@ -263,10 +261,10 @@ test("canonical Super Bowl confirmation and final result automatically close the
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(owner, worker.baseURL, worker.mailbox, "T11 Super Ticket Owner", "t11-super-owner@example.test");
+    await signInAccount(owner, worker.baseURL, "T11 Super Ticket Owner", "t11-super-owner@example.test");
     await joinPool(owner, worker.baseURL, slug, "super-bowl-password");
     await worker.resetAuthLimiter();
-    await signInAccount(member, worker.baseURL, worker.mailbox, "T11 Super Member", "t11-super-member@example.test");
+    await signInAccount(member, worker.baseURL, "T11 Super Member", "t11-super-member@example.test");
     await joinPool(member, worker.baseURL, slug, "super-bowl-password");
     await issueShares(page, worker.baseURL, slug, "2", "T11 Super Ticket Owner");
 
@@ -341,14 +339,14 @@ test("standings display canonical fixed-point values that change after real sett
   const ownerName = "T11R3A Commissioner";
   const memberName = "T11R3A Member";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, ownerName, "t11r3a-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, ownerName, "t11r3a-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3A Standings", "t11r3a-password");
   await openSeason(page, worker.baseURL, slug, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(member, worker.baseURL, worker.mailbox, memberName, "t11r3a-member@example.test");
+    await signInAccount(member, worker.baseURL, memberName, "t11r3a-member@example.test");
     await joinPool(member, worker.baseURL, slug, "t11r3a-password");
     await issueShares(page, worker.baseURL, slug, "2", memberName);
     const currentShareValue = page.getByText("Current share value:", { exact: false });
@@ -392,7 +390,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
   const ticketOwnerName = "T11R3B Ticket Owner";
   const viewerName = "T11R3B Viewer";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, commissionerName, "t11r3b-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, commissionerName, "t11r3b-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3B Reveal", "t11r3b-password");
   await openSeason(page, worker.baseURL, slug, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
@@ -400,10 +398,10 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
   const viewerContext = await browser.newContext(); const viewer = await viewerContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(ticketOwner, worker.baseURL, worker.mailbox, ticketOwnerName, "t11r3b-owner@example.test");
+    await signInAccount(ticketOwner, worker.baseURL, ticketOwnerName, "t11r3b-owner@example.test");
     await joinPool(ticketOwner, worker.baseURL, slug, "t11r3b-password");
     await worker.resetAuthLimiter();
-    await signInAccount(viewer, worker.baseURL, worker.mailbox, viewerName, "t11r3b-viewer@example.test");
+    await signInAccount(viewer, worker.baseURL, viewerName, "t11r3b-viewer@example.test");
     await joinPool(viewer, worker.baseURL, slug, "t11r3b-password");
     await issueShares(page, worker.baseURL, slug, "3", ticketOwnerName);
     // The local board has two truthful scheduled events one minute apart, making every reveal
@@ -488,7 +486,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
 test("commissioner corrections require reasons, preserve every result version, and reject closed-season changes", async ({ page, worker }) => {
   const slug = "t11r5-corrections";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, "T11R5 Commissioner", "t11r5-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, "T11R5 Commissioner", "t11r5-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R5 Corrections", "t11r5-password");
   await openSeason(page, worker.baseURL, slug, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
@@ -565,14 +563,14 @@ test("activity stays immutable and presents only the current settlement without 
   const commissionerName = "T11R3C Commissioner";
   const memberName = "T11R3C Member";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, commissionerName, "t11r3c-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, commissionerName, "t11r3c-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3C Activity", "t11r3c-password");
   await openSeason(page, worker.baseURL, slug, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(member, worker.baseURL, worker.mailbox, memberName, "t11r3c-member@example.test");
+    await signInAccount(member, worker.baseURL, memberName, "t11r3c-member@example.test");
     await joinPool(member, worker.baseURL, slug, "t11r3c-password");
     await reseedUpcomingEvent(page);
     await placeAwaySpreadWager(page, worker.baseURL, slug);
@@ -617,14 +615,14 @@ test("fixture close archives the season for members with append-only commissione
   const commissionerName = "T11R3D Commissioner";
   const memberName = "T11R3D Member";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, commissionerName, "t11r3d-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, commissionerName, "t11r3d-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3D Archive", "t11r3d-password");
   await openSeason(page, worker.baseURL, slug, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(member, worker.baseURL, worker.mailbox, memberName, "t11r3d-member@example.test");
+    await signInAccount(member, worker.baseURL, memberName, "t11r3d-member@example.test");
     await joinPool(member, worker.baseURL, slug, "t11r3d-password");
     await reseedUpcomingEvent(page);
     await placeAwaySpreadWager(page, worker.baseURL, slug);
@@ -713,12 +711,12 @@ test("suspension denies an ordinary member with an actionable overview denial un
   const commissionerName = "T11R4A Commissioner";
   const memberName = "T11R4A Member";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, commissionerName, "t11r4a-commissioner@example.test");
+  await signInAccount(page, worker.baseURL, commissionerName, "t11r4a-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R4A Suspend", "t11r4a-password");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(member, worker.baseURL, worker.mailbox, memberName, "t11r4a-member@example.test");
+    await signInAccount(member, worker.baseURL, memberName, "t11r4a-member@example.test");
     await joinPool(member, worker.baseURL, slug, "t11r4a-password");
     expect(await member.evaluate(async (poolSlug) => (await fetch(`/api/p/${poolSlug}/standings`)).status, slug)).toBe(200);
     // The commissioner suspends the ordinary member through the real members administration page.
@@ -757,18 +755,18 @@ test("commissioner transfer honors self, invalid-target, recent-auth, and suspen
   const memberName = "T11R4B Member";
   const commissionerEmail = "t11r4b-commissioner@example.test";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, commissionerName, commissionerEmail);
+  await signInAccount(page, worker.baseURL, commissionerName, commissionerEmail);
   await createPool(page, worker.baseURL, slug, "T11R4B Transfer", "t11r4b-password");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   const visitorContext = await browser.newContext(); const visitor = await visitorContext.newPage();
   try {
     await worker.resetAuthLimiter();
-    await signInAccount(member, worker.baseURL, worker.mailbox, memberName, "t11r4b-member@example.test");
+    await signInAccount(member, worker.baseURL, memberName, "t11r4b-member@example.test");
     await joinPool(member, worker.baseURL, slug, "t11r4b-password");
     const memberUserId = await sessionUserId(member);
     // A real, signed-in account that never joined is the nonmember transfer target.
     await worker.resetAuthLimiter();
-    await signInAccount(visitor, worker.baseURL, worker.mailbox, "T11R4B Visitor", "t11r4b-visitor@example.test");
+    await signInAccount(visitor, worker.baseURL, "T11R4B Visitor", "t11r4b-visitor@example.test");
     const visitorUserId = await sessionUserId(visitor);
     const commissionerUserId = await sessionUserId(page);
     await page.goto(`${worker.baseURL}/p/${slug}/admin/members`);
@@ -820,7 +818,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
   const firstPassword = "t11r4c-first-password";
   const rotatedPassword = "t11r4c-rotated-password";
   await worker.resetAuthLimiter();
-  await signInAccount(page, worker.baseURL, worker.mailbox, "T11R4C Commissioner", commissionerEmail);
+  await signInAccount(page, worker.baseURL, "T11R4C Commissioner", commissionerEmail);
   await createPool(page, worker.baseURL, slug, "T11R4C Settings", firstPassword);
   const memberAContext = await browser.newContext(); const memberA = await memberAContext.newPage();
   const memberBContext = await browser.newContext(); const memberB = await memberBContext.newPage();
@@ -828,7 +826,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
   try {
     // Control: the first join password genuinely admits a member before any rotation.
     await worker.resetAuthLimiter();
-    await signInAccount(memberA, worker.baseURL, worker.mailbox, "T11R4C Member A", "t11r4c-member-a@example.test");
+    await signInAccount(memberA, worker.baseURL, "T11R4C Member A", "t11r4c-member-a@example.test");
     await joinPool(memberA, worker.baseURL, slug, firstPassword);
     // Renaming is an ordinary commissioner setting and is visible everywhere the pool name renders.
     await page.goto(`${worker.baseURL}/p/${slug}/admin/settings`);
@@ -850,7 +848,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     await page.getByRole("button", { name: "Close signups" }).click();
     await expect(page.getByText("Signups are closed.")).toBeVisible();
     await worker.resetAuthLimiter();
-    await signInAccount(memberC, worker.baseURL, worker.mailbox, "T11R4C Member C", "t11r4c-member-c@example.test");
+    await signInAccount(memberC, worker.baseURL, "T11R4C Member C", "t11r4c-member-c@example.test");
     await memberC.goto(`${worker.baseURL}/p/${slug}`);
     await expect(memberC.getByRole("heading", { name: "This pool is not accepting members" })).toBeVisible();
     await expect(memberC.getByText("No pool information is available here.")).toBeVisible();
@@ -866,7 +864,7 @@ test("settings rename, signup closure, and recent-auth password rotation reshape
     await expect(page.getByRole("textbox", { name: "Change join password" })).toHaveValue("");
     // The old password no longer admits anyone; the rotated password does.
     await worker.resetAuthLimiter();
-    await signInAccount(memberB, worker.baseURL, worker.mailbox, "T11R4C Member B", "t11r4c-member-b@example.test");
+    await signInAccount(memberB, worker.baseURL, "T11R4C Member B", "t11r4c-member-b@example.test");
     await memberB.goto(`${worker.baseURL}/p/${slug}`);
     await expect(memberB.getByRole("heading", { name: "Join T11R4C Renamed" })).toBeVisible();
     await memberB.getByLabel("Pool password").fill(firstPassword);

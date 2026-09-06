@@ -37,20 +37,23 @@ export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<
     child = spawn(process.execPath, [resolveWrangler(), "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-e2e-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-e2e-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-e2e-projection-token"], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: e2eEnvironment });
     const stdout = ringBuffer(child.stdout); const stderr = ringBuffer(child.stderr); const baseURL = `http://127.0.0.1:${port}`;
     if (!child.pid) throw new Error("local Worker did not provide a child PID before owner publication");
-    let childError: Error | undefined;
-    let childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
-    child.once("error", (error) => { childError = error; });
-    child.once("exit", (code, signal) => { childExit = { code, signal }; });
+    const childState: { error?: Error; exit?: { code: number | null; signal: NodeJS.Signals | null } } = {};
+    child.once("error", (error) => { childState.error = error; });
+    child.once("exit", (code, signal) => { childState.exit = { code, signal }; });
     await control.resourceCreated({ pid: process.pid, pgid: child.pid, persistence });
     control.throwIfFailBeforeReady();
     const deadline = Date.now() + READINESS_TIMEOUT_MS; let ready = false; let status = "starting";
+    const throwIfChildFailed = () => {
+      const error = childState.error as Error | undefined;
+      if (error) throw new Error(`local Worker readiness failed: child error ${error.message}; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
+      const exit = childState.exit as { code: number | null; signal: NodeJS.Signals | null } | undefined;
+      if (exit) throw new Error(`local Worker readiness failed: child exited ${exit.code ?? exit.signal ?? "unknown"}; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
+    };
     while (Date.now() < deadline && !ready) {
-      if (childError) throw new Error(`local Worker readiness failed: child error ${childError.message}; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
-      if (childExit) throw new Error(`local Worker readiness failed: child exited ${childExit.code ?? childExit.signal ?? "unknown"}; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
+      throwIfChildFailed();
       try { const response = await fetch(`${baseURL}/health/app`, { signal: AbortSignal.timeout(1_000) }); status = `HTTP ${response.status}`; ready = response.ok; }
       catch (error) { status = `fetch ${error instanceof Error ? error.name : "failed"}`; }
-      if (childError) throw new Error(`local Worker readiness failed: child error ${childError.message}; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
-      if (childExit) throw new Error(`local Worker readiness failed: child exited ${childExit.code ?? childExit.signal ?? "unknown"}; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
+      throwIfChildFailed();
       if (!ready) await delay(100);
     }
     if (!ready) throw new Error(`local Worker did not become ready; baseURL=${baseURL}; deadline=${new Date(deadline).toISOString()}; status=${status}\nstdout:\n${stdout()}\nstderr:\n${stderr()}`);
@@ -61,7 +64,7 @@ export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<
   } catch (error) { primary = error; throw error; } finally { await signalCleanup.settled(); }
 }
 
-export const test = base.extend<{ build: void; worker: LocalWorker }>({
+export const test = base.extend<{ worker: LocalWorker }, { build: void }>({
   build: [async ({}, use) => { const e2eEnvironment = localE2eClientBuildEnvironment(process.env); await run("npm", ["run", "build"], e2eEnvironment); await run("npm", ["run", "build:local", "--", "--env-file", "/dev/null"], e2eEnvironment); await use(); }, { scope: "worker" }],
   worker: async ({ build: _build }, use) => runLocalWorkerOwner(use),
 });

@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/local-worker";
 
-async function signInOwner(page: import("@playwright/test").Page, baseURL: string, mailbox: () => Promise<Array<{ kind: "verification"; to: string; token: string }>>) {
+async function signInOwner(page: import("@playwright/test").Page, baseURL: string) {
   await page.goto(`${baseURL}/sign-up`);
   await page.getByLabel("Name").fill("Same Game Owner");
   await page.getByLabel("Email address").fill("same-game-owner@example.test");
@@ -16,7 +16,7 @@ const result = (homeScore: number, awayScore: number, correctionVersion: string)
 
 test("authenticated browser parser consumes the real same-game teaser export across corrections", async ({ page, worker }) => {
   const slug = "same-game-export-pool";
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Same Game Export Pool");
   await page.getByLabel("Pool web address").fill(slug);
