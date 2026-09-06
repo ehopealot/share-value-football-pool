@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Confirmation } from "../src/web/components/Confirmation";
 import { WagerDetails } from "../src/web/components/WagerDetails";
 import { formatKickoff } from "../src/web/odds-format";
-import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
+import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagersByAnchorTime, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
 
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", type: "straight", confirmedAt: "2026-09-01T00:00:00.000Z", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }], ...overrides });
 
@@ -39,9 +39,12 @@ describe("owner ticket presentation", () => {
     expect(displayWagerStartTimeOnly(multiDay)).toEqual(["Sun", formatKickoff("2026-09-07T20:00:00.000Z").split(" ")[1], "Tue"]);
     expect(sortWagersByStartTime([nextDay, multiDay]).map((item) => item.wagerId)).toEqual(["wager", "next-day"]);
 
-    const completed = wager({ legs: [{ eventStartsAt: "2026-09-06T18:00:00.000Z", grade: "win" }, { eventStartsAt: "2026-09-07T20:00:00.000Z", grade: "loss" }] });
-    expect(displayWagerDateLabel(completed)).toBe("Mon, Sep 7");
-    expect(displayWagerStartTimeOnly(completed)).toEqual(["Sun", formatKickoff("2026-09-07T20:00:00.000Z").split(" ")[1]]);
+    const completed = wager({ legs: [{ eventStartsAt: "2026-09-06T18:00:00.000Z", grade: "win" }, { eventStartsAt: "2026-09-08T20:00:00.000Z", grade: "loss" }] });
+    const midSingle = wager({ wagerId: "mid-single", legs: [{ eventStartsAt: "2026-09-07T20:00:00.000Z" }] });
+    expect(displayWagerDateLabel(completed)).toBe("Tue, Sep 8");
+    expect(displayWagerStartTimeOnly(completed)).toEqual(["Sun", formatKickoff("2026-09-08T20:00:00.000Z").split(" ")[1]]);
+    expect(sortWagersByStartTime([midSingle, completed]).map((item) => item.wagerId)).toEqual(["wager", "mid-single"]);
+    expect(sortWagersByAnchorTime([midSingle, completed]).map((item) => item.wagerId)).toEqual(["mid-single", "wager"]);
   });
 
   it("places unavailable starts last and breaks start-time ties deterministically", () => {

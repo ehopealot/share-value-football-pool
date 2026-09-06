@@ -23,6 +23,7 @@ describe("mobile wager tables", () => {
     expect(css).toContain("line-height: 1.1;");
     expect(css).toContain("text-size-adjust: none; -webkit-text-size-adjust: none;");
     expect(css).toContain(".activity-wager-column { width: 44%; }");
+    expect(css).not.toContain(".my-wagers-page .activity-wager-column { width: 52%; }");
     expect(css).toContain(".wager-start-time { display: none; }");
     expect(css).toContain(".wager-start-time-mobile { display: block; white-space: nowrap; }");
   });

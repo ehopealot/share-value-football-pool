@@ -1,7 +1,7 @@
 import type { ReadActivity } from "../contracts/http";
 import { formatMicros, MICROS_PER_UNIT, parseIntegerText } from "../domain/fixed-point";
 import { formatAmericanOdds } from "./odds-format";
-import { sortWagersByStartTime } from "./wager-presentation";
+import { sortWagersByAnchorTime } from "./wager-presentation";
 import { displayTeamName } from "./team-display";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
@@ -20,7 +20,7 @@ export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string):
     group.wagers.push(wager);
     groups.set(wager.memberId, group);
   }
-  return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByStartTime(group.wagers) }));
+  return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByAnchorTime(group.wagers) }));
 }
 
 export function formatWeeklyPerformance(profitMicros: string): string {

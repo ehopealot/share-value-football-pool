@@ -7,8 +7,8 @@ const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"
 
 describe("My wagers page", () => {
   it("uses the compact Activity-style wager, stake, payout, and P&L layout in each status section", () => {
-    expect(source).toMatch(/sortWagersByStartTime\(data\.wagers\.filter\(\(w\) => w\.status === "open"\)\)/);
-    expect(source).toMatch(/sortWagersByStartTime\(data\.wagers\.filter\(\(w\) => w\.status !== "open"\)\)/);
+    expect(source).toMatch(/orderWagers\(data\.wagers\.filter\(\(w\) => w\.status === "open"\)\)/);
+    expect(source).toMatch(/orderWagers\(data\.wagers\.filter\(\(w\) => w\.status !== "open"\)\)/);
     expect(source).toContain('<h2 className="activity-member-ribbon">{title}</h2>');
     expect(source).toContain('<table className="activity-table" aria-label={title}><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup>');
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th>');
@@ -37,7 +37,8 @@ describe("My wagers page", () => {
     expect(styles).toContain('.my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-push, .my-wagers-page .activity-leg-neutral { white-space: nowrap; }');
     expect(styles).toContain('.activity-start-column { width: 7rem; }');
     expect(styles).not.toContain('.my-wagers-page .activity-start-column');
-    expect(styles).toContain('.my-wagers-page .activity-wager-column { width: 52%; }');
+    expect(styles).toContain('.my-wagers-page .activity-wager-column { overflow-wrap: anywhere; }');
+    expect(styles).not.toContain('.my-wagers-page .activity-wager-column { width: 52%; }');
     expect(styles).toMatch(/^\.activity-leg-loss \{ color: #b42318; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-win \{ color: #137333; \}$/m);
     expect(styles).toMatch(/^\.activity-leg-push \{ color: #1a73e8; \}$/m);
