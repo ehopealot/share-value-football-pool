@@ -36,10 +36,10 @@ export function MyWagersPage() {
   const { slug = "" } = useParams();
   const [data, setData] = useState<import("../../contracts/http").ReadMyWagers>();
   const [error, setError] = useState("");
+  const compact = useCompactWagerViewport();
   useEffect(() => { void api.wagers(slug).then(setData).catch((e) => setError(errorMessage(e))); }, [slug]);
   if (error) return <Layout><p role="alert" tabIndex={-1} className="error-summary">{error}</p><Link to={`/p/${slug}/odds`}>Return to games</Link></Layout>;
   if (!data) return <Layout><p role="status">Loading bets…</p></Layout>;
-  const compact = useCompactWagerViewport();
   const orderWagers = (rows: Wager[]) => compact ? sortWagersByAnchorTime(rows) : sortWagersByStartTime(rows);
   const open = orderWagers(data.wagers.filter((w) => w.status === "open"));
   const settled = orderWagers(data.wagers.filter((w) => w.status !== "open"));
