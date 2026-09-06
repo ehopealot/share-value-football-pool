@@ -5,7 +5,19 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess } from "./owned-process";
+import { assertProductionPortAvailable } from "./production-route-probe";
 
+type Fetch = typeof fetch;
+
+export const localSmokeMigrationArgs = (wrangler: string, persistence: string) => [wrangler, "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"];
+export const localSmokeWorkerArgs = (wrangler: string, port: number, persistence: string) => [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-smoke-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-smoke-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-smoke-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-smoke-backup-token"];
+
+export async function startLocalSmokeWorker<T>(baseURL: string, spawnWorker: () => T, request: Fetch = fetch): Promise<T> {
+  await assertProductionPortAvailable(baseURL, request, "local smoke Worker");
+  return spawnWorker();
+}
+
+async function runLocalSmoke() {
 const STAGE_TIMEOUT_MS = 30_000;
 const require = createRequire(import.meta.url);
 const wrangler = require.resolve("wrangler");
@@ -13,7 +25,9 @@ const port = 24000 + Math.floor(Math.random() * 10000);
 const persistence = await mkdtemp(join(tmpdir(), "share-value-pool-owned-smoke-"));
 let base = `http://127.0.0.1:${port}`;
 let child: ChildProcess | undefined;
+let childFailure: Error | undefined;
 let primaryFailure: unknown;
+let removeChildObservers = () => {};
 const control = createOwnerControl();
 
 const bounded = async <T>(name: string, operation: Promise<T>, timeout = STAGE_TIMEOUT_MS): Promise<T> => {
@@ -43,17 +57,36 @@ const expect = (condition: unknown, message: string) => { if (!condition) throw 
 try {
   // Wrangler's Vite integration serves the generated Worker entry; rebuild it for this isolated journey.
   await run("npm", ["run", "build:local"]);
-  await run(process.execPath, [wrangler, "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"]);
-  child = spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-smoke-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-smoke-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-smoke-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-smoke-backup-token"], { stdio: ["ignore", "pipe", "pipe"], detached: true, env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
+  await run(process.execPath, localSmokeMigrationArgs(wrangler, persistence));
+  child = await startLocalSmokeWorker(base, () => spawn(process.execPath, localSmokeWorkerArgs(wrangler, port, persistence), { stdio: ["ignore", "pipe", "pipe"], detached: true, env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } }), fetch);
+  if (!child.pid) throw new Error("local smoke Worker did not provide a process-group leader PID");
   const observe = (chunk: Buffer) => process.stdout.write(chunk);
+  const onChildError = (error: Error) => { childFailure ??= new Error(`local smoke Worker spawn failed: ${error.message}`, { cause: error }); };
+  const onChildExit = (code: number | null, signal: NodeJS.Signals | null) => { childFailure ??= new Error(`local smoke Worker exited ${code ?? signal ?? "unknown"} before readiness`); };
+  const assertChildLive = () => {
+    if (childFailure) throw childFailure;
+    if (child?.exitCode != null || child?.signalCode != null) throw new Error(`local smoke Worker exited ${child.exitCode ?? child.signalCode ?? "unknown"} before readiness`);
+  };
   child.stdout?.on("data", observe); child.stderr?.on("data", observe);
-  await control.resourceCreated({ pid: process.pid, pgid: child.pid!, persistence });
+  child.once("error", onChildError); child.once("exit", onChildExit);
+  removeChildObservers = () => {
+    child?.stdout?.removeListener("data", observe); child?.stderr?.removeListener("data", observe);
+    child?.removeListener("error", onChildError); child?.removeListener("exit", onChildExit);
+  };
+  assertChildLive();
+  await control.resourceCreated({ pid: process.pid, pgid: child.pid, persistence });
   control.throwIfFailBeforeReady();
   await bounded("local worker startup", (async () => {
     for (let i = 0; i < 80; i++) {
-      try { if ((await fetch(`${base}/health/app`, { signal: AbortSignal.timeout(2_000) })).ok) return; } catch { /* Worker is still starting. */ }
+      assertChildLive();
+      try {
+        const response = await fetch(`${base}/health/app`, { signal: AbortSignal.timeout(2_000) });
+        assertChildLive();
+        if (response.ok) return;
+      } catch { assertChildLive(); }
       await delay(250);
     }
+    assertChildLive();
     throw new Error("local worker did not become ready through health polling");
   })());
   await control.ready({ pid: process.pid, pgid: child.pid!, persistence });
@@ -71,7 +104,7 @@ try {
   const board = await request("/api/p/local-smoke/odds", "local-member");
   const offer = (board.offers as Array<Record<string, unknown>>).find((item) => item.eventId === "local-nfl-upcoming" && item.market === "spread");
   const home = (offer?.outcomes as Array<Record<string, unknown>> | undefined)?.find((item) => item.name === "Local Home");
-  expect(offer && home, "local canonical spread offer was not available");
+  if (!offer || !home) throw new Error("local canonical spread offer was not available");
   const quoteKey = "local-quote"; const wagerId = "local-wager";
   const proposed = { quoteKey, commandId: quoteKey, wagerId, seasonId: "local-2026", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "local-nfl-upcoming", canonicalBook: String(offer.canonicalBook), market: "spread", selection: "home", offerId: `local-nfl-upcoming:spread:home`, offerVersion: String(offer.offerVersion) } };
   const quote = await request("/api/p/local-smoke/wagers/straight/quote", "local-member", proposed);
@@ -106,5 +139,9 @@ try {
   primaryFailure = error;
   throw error;
 } finally {
-  await signalCleanup.settled();
+  try { await signalCleanup.settled(); }
+  finally { removeChildObservers(); }
 }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) await runLocalSmoke();
