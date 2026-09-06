@@ -27,7 +27,7 @@ export default defineConfig({
           setupFiles: ["tests/setup.ts"],
           // These anchors share fixed local process resources and must own them one file at a time.
           fileParallelism: false,
-          // Heavy build-spawning composition/ownership gates; run explicitly via `npm run test:structure`.
+          // `npm test` excludes these heavy build-spawning gates; `test:structure` isolates them, while bare `test:watch` includes them.
           testTimeout: 300_000,
           hookTimeout: 300_000
         }
