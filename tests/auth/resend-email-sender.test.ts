@@ -1,29 +1,77 @@
 import { describe, expect, it, vi } from "vitest";
 import { createResendEmailSender, createResendPoolJoinNotifier, createResendPoolNotifier } from "../../src/auth/email-sender";
 
+const captureError = async (operation: Promise<unknown>): Promise<Error> => {
+  try {
+    await operation;
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    return error as Error;
+  }
+  throw new Error("Expected operation to reject.");
+};
+
 describe("Resend email sender", () => {
   it("sends a verification link with Resend's authenticated email request shape", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
     const sender = createResendEmailSender({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
+    const signal = new AbortController().signal;
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(signal);
 
-    await sender.send({ kind: "verification", to: "member@example.test", token: "verification-token", url: "https://officepool.football/api/auth/verify-email?token=verification-token&callbackURL=%2F" });
+    try {
+      await sender.send({ kind: "verification", to: "member@example.test", token: "verification-token", url: "https://officepool.football/api/auth/verify-email?token=verification-token&callbackURL=%2F" });
+
+      expect(timeout).toHaveBeenCalledOnce();
+      expect(timeout).toHaveBeenCalledWith(10_000);
+      expect(fetcher).toHaveBeenCalledOnce();
+      const [endpoint, request] = fetcher.mock.calls[0]!;
+      expect(endpoint).toBe("https://api.resend.com/emails");
+      expect(request).toMatchObject({ method: "POST" });
+      expect(request?.signal).toBe(signal);
+      expect(request?.headers).toEqual({ authorization: "Bearer resend-test-key", "content-type": "application/json", "user-agent": "office-pool-reborn/1.0" });
+      expect(JSON.parse(String(request?.body))).toEqual({
+        from: "Office Pool Reborn <noreply@officepool.football>",
+        to: ["member@example.test"],
+        subject: "Verify your Office Pool Reborn email",
+        text: "Verify your email address for Office Pool Reborn:\n\nhttps://officepool.football/api/auth/verify-email?token=verification-token&callbackURL=%2F\n\nIf you did not create an Office Pool Reborn account, you can ignore this email.",
+        html: "<p>Verify your email address for <strong>Office Pool Reborn</strong>.</p><p><a href=\"https://officepool.football/api/auth/verify-email?token=verification-token&amp;callbackURL=%2F\">Verify email address</a></p><p>If you did not create an Office Pool Reborn account, you can ignore this email.</p>"
+      });
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it("sends a password-reset link with reset-specific copy and escaped HTML", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
+    const sender = createResendEmailSender({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
+
+    await sender.send({ kind: "password-reset", to: "member@example.test", token: "reset-token", url: "https://officepool.football/api/auth/reset-password/reset-token?callbackURL=%2F&source=email" });
 
     expect(fetcher).toHaveBeenCalledOnce();
-    const [endpoint, request] = fetcher.mock.calls[0]!;
-    expect(endpoint).toBe("https://api.resend.com/emails");
-    expect(request).toMatchObject({ method: "POST", headers: { authorization: "Bearer resend-test-key", "content-type": "application/json" } });
-    expect(JSON.parse(String(request?.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({
       from: "Office Pool Reborn <noreply@officepool.football>",
       to: ["member@example.test"],
-      subject: "Verify your Office Pool Reborn email",
-      text: "Verify your email address for Office Pool Reborn:\n\nhttps://officepool.football/api/auth/verify-email?token=verification-token&callbackURL=%2F\n\nIf you did not create an Office Pool Reborn account, you can ignore this email.",
-      html: "<p>Verify your email address for <strong>Office Pool Reborn</strong>.</p><p><a href=\"https://officepool.football/api/auth/verify-email?token=verification-token&amp;callbackURL=%2F\">Verify email address</a></p><p>If you did not create an Office Pool Reborn account, you can ignore this email.</p>"
+      subject: "Reset your Office Pool Reborn password",
+      text: "Reset your Office Pool Reborn password for Office Pool Reborn:\n\nhttps://officepool.football/api/auth/reset-password/reset-token?callbackURL=%2F&source=email\n\nIf you did not request a password reset, you can ignore this email.",
+      html: "<p>Reset your Office Pool Reborn password for <strong>Office Pool Reborn</strong>.</p><p><a href=\"https://officepool.football/api/auth/reset-password/reset-token?callbackURL=%2F&amp;source=email\">Reset password</a></p><p>If you did not request a password reset, you can ignore this email.</p>"
     });
+  });
+
+  it("accepts a successful Resend response without parsing its malformed body", async () => {
+    const response = new Response("not JSON", { status: 202 });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response);
+    const sender = createResendEmailSender({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
+
+    await expect(sender.send({ kind: "verification", to: "member@example.test", token: "verification-token", url: "https://officepool.football/api/auth/verify-email?token=verification-token" })).resolves.toBeUndefined();
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(response.bodyUsed).toBe(false);
   });
 
   it("notifies a commissioner when a member joins their pool", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
     await createResendPoolJoinNotifier({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher }).notifyPoolJoin({ to: "commissioner@example.test", poolName: "Sunday Pool", memberName: "Taylor" });
+    expect(fetcher).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ from: "Office Pool Reborn <noreply@officepool.football>", to: ["commissioner@example.test"], subject: "New member in Sunday Pool", text: "Taylor joined Sunday Pool.", html: "<p><strong>Taylor</strong> joined <strong>Sunday Pool</strong>.</p>" });
   });
 
@@ -32,6 +80,7 @@ describe("Resend email sender", () => {
     const notifier = createResendPoolNotifier({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
     await notifier.notifyCommissionerAnnouncement({ to: "member@example.test", poolName: "Sunday & Pool", authorName: "Alex <A>", text: "Draft <noon> & bring snacks.", boardUrl: "https://officepool.football/p/sunday/board#post-post-1", idempotencyKey: "announcement/post-1/member" });
 
+    expect(fetcher).toHaveBeenCalledOnce();
     const [endpoint, request] = fetcher.mock.calls[0]!;
     expect(endpoint).toBe("https://api.resend.com/emails");
     expect(request).toMatchObject({ headers: { authorization: "Bearer resend-test-key", "content-type": "application/json", "user-agent": "office-pool-reborn/1.0", "idempotency-key": "announcement/post-1/member" } });
@@ -48,6 +97,7 @@ describe("Resend email sender", () => {
     if (!notifier.notifyMessageBoardReply) throw new Error("Expected reply notifier");
     await notifier.notifyMessageBoardReply({ to: "author@example.test", poolName: "Sunday & Pool", replierName: "Taylor <T>", text: "Reply <text> & more.", boardUrl: "https://officepool.football/p/sunday/board#post-post-1", idempotencyKey: "reply/reply-1/owner" });
 
+    expect(fetcher).toHaveBeenCalledOnce();
     const [endpoint, request] = fetcher.mock.calls[0]!;
     expect(endpoint).toBe("https://api.resend.com/emails");
     expect(request).toMatchObject({ headers: { authorization: "Bearer resend-test-key", "content-type": "application/json", "user-agent": "office-pool-reborn/1.0", "idempotency-key": "reply/reply-1/owner" } });
@@ -62,6 +112,7 @@ describe("Resend email sender", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
     const notifier = createResendPoolNotifier({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
     await notifier.notifyShareOrderFulfilled({ to: "member@example.test", poolName: "Sunday Pool", sharesMicros: "2500000", valueMicros: "3750000" });
+    expect(fetcher).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ from: "Office Pool Reborn <noreply@officepool.football>", to: ["member@example.test"], subject: "Shares added to Sunday Pool", text: "Your share order in Sunday Pool is complete.\n\n2.50 shares were added to your balance (value: $3.75).", html: "<p>Your share order in <strong>Sunday Pool</strong> is complete.</p><p><strong>2.50 shares</strong> were added to your balance (value: <strong>$3.75</strong>).</p>" });
   });
 
@@ -70,14 +121,44 @@ describe("Resend email sender", () => {
     const notifier = createResendPoolNotifier({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
     await notifier.notifyCommissionerTransfer({ to: "new@example.test", poolName: "Sunday Pool", formerCommissionerName: "Alex", newCommissionerName: "Taylor", recipient: "new" });
     await notifier.notifyCommissionerTransfer({ to: "former@example.test", poolName: "Sunday Pool", formerCommissionerName: "Alex", newCommissionerName: "Taylor", recipient: "former" });
-    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toMatchObject({ to: ["new@example.test"], subject: "You are now commissioner of Sunday Pool" });
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]?.body))).toMatchObject({ to: ["former@example.test"], subject: "Commissioner changed for Sunday Pool" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({
+      from: "Office Pool Reborn <noreply@officepool.football>",
+      to: ["new@example.test"],
+      subject: "You are now commissioner of Sunday Pool",
+      text: "Alex made you commissioner of Sunday Pool.",
+      html: "<p><strong>Alex</strong> made you commissioner of <strong>Sunday Pool</strong>.</p>"
+    });
+    expect(JSON.parse(String(fetcher.mock.calls[1]![1]?.body))).toEqual({
+      from: "Office Pool Reborn <noreply@officepool.football>",
+      to: ["former@example.test"],
+      subject: "Commissioner changed for Sunday Pool",
+      text: "You made Taylor commissioner of Sunday Pool.",
+      html: "<p>You made <strong>Taylor</strong> commissioner of <strong>Sunday Pool</strong>.</p>"
+    });
   });
 
   it("fails without exposing a Resend response body when delivery is rejected", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("sensitive provider detail", { status: 429 }));
+    const providerDetail = "sensitive provider detail";
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(providerDetail, { status: 429 }));
     const sender = createResendEmailSender({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
 
-    await expect(sender.send({ kind: "password-reset", to: "member@example.test", token: "reset-token", url: "https://officepool.football/api/auth/reset-password/reset-token?callbackURL=%2F" })).rejects.toThrow("EMAIL_DELIVERY_FAILED");
+    const error = await captureError(sender.send({ kind: "password-reset", to: "member@example.test", token: "reset-token", url: "https://officepool.football/api/auth/reset-password/reset-token?callbackURL=%2F" }));
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(error.message).toBe("EMAIL_DELIVERY_FAILED");
+    expect(error).not.toHaveProperty("cause");
+  });
+
+  it("fails without exposing a network error when delivery rejects", async () => {
+    const providerDetail = "sensitive network detail";
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new Error(providerDetail));
+    const sender = createResendEmailSender({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher });
+
+    const error = await captureError(sender.send({ kind: "verification", to: "member@example.test", token: "verification-token", url: "https://officepool.football/api/auth/verify-email?token=verification-token" }));
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(error.message).toBe("EMAIL_DELIVERY_FAILED");
+    expect(error).not.toHaveProperty("cause");
   });
 });
