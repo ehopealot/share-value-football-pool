@@ -29,6 +29,19 @@ export const sortWagerLegsByStartTime = <T extends { eventStartsAt: string }>(le
 /** Each ticket leg retains its own kickoff, so multi-leg tickets can align every start with its wager line. */
 export const displayWagerStartTimes = (wager: WagerWithStartTime): string[] => sortWagerLegsByStartTime(wager.legs ?? []).map((leg) => Number.isFinite(Date.parse(leg.eventStartsAt)) ? formatKickoff(leg.eventStartsAt) : "");
 
+const dateLabel = (startsAt: string): string => new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date(startsAt));
+
+/** Mobile tables lift repeated dates into one compact ticket ribbon. */
+export const displayWagerDateLabel = (wager: WagerWithStartTime): string => {
+  const starts = sortWagerLegsByStartTime(wager.legs ?? []).map((leg) => leg.eventStartsAt).filter((start) => Number.isFinite(Date.parse(start)));
+  if (!starts.length) return "Start unavailable";
+  const first = dateLabel(starts[0]!);
+  const last = dateLabel(starts.at(-1)!);
+  return first === last ? first : `${first} – ${last}`;
+};
+
+export const displayWagerStartTimeOnly = (wager: WagerWithStartTime): string[] => displayWagerStartTimes(wager).map((start) => start.split(" ")[1] ?? "");
+
 /** Returns a chronological copy, retaining a deterministic order when kickoff data ties or is unavailable. */
 export const sortWagersByStartTime = <T extends WagerWithStartTime>(wagers: T[]): T[] => [...wagers].sort((left, right) => {
   const startOrder = (earliestWagerStartTime(left) ?? "9999-12-31T23:59:59.999Z").localeCompare(earliestWagerStartTime(right) ?? "9999-12-31T23:59:59.999Z");

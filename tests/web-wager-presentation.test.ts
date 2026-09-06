@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Confirmation } from "../src/web/components/Confirmation";
 import { WagerDetails } from "../src/web/components/WagerDetails";
 import { formatKickoff } from "../src/web/odds-format";
-import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
+import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../src/web/wager-presentation";
 
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", type: "straight", confirmedAt: "2026-09-01T00:00:00.000Z", legs: [{ eventStartsAt: "2026-09-06T20:00:00.000Z" }], ...overrides });
 
@@ -25,6 +25,9 @@ describe("owner ticket presentation", () => {
 
     expect(displayWagerStartTimes(early)).toEqual([formatKickoff("2026-09-06T20:00:00.000Z")]);
     expect(displayWagerStartTimes(parlay)).toEqual([formatKickoff("2026-09-06T18:00:00.000Z"), formatKickoff("2026-09-07T20:00:00.000Z")]);
+    expect(displayWagerStartTimeOnly(parlay)).toEqual([formatKickoff("2026-09-06T18:00:00.000Z").split(" ")[1], formatKickoff("2026-09-07T20:00:00.000Z").split(" ")[1]]);
+    expect(displayWagerDateLabel(early)).toBe("Sun, Sep 6");
+    expect(displayWagerDateLabel(parlay)).toBe("Sun, Sep 6 – Mon, Sep 7");
     expect(sortWagersByStartTime([late, early, parlay]).map((item) => item.wagerId)).toEqual(["parlay", "early", "late"]);
   });
 

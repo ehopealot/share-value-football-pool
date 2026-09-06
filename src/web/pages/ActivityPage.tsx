@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
-import { displayWagerStartTimes, sortWagerLegsByStartTime } from "../wager-presentation";
+import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -31,9 +31,11 @@ function WagerRows({ wager }: { wager: Wager }) {
   const hiddenLegCount = wager.hiddenLegCount ?? 0;
   const rowCount = legs.length + (hiddenLegCount > 0 ? 1 : 0);
   const starts = displayWagerStartTimes(wager);
+  const mobileStarts = displayWagerStartTimeOnly(wager);
+  const dateRow = <tr className="wager-date-row"><th colSpan={4}>{displayWagerDateLabel(wager)}</th></tr>;
   const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < rowCount - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
-  if (!legs.length) return <tr><td></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;
-  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span></td><td><WagerLine leg={leg}/></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
+  if (!legs.length) return <>{dateRow}<tr><td></td><td><WagerLines wager={wager}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr></>;
+  return <>{dateRow}{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><WagerLine leg={leg}/></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
 }
 
 export function MemberActivitySection({ member }: { member: ReturnType<typeof groupActivityMembersForWeek>[number] }) {
