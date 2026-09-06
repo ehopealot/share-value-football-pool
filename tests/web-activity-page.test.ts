@@ -10,6 +10,7 @@ describe("Activity page", () => {
   });
 
   it("offers a week selector and renders a compact wager table beneath every member ribbon", () => {
+    expect(source).toContain('<h2>All bets</h2>');
     expect(source).toContain('<label>Week <select');
     expect(source).toContain('].sort().reverse();');
     expect(source).toContain('weeks.includes(selectedWeek) ? selectedWeek : weeks[0]');

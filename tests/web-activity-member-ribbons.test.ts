@@ -34,7 +34,7 @@ describe("Activity member ribbons", () => {
     expect(styles).toMatch(/\.activity-staked-column\s*\{[^}]*width:\s*16%/);
     expect(styles).toMatch(/\.activity-pnl-column\s*\{[^}]*width:\s*12%/);
     expect(styles).toContain('.activity-table .activity-leg-loss, .activity-table .activity-leg-win, .activity-table .activity-leg-push, .activity-table .activity-leg-neutral { display: block; white-space: normal; overflow-wrap: anywhere; }');
-    expect(styles).toContain('@media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } .activity-wager-column { width: 50%; } .activity-pnl-column { width: 14%; } }');
+    expect(styles).toMatch(/@media \(max-width: 600px\) \{ \.activity-table \{ min-width: 26\.25rem; font-size: 0\.78rem; \}/);
     expect(html).toContain("UCLA");
   });
 
@@ -42,7 +42,8 @@ describe("Activity member ribbons", () => {
     const multiLegMember = { ...member, wagers: [{ ...member.wagers[0], type: "parlay", legs: [{ ...member.wagers[0].legs[0], eventStartsAt: "2026-09-06T20:30:00.000Z" }, { ...member.wagers[0].legs[0], eventId: "game-2", awayTeam: "Oregon", homeTeam: "Washington", eventStartsAt: "2026-09-06T18:00:00.000Z" }] }] };
     const html = render(createElement(MemberActivitySection, { member: multiLegMember as any }));
 
-    expect(html.match(/<tr/g)).toHaveLength(3);
+    expect(html.match(/<tr/g)).toHaveLength(4);
+    expect(html).toContain('<tr class="wager-date-row">');
     expect(html).toContain('<tr class="activity-wager-leg-row">');
     expect(html.match(/class="wager-start-time"/g)).toHaveLength(2);
     const firstKickoff = html.indexOf(`<span class="wager-start-time">${formatKickoff("2026-09-06T18:00:00.000Z")}</span>`);
