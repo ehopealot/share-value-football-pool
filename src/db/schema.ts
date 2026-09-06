@@ -17,6 +17,3 @@ export const verification = sqliteTable("verification", {
   id: text("id").primaryKey(), identifier: text("identifier").notNull(), value: text("value").notNull(), expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(), createdAt: integer("createdAt", { mode: "timestamp" }).notNull(), updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull()
 }, (table) => [index("verification_identifier").on(table.identifier)]);
 export const betterAuthSchema = { user, account, session, verification };
-
-export const d1Tables = ["user", "account", "session", "verification", "pool_registry", "pool_registry_command_response", "membership_projection", "season_projection", "sports_event", "market_offer", "odds_ingestion", "odds_league_poll", "projection_delivery", "projection_state"] as const;
-export type D1Table = (typeof d1Tables)[number];
