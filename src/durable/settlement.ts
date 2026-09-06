@@ -112,7 +112,6 @@ export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], o
       if (!prior || !automaticPartialLoss(prior, legs)) continue;
       reversePrior(sql, wager, prior);
       sql.exec("UPDATE wager SET status = 'open', settled_result_version = NULL WHERE id = ?", wager.id);
-      updateObservedLegs(sql, legs, grades, byEvent);
       applied.push({ wager, source, identity: source.map((result) => ({ eventId: result.eventId, correctionVersion: result.correctionVersion })), priorResultVersion: String(prior.result_version) });
       settled++;
       continue;
@@ -121,7 +120,6 @@ export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], o
     const risk = parseIntegerText(String(wager.risk_micros));
     if (prior) reversePrior(sql, wager, prior);
     apply(sql, wager, outcome, risk, profit, odds, version, JSON.stringify(source), prior ? String(prior.id) : null);
-    updateObservedLegs(sql, legs, grades, byEvent);
     applied.push({ wager, source, identity: source.map((result) => ({ eventId: result.eventId, correctionVersion: result.correctionVersion })), ...(prior ? { priorResultVersion: String(prior.result_version) } : {}) });
     settled++;
   }
