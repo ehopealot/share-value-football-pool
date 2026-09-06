@@ -31,12 +31,13 @@ describe("graded wager presentation", () => {
 
     expect(html).toContain('class="activity-leg-loss"');
     expect(html).toContain('class="activity-leg-win"');
+    expect(html).toContain('class="activity-leg-push"');
     expect(html).toContain('class="activity-leg-neutral"');
-    expect(html.match(/class="activity-leg-neutral"/g)).toHaveLength(3);
-    expect(html.match(/class="activity-leg-(?:loss|win|neutral)"/g)).toEqual([
+    expect(html.match(/class="activity-leg-neutral"/g)).toHaveLength(2);
+    expect(html.match(/class="activity-leg-(?:loss|win|push|neutral)"/g)).toEqual([
       'class="activity-leg-loss"',
       'class="activity-leg-win"',
-      'class="activity-leg-neutral"',
+      'class="activity-leg-push"',
       'class="activity-leg-neutral"',
       'class="activity-leg-neutral"'
     ]);

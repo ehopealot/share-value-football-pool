@@ -352,22 +352,22 @@ test("standings display canonical fixed-point values that change after real sett
     const currentShareValue = page.getByText("Current share value:", { exact: false });
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
     await expect(currentShareValue).toContainText("$1.000");
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "3.00", "0.00", "3.00", "3.00", "0.00"]);
-    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "2.00", "0.00"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "0.00", "3.00", "3.00", "0.00"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "0.00", "2.00", "2.00", "0.00"]);
     // A real straight ticket moves risk from available to locked without changing the price.
     await reseedUpcomingEvent(page);
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
     await expect(currentShareValue).toContainText("$1.000");
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "2.00", "1.00", "3.00", "3.00", "0.00"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "1.00", "3.00", "3.00", "0.00"]);
     // Real fixture final + alarm settlement: the win mints 1,000,000 profit into the float (5,000,000 -> 6,000,000)
     // while season notional stays 5,000,000, so the rounded page-level share value becomes $0.833 for every member.
     await settleFixtureResult(page, slug, 17, 24);
     await page.reload();
     await expect(currentShareValue).toContainText("$0.833");
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "4.00", "0.00", "4.00", "3.33", "0.33"]);
-    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "2.00", "0.00", "2.00", "1.67", "-0.33"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "0.00", "4.00", "3.33", "0.33"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "0.00", "2.00", "1.67", "-0.33"]);
     // A reason-gated regrade of that same ticket to a loss must reverse the prior win's float profit before the
     // loss destroys the risk: 6,000,000 - 1,000,000 - 1,000,000 = 4,000,000, so the rounded share value becomes $1.250.
     // (An earlier revision placed a second fixture push here; that ticket stayed locked because the local alarm
@@ -379,8 +379,8 @@ test("standings display canonical fixed-point values that change after real sett
     await expect(currentShareValue).toContainText("$1.250");
     // Both members now hold exactly 2.00 shares; the member attained 2.00 at funding while the owner's ledger
     // only returns to 2.00 at the regrade settlement entry, so the earliest-attainment tiebreak swaps the ranks.
-    expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "2.00", "0.00", "2.00", "2.50", "0.50"]);
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["2", ownerName, "2.00", "0.00", "2.00", "2.50", "-0.50"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "0.00", "2.00", "2.50", "0.50"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["2", ownerName, "0.00", "2.00", "2.50", "-0.50"]);
   } finally { await memberContext.close(); }
 });
 
@@ -440,11 +440,11 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     const teaserRows = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: ticketOwnerName }).locator(".activity-table tbody tr");
     const teaserPAndL = (actor: Page) => teaserRows(actor).locator("td").last();
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRows(viewer)).toContainText("Selection hidden until the game starts.");
+    await expect(teaserRows(viewer)).toContainText("Selection hidden until game time.");
     await expect(teaserPAndL(viewer)).toHaveText("");
     await expect(teaserRows(viewer)).not.toContainText(commissionerName);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRows(page)).toContainText("Selection hidden until the game starts.");
+    await expect(teaserRows(page)).toContainText("Selection hidden until game time.");
     await ticketOwner.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRows(ticketOwner)).toHaveCount(2);
 
@@ -461,12 +461,12 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(firstViewer).toContain('"riskMicros":"1000000"');
     expect(firstViewer).toContain('"acceptedOdds":');
     await viewer.reload();
-    const firstRendered = teaserRows(viewer);
+    const firstRendered = teaserRows(viewer).first();
     await expect(firstRendered).toContainText("Local Away (+9) at Local Home");
     await expect(firstRendered.locator("strong")).toHaveText("Local Away (+9)");
-    await expect(teaserRows(viewer)).not.toContainText(secondLeg.eventId);
+    await expect(teaserRows(viewer).filter({ hasText: secondLeg.eventId })).toHaveCount(0);
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);
-    await expect(teaserRows(page)).toContainText("Local Away (+9) at Local Home");
+    await expect(teaserRows(page).first()).toContainText("Local Away (+9) at Local Home");
 
     // Crossing only the second accepted start reveals the complete immutable ticket to both nonowners.
     expect(await controlStatus(page, "/__local-test/current-time", { poolSlug: slug, currentTime: new Date(new Date(secondLeg.eventStartsAt).getTime() + 1_000).toISOString() })).toBe(200);

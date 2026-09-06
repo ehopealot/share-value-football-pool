@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
+import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { cloudflareCredentialNames, workerSecretNames } from "../../scripts/cloudflare-credentials.mjs";
 import { runOwnedProcess } from "../../scripts/owned-process";
-import { probeProductionRoutes, productionProbeEnvironment, validateProductionProbeInputs } from "../../scripts/production-route-probe";
+import { assertProductionPortAvailable, probeProductionRoutes, productionProbeEnvironment, validateProductionProbeInputs } from "../../scripts/production-route-probe";
 
 const root = resolve(import.meta.dirname, "../..");
 const CLEANUP_ALLOWANCE_MS = 15_000;
@@ -79,6 +80,34 @@ describe("production/local composition", () => {
       fetch: async () => new Response("already serving", { status: 200 })
     })).rejects.toThrow(/already serving/);
     expect(spawns).toBe(0);
+  });
+
+  it("rejects an occupied port that redirects to a closed port", async () => {
+    const target = createServer();
+    const redirector = createServer();
+    try {
+      target.listen(0, "127.0.0.1");
+      await once(target, "listening");
+      const targetAddress = target.address();
+      if (!targetAddress || typeof targetAddress === "string") throw new Error("expected TCP target address");
+
+      redirector.on("request", (_request, response) => {
+        response.writeHead(302, { location: `http://127.0.0.1:${targetAddress.port}/health/app` });
+        response.end();
+      });
+      redirector.listen(0, "127.0.0.1");
+      await once(redirector, "listening");
+      const address = redirector.address();
+      if (!address || typeof address === "string") throw new Error("expected TCP redirector address");
+      await new Promise<void>((resolve, reject) => target.close((error) => error ? reject(error) : resolve()));
+
+      await expect(assertProductionPortAvailable(`http://127.0.0.1:${address.port}`)).rejects.toThrow(/already serving/);
+    } finally {
+      await Promise.all([target, redirector].map((server) => {
+        server.closeAllConnections();
+        return new Promise<void>((resolve) => server.close(() => resolve()));
+      }));
+    }
   });
 
   it("treats a preflight timeout as indeterminate without spawning a Worker", async () => {
