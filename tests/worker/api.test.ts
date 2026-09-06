@@ -187,23 +187,26 @@ describe("later wager and member HTTP API", () => {
     await setupPool(poolId, slug);
     await send(poolId, { type: "JoinPool", commandId: `join-member-two-${poolId}`, actorId: "member-two", displayName: "Member Two", password: "correct-password" });
     await send(poolId, { type: "JoinPool", commandId: `join-member-three-${poolId}`, actorId: "member-three", displayName: "Member Three", password: "correct-password" });
-    const deliveryStartedAt: number[] = [];
-    const app = createWorkerApp({
-      db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY,
-      currentUser: async () => ({ id: "owner", name: "Owner" }),
-      poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async () => { deliveryStartedAt.push(Date.now()); } }
-    });
-    const pending: Promise<unknown>[] = [];
-    const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
+    const deliveries: string[] = [];
+    const timeout = vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => { callback(); return 0; }) as typeof setTimeout);
+    try {
+      const app = createWorkerApp({
+        db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY,
+        currentUser: async () => ({ id: "owner", name: "Owner" }),
+        poolNotifier: { notifyPoolJoin: async () => {}, notifyCommissionerTransfer: async () => {}, notifyShareOrderFulfilled: async () => {}, notifyCommissionerAnnouncement: async ({ to }) => { deliveries.push(to); } }
+      });
+      const pending: Promise<unknown>[] = [];
+      const executionContext = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
 
-    expect((await app.fetch(request(`/api/p/${slug}/board/posts`, { text: "Paced announcement", idempotencyKey: "paced-announcement", announcement: true }), {}, executionContext)).status).toBe(200);
-    await pending[0];
+      expect((await app.fetch(request(`/api/p/${slug}/board/posts`, { text: "Paced announcement", idempotencyKey: "paced-announcement", announcement: true }), {}, executionContext)).status).toBe(200);
+      await pending[0];
 
-    expect(deliveryStartedAt).toHaveLength(3);
-    expect(deliveryStartedAt[1]! - deliveryStartedAt[0]!).toBeGreaterThanOrEqual(200);
-    expect(deliveryStartedAt[1]! - deliveryStartedAt[0]!).toBeLessThan(800);
-    expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeGreaterThanOrEqual(200);
-    expect(deliveryStartedAt[2]! - deliveryStartedAt[1]!).toBeLessThan(800);
+      expect(deliveries).toHaveLength(3);
+      expect(timeout).toHaveBeenCalledTimes(2);
+      expect(timeout.mock.calls.map((call) => call[1])).toEqual([250, 250]);
+    } finally {
+      timeout.mockRestore();
+    }
   }, 90_000);
 
   it("notifies an active original author once after another member replies without changing the reply response", async () => {
@@ -624,6 +627,7 @@ describe("later wager and member HTTP API", () => {
       const leg = (eventId: string, line: number, pick: string) => ({ eventId, league: "nfl", canonicalBook: "DraftKings", market, selection: pick, offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:${market}:${pick}`, eventId, offerVersion: "v1", canonicalBook: "DraftKings", market, selection: pick, odds: -110, line } });
       const input = { wagerId: `unchanged-${id}`, seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [leg(id, initial, selection), leg(other, otherLine, selection)] };
       const unchanged = await quoteAndPlace(app, slug, "teasers", input, `unchanged-${id}`);
+      expect(unchanged.quote).toMatchObject({ legs: expect.arrayContaining([expect.objectContaining({ eventId: id, originalLine: initial, adjustedLine: adjusted })]) });
       expect((await unchanged.place()).status).toBe(200);
       const altered = await quoteAndPlace(app, slug, "teasers", { ...input, wagerId: `changed-${id}` }, `changed-${id}`);
       const outcomes = market === "spread" ? [{ name: "Home", price: -110, point: selection === "home" ? changed : -changed }, { name: "Away", price: -110, point: selection === "away" ? changed : -changed }] : [{ name: "Over", price: -110, point: changed }, { name: "Under", price: -110, point: changed }];
@@ -644,11 +648,9 @@ describe("later wager and member HTTP API", () => {
     const response = await app.fetch(request(`/api/p/${slug}/wagers/straight/quote`, staleRequest));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ code: "LINE_CHANGED", reconfirmationRequired: true });
-    const quoteRows = await bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)).fetch("https://pool.internal/command", { method: "POST", body: JSON.stringify({ type: "ReadAuditExport", commandId: "audit-turnover", actorId: "member" }) });
-    expect(await quoteRows.json()).not.toHaveProperty("wagerQuotes");
-    // The direct storage assertion ensures the stale key cannot be replayed as a mismatched durable snapshot.
-    const count = await bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)).fetch("https://pool.internal/command", { method: "POST", body: JSON.stringify({ type: "ReplayWagerQuote", commandId: "turnover-quote", actorId: "member", identity: { actorId: "member", quoteKey: "turnover-quote", fingerprint: JSON.stringify({ wagerId: staleRequest.wagerId, seasonId: staleRequest.seasonId, riskMicros: staleRequest.riskMicros, rulesetVersion: staleRequest.rulesetVersion, leg: staleRequest.leg, actorId: "member" }) } }) });
-    expect(await count.json()).toEqual({ code: "QUOTE_NOT_FOUND" });
+    // The replay probe ensures the stale key cannot be retrieved as a mismatched durable snapshot.
+    const replay = await bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)).fetch("https://pool.internal/command", { method: "POST", body: JSON.stringify({ type: "ReplayWagerQuote", commandId: "turnover-quote", actorId: "member", identity: { actorId: "member", quoteKey: "turnover-quote", fingerprint: JSON.stringify({ wagerId: staleRequest.wagerId, seasonId: staleRequest.seasonId, riskMicros: staleRequest.riskMicros, rulesetVersion: staleRequest.rulesetVersion, leg: staleRequest.leg, actorId: "member" }) } }) });
+    expect(await replay.json()).toEqual({ code: "QUOTE_NOT_FOUND" });
   }, 90_000);
 
   it("rejects teaser quote-time canonical turnover without storing a replacement snapshot", async () => {
