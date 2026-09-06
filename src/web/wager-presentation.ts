@@ -11,10 +11,11 @@ export const ticketReturns = (riskMicros: string, acceptedOdds: number) => {
 
 type WagerWithStartTime = { wagerId: string; confirmedAt: string; type: string; legs?: Array<{ eventStartsAt: string; grade?: string | null }> };
 
-const earliestWagerStartTime = (wager: WagerWithStartTime): string | undefined => {
+const representativeWagerStartTime = (wager: WagerWithStartTime): string | undefined => {
   const validLegs = (wager.legs ?? []).filter((leg) => Number.isFinite(Date.parse(leg.eventStartsAt)));
   const activeOrUpcoming = validLegs.filter((leg) => leg.grade === undefined || leg.grade === null);
-  return (activeOrUpcoming.length ? activeOrUpcoming : validLegs).map((leg) => leg.eventStartsAt).sort()[0];
+  const starts = (activeOrUpcoming.length ? activeOrUpcoming : validLegs).map((leg) => leg.eventStartsAt).sort();
+  return activeOrUpcoming.length ? starts[0] : starts.at(-1);
 };
 
 /** Returns a chronological display copy while preserving selection order for equal or unavailable kickoffs. */
@@ -34,22 +35,24 @@ const dateLabel = (startsAt: string): string => new Intl.DateTimeFormat("en-US",
 
 /** Mobile tables lift repeated dates into one compact ticket ribbon. */
 export const displayWagerDateLabel = (wager: WagerWithStartTime): string => {
-  const start = earliestWagerStartTime(wager);
+  const start = representativeWagerStartTime(wager);
   return start ? dateLabel(start) : "Start unavailable";
 };
 
 export const displayWagerStartTimeOnly = (wager: WagerWithStartTime): string[] => {
   const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   const dates = new Set(legs.filter((leg) => Number.isFinite(Date.parse(leg.eventStartsAt))).map((leg) => new Date(leg.eventStartsAt).toDateString()));
+  const anchor = representativeWagerStartTime(wager);
+  const anchorDate = anchor ? new Date(anchor).toDateString() : "";
   return legs.map((leg) => {
     if (!Number.isFinite(Date.parse(leg.eventStartsAt))) return "";
-    if (dates.size > 1 && leg.grade !== undefined && leg.grade !== null) return new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(new Date(leg.eventStartsAt));
+    if (dates.size > 1 && new Date(leg.eventStartsAt).toDateString() !== anchorDate) return new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(new Date(leg.eventStartsAt));
     return formatKickoff(leg.eventStartsAt).split(" ")[1] ?? "";
   });
 };
 
 /** Returns a chronological copy, retaining a deterministic order when kickoff data ties or is unavailable. */
 export const sortWagersByStartTime = <T extends WagerWithStartTime>(wagers: T[]): T[] => [...wagers].sort((left, right) => {
-  const startOrder = (earliestWagerStartTime(left) ?? "9999-12-31T23:59:59.999Z").localeCompare(earliestWagerStartTime(right) ?? "9999-12-31T23:59:59.999Z");
+  const startOrder = (representativeWagerStartTime(left) ?? "9999-12-31T23:59:59.999Z").localeCompare(representativeWagerStartTime(right) ?? "9999-12-31T23:59:59.999Z");
   return startOrder || left.confirmedAt.localeCompare(right.confirmedAt) || left.wagerId.localeCompare(right.wagerId);
 });
