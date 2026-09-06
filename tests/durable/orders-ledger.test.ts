@@ -51,8 +51,9 @@ describe("PoolDO share orders", () => {
     const execute: PoolCommand = { type: "ExecuteShareOrder", commandId: "order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000", quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "initial virtual shares" };
     const executed = await send(slug, execute);
     expect(executed).toMatchObject({ sharesMicros: "5000000", valueMicros: "5000000" });
+    expect(executed).not.toHaveProperty("replayed");
     await accountingInvariant(slug, 1);
-    expect(await send(slug, execute)).toMatchObject(executed);
+    expect(await send(slug, execute)).toEqual({ ...executed, replayed: true });
     await accountingInvariant(slug, 1);
     expect(await send(slug, { type: "ReverseShareOrder", commandId: "reverse", actorId: "owner", orderId: String(executed.orderId), reason: "commissioner correction" })).toMatchObject({ sharesMicros: "-5000000", valueMicros: "-5000000" });
     await accountingInvariant(slug, 2);
@@ -101,20 +102,24 @@ describe("PoolDO share orders", () => {
     await accountingInvariant(slug, 2);
     expect(await send(slug, valueOrder)).toMatchObject({ sharesMicros: "300000", valueMicros: "1000000" });
     await accountingInvariant(slug, 2);
-    const shareQuote = await send(slug, { type: "QuoteShareOrder", commandId: "shares-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "300001" });
-    const shareOrder = { type: "ExecuteShareOrder", commandId: "shares-order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "300001", quote: shareQuote, reason: "share rounding" } as PoolCommand;
-    expect(await send(slug, shareOrder)).toMatchObject({ sharesMicros: "300001", valueMicros: "1000003" });
+    const shareQuote = await send(slug, { type: "QuoteShareOrder", commandId: "shares-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "500000" });
+    const shareOrder = { type: "ExecuteShareOrder", commandId: "shares-order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "500000", quote: shareQuote, reason: "share rounding" } as PoolCommand;
+    expect(await send(slug, shareOrder)).toMatchObject({ sharesMicros: "500000", valueMicros: "1666666" });
     await accountingInvariant(slug, 3);
     const shareExecuted = await send(slug, shareOrder);
-    expect(shareExecuted).toMatchObject({ sharesMicros: "300001", valueMicros: "1000003" });
+    expect(shareExecuted).toMatchObject({ sharesMicros: "500000", valueMicros: "1666666" });
     await accountingInvariant(slug, 3);
-    expect(await send(slug, shareOrder)).toMatchObject(shareExecuted);
-    await accountingInvariant(slug, 3);
-    expect(await send(slug, { type: "ReverseShareOrder", commandId: "reverse-share-order", actorId: "owner", orderId: String(shareExecuted.orderId), reason: "rounding correction" })).toMatchObject({ sharesMicros: "-300001", valueMicros: "-1000003" });
+    const oddShareQuote = await send(slug, { type: "QuoteShareOrder", commandId: "odd-shares-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1500000" });
+    expect(oddShareQuote).toMatchObject({ priceMicros: "3333333" });
+    expect(await send(slug, { type: "ExecuteShareOrder", commandId: "odd-shares-order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1500000", quote: oddShareQuote, reason: "odd-quotient tie rounding" } as PoolCommand)).toMatchObject({ sharesMicros: "1500000", valueMicros: "5000000" });
     await accountingInvariant(slug, 4);
+    expect(await send(slug, shareOrder)).toMatchObject(shareExecuted);
+    await accountingInvariant(slug, 4);
+    expect(await send(slug, { type: "ReverseShareOrder", commandId: "reverse-share-order", actorId: "owner", orderId: String(shareExecuted.orderId), reason: "rounding correction" })).toMatchObject({ sharesMicros: "-500000", valueMicros: "-1666666" });
+    await accountingInvariant(slug, 5);
   }, 30_000);
 
-  it("keeps defaults form-only, rejects noncanonical orders, and serializes concurrent quotes", async () => {
+  it("keeps defaults form-only, rejects noncanonical orders, and serializes concurrent executions from one quote", async () => {
     const slug = `orders-${crypto.randomUUID()}`;
     await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Orders", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
     await send(slug, { type: "CreateSeason", commandId: "draft", actorId: "owner", seasonId: "s1", label: "2026", defaultOrder: { mode: "value", amountMicros: "5000000" } });
