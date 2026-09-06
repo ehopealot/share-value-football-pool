@@ -17,11 +17,13 @@ describe("selection tray", () => {
     const first = toggleTrayItem([], item());
     expect(first).toHaveLength(1);
     expect(toggleTrayItem(first, item({ risk: "5" }))).toEqual([]);
+    expect(toggleTrayItem(first, item({ wagerId: "w2" }))).toEqual([]);
     expect(toggleTrayItem(first, item({ market: "total", selection: "over" }))).toHaveLength(2);
   });
 
-  it("replaces the sibling selection from the same game and market column", () => {
+  it("replaces sibling selections and toggles matching identity regardless of risk or wager ID", () => {
     const home = toggleMarketExclusive([], item());
+    expect(toggleMarketExclusive(home, item({ risk: "5", wagerId: "w2" }))).toEqual([]);
     const away = toggleMarketExclusive(home, item({ selection: "away" }));
     expect(away).toHaveLength(1);
     expect(away[0]!.selection).toBe("away");

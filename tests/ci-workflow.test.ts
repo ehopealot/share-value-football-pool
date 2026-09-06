@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "..");
 const workflowPath = resolve(root, ".github/workflows/ci.yml");
+const packageManifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as { scripts: Record<string, string> };
 
 const workflowSource = () => readFileSync(workflowPath, "utf8");
 const jobSource = (workflow: string, job: string, nextJob?: string) => {
@@ -12,8 +13,18 @@ const jobSource = (workflow: string, job: string, nextJob?: string) => {
   expect(match, `${job} job must exist`).not.toBeNull();
   return match![1];
 };
+const sensitiveVariableName = String.raw`(?:CLOUDFLARE_[A-Z0-9_]*|[A-Z0-9_]*(?:SECRET|TOKEN|KEY)[A-Z0-9_]*)`;
+const credentialReference = new RegExp(String.raw`\b(?:secrets\s*(?:\.\s*[A-Z0-9_]+|\[\s*["'][A-Z0-9_]+["']\s*\])|vars\s*(?:\.\s*${sensitiveVariableName}|\[\s*["']${sensitiveVariableName}["']\s*\]))`, "i");
 
 describe("GitHub Actions CI and production deployment", () => {
+  it("detects dot and bracket credential references", () => {
+    for (const reference of [
+      "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+      "${{ secrets['CLOUDFLARE_API_TOKEN'] }}",
+      "${{ vars.VITE_TURNSTILE_SITE_KEY }}",
+      "${{ vars['VITE_TURNSTILE_SITE_KEY'] }}"
+    ]) expect(reference).toMatch(credentialReference);
+  });
   it("runs CI for pull requests and main pushes without deployment credentials", () => {
     const workflow = workflowSource();
     const ci = jobSource(workflow, "ci", "e2e");
@@ -27,7 +38,7 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(ci).toContain("npm run typecheck");
     expect(ci).toContain("git rev-parse --verify HEAD^");
     expect(ci).toContain("git diff --check HEAD^ HEAD");
-    expect(ci).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|VITE_TURNSTILE_SITE_KEY)/);
+    expect(ci).not.toMatch(credentialReference);
   });
 
   it("runs the complete Playwright suite as an advisory pull-request check", () => {
@@ -42,8 +53,9 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(e2e).toMatch(/node-version:\s*["']?24["']?/);
     expect(e2e).toContain("npm ci");
     expect(e2e).toContain("./node_modules/.bin/playwright install --with-deps chromium");
-    expect(e2e).toContain("npm run test:e2e");
-    expect(e2e).not.toMatch(/(?:secrets|vars)\.(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|VITE_TURNSTILE_SITE_KEY)/);
+    expect(e2e).toMatch(/^\s*run:\s*npm run test:e2e\s*$/m);
+    expect(packageManifest.scripts["test:e2e"]).toBe("playwright test");
+    expect(e2e).not.toMatch(credentialReference);
     expect(deploy).not.toContain("e2e");
   });
 
@@ -64,6 +76,11 @@ describe("GitHub Actions CI and production deployment", () => {
     for (const action of ["Apply D1 migrations", "Deploy production Worker", "Verify production health"]) {
       expect(deploy).toMatch(new RegExp(`- name: ${action}\\n\\s+if: steps\\.freshness\\.outputs\\.deploy == ['"]true['"]`));
     }
+    const migrationIndex = deploy.indexOf("- name: Apply D1 migrations");
+    const deploymentIndex = deploy.indexOf("- name: Deploy production Worker");
+    const healthIndex = deploy.indexOf("- name: Verify production health");
+    expect(migrationIndex).toBeLessThan(deploymentIndex);
+    expect(deploymentIndex).toBeLessThan(healthIndex);
     expect(deploy).toContain("actions/setup-node@v4");
     expect(deploy).toMatch(/node-version:\s*["']?24["']?/);
     expect(deploy).toContain("npm ci");

@@ -3,7 +3,7 @@ import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, inva
 import { FrozenAdminCommand } from "../src/web/admin-command";
 import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
-describe("wager recovery messages", () => {
+describe("web API transport, parsing, and recovery", () => {
   it("rejects malformed odds-board feed observations at the browser boundary", () => {
     const response = { offers: [], feed: { status: "no-offer", message: "No current odds are available.", lastPolledAt: null, lastSuccessAt: null } };
     expect(parseOddsBoardSuccess(response)).toEqual(response);
@@ -126,14 +126,20 @@ describe("wager recovery messages", () => {
     }
   });
 
-  it("preserves exact owner wager fields while parsing a time-redacted audit export", () => {
+  it("strips undeclared protected fields while preserving exact owner wager fields", () => {
     const exported = {
       format: "share-value-pool-audit-v1", commandVersion: "3", pool: { id: "p", slug: "pool", name: "Pool", commissionerId: "c", signupsOpen: true, commandVersion: "3" },
       seasons: [], seasonProviderResults: [], accounts: [], orders: [], ledger: [], settlements: [], wagerCorrections: [], administrationAudit: [], seasonAnnotations: [],
-      wagers: [{ wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "teaser", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "900719925474099312345678", acceptedOdds: -120, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ eventId: "started-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "policy", offerVersion: "offer", market: "spread", selection: "home", originalOdds: -110, eventStartsAt: "2026-01-02T00:00:00.000Z" }] }]
+      wagers: [{ wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "teaser", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "900719925474099312345678", acceptedOdds: -120, rulesetVersion: "SHARE_POOL_2026_V1", protectedFutureSelection: { eventId: "future-event" }, legs: [{ eventId: "started-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "policy", offerVersion: "offer", market: "spread", selection: "home", originalOdds: -110, eventStartsAt: "2026-01-02T00:00:00.000Z" }] }]
     };
-    expect(parseAuditExportSuccess(exported).wagers[0]).toMatchObject({ riskMicros: "900719925474099312345678", acceptedOdds: -120, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ eventId: "started-event" }] });
-    expect(JSON.stringify(exported)).not.toContain("future-event");
+    const parsed = parseAuditExportSuccess(exported);
+    expect(parsed.wagers[0]).toEqual({
+      wagerId: "w", seasonId: "s", memberId: "member", memberDisplayName: "Member", type: "teaser", status: "open",
+      confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0",
+      riskMicros: "900719925474099312345678", acceptedOdds: -120, rulesetVersion: "SHARE_POOL_2026_V1",
+      legs: [{ eventId: "started-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "policy", offerVersion: "offer", market: "spread", selection: "home", originalOdds: -110, eventStartsAt: "2026-01-02T00:00:00.000Z" }]
+    });
+    expect(parsed.wagers[0]).not.toHaveProperty("protectedFutureSelection");
   });
 
   it("uses a concise regrade-before-start error", () => {

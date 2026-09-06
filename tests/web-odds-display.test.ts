@@ -8,6 +8,22 @@ import { batchAfterPopState, filterGamesByTeam, groupBoardByEvent, OddsBoardTabl
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
 const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
+const cssBlockEnd = (source: string, start: number) => {
+  const open = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = open; index < source.length; index++) {
+    if (source[index] === "{") depth++;
+    if (source[index] === "}" && --depth === 0) return index + 1;
+  }
+  throw new Error("Unclosed CSS block");
+};
+const mobileBlocks = [...styles.matchAll(/@media \(max-width: 600px\)\s*\{/g)].map((match) => {
+  const start = match.index;
+  const end = cssBlockEnd(styles, start);
+  return { start, end, source: styles.slice(start, end) };
+});
+const mobileOddsStyles = mobileBlocks.find((block) => block.source.includes(".odds-board {"))?.source ?? "";
+const topLevelStyles = mobileBlocks.reduceRight((source, block) => source.slice(0, block.start) + source.slice(block.end), styles);
 
 describe("member-facing odds display", () => {
   it("always prefixes a positive American price with +", () => {
@@ -17,10 +33,15 @@ describe("member-facing odds display", () => {
   });
 
   it("uses one compact local kickoff formatter for the odds board and wager tables", () => {
-    const date = new Date("2026-09-06T20:00:00.000Z");
-    const hour = date.getHours() % 12 || 12;
-    expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe(`${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(hour).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}${date.getHours() >= 12 ? "p" : "a"}`);
-    expect(oddsPageSource).toContain("formatKickoff(game.startsAt)");
+    const previousTimezone = process.env.TZ;
+    try {
+      process.env.TZ = "America/New_York";
+      expect(formatKickoff("2026-09-06T20:00:00.000Z")).toBe("09/06 04:00p");
+      expect(oddsPageSource).toContain("formatKickoff(game.startsAt)");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   it("provides straight-bet confirmation totals without repeating the selected matchup", () => {
@@ -68,13 +89,15 @@ describe("member-facing odds display", () => {
   });
 
   it("gives the mobile matchup column more room than the market columns", () => {
-    expect(styles).toMatch(/\.odds-board thead th:nth-child\(2\)\s*\{[^}]*width:\s*5\.5rem/);
-    expect(styles).toMatch(/th:nth-child\(3\),\s*\.odds-board thead th:nth-child\(4\),\s*\.odds-board thead th:nth-child\(5\)\s*\{[^}]*width:\s*4\.25rem/);
+    expect(mobileOddsStyles).toMatch(/\.odds-board thead th:nth-child\(2\)\s*\{[^}]*width:\s*5\.5rem/);
+    expect(mobileOddsStyles).toMatch(/th:nth-child\(3\),\s*\.odds-board thead th:nth-child\(4\),\s*\.odds-board thead th:nth-child\(5\)\s*\{[^}]*width:\s*4\.25rem/);
   });
 
   it("keeps the two odds-board sub-rows equal beneath row-spanning matchup cells", () => {
-    expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.8rem/);
-    expect(styles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.2rem/);
+    expect(topLevelStyles).toMatch(/\.odds-board \.odds-game-top, \.odds-board \.odds-game-bottom\s*\{[^}]*height:\s*2\.4rem/);
+    expect(topLevelStyles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.8rem/);
+    expect(mobileOddsStyles).toMatch(/\.odds-board \.odds-game-top, \.odds-board \.odds-game-bottom\s*\{[^}]*height:\s*2\.1rem/);
+    expect(mobileOddsStyles).toMatch(/\.odds-game-top > \.odds-matchup\s*\{[^}]*height:\s*4\.2rem/);
   });
 
   it("keeps the odds table memoized while only a bet amount changes", () => {

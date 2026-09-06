@@ -10,7 +10,7 @@ import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/Ad
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
 import { PageGeneration } from "../src/web/page-generation";
 
-describe("entry redirects", () => {
+describe("web entry and workflow helpers", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("preserves same-origin application paths, query, and hash", () => {
     vi.stubGlobal("location", new URL("https://pool.example.test/"));

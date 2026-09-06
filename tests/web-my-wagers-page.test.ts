@@ -19,6 +19,7 @@ describe("My wagers page", () => {
     expect(source).toContain('<strong key={index}>{segment.text}</strong>');
     expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
     expect(source).toContain('className="wager-start-time"');
+    expect(source).toContain('<td><span className="wager-start-time">{starts[index]}</span></td><td><WagerLine leg={leg}/></td>');
     expect(source).toContain('rowSpan={legs.length}');
     expect(source).toContain('activity-wager-leg-row-leading');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td>');

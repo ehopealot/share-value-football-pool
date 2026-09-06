@@ -34,8 +34,17 @@ describe("graded wager presentation", () => {
     expect(html).toContain('class="activity-leg-push"');
     expect(html).toContain('class="activity-leg-neutral"');
     expect(html.match(/class="activity-leg-neutral"/g)).toHaveLength(2);
+    expect(html.match(/class="activity-leg-(?:loss|win|push|neutral)"/g)).toEqual([
+      'class="activity-leg-loss"',
+      'class="activity-leg-win"',
+      'class="activity-leg-push"',
+      'class="activity-leg-neutral"',
+      'class="activity-leg-neutral"'
+    ]);
   });
+});
 
+describe("standings presentation", () => {
   it("shows total and locked holdings without an available column", () => {
     const html = render(createElement(StandingsTable, { standings: [{
       userId: "member-1", rank: 1, displayName: "Member", availableMicros: "1000000", lockedMicros: "0", totalMicros: "1000000", notionalValueMicros: "1000000", priceMicros: "1000000", gainMicros: "0"

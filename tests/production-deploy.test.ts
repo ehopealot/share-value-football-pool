@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const root = resolve(import.meta.dirname, "..");
 type SpawnSync = (...args: unknown[]) => { status: number; error?: Error };
-const deployModule = await import(pathToFileURL(resolve(root, "scripts/deploy-production.mjs")).href).catch(() => ({}));
+const deployModule = await import(pathToFileURL(resolve(root, "scripts/deploy-production.mjs")).href);
 const deployProduction = (deployModule as { deployProduction?: (options: { cwd: string; environment: NodeJS.ProcessEnv; spawnSync: SpawnSync; buildProduction: () => void }) => void }).deployProduction;
 const credentialNames = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CF_API_TOKEN", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CLOUDFLARE_EMAIL", "CF_EMAIL", "CLOUDFLARE_API_USER_SERVICE_KEY"];
 
@@ -27,6 +27,7 @@ describe("guarded production deployment", () => {
     deployProduction!({ cwd: root, environment: { VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", CLOUDFLARE_API_TOKEN: "token", CLOUDFLARE_ACCOUNT_ID: "account-id", CF_API_TOKEN: "legacy-token", CLOUDFLARE_API_KEY: "global-key", CF_API_KEY: "legacy-global-key", CLOUDFLARE_EMAIL: "operator@example.test", CF_EMAIL: "legacy@example.test", CLOUDFLARE_API_USER_SERVICE_KEY: "service-key" }, spawnSync, buildProduction });
 
     expect(buildProduction).toHaveBeenCalledOnce();
+    expect(buildProduction.mock.invocationCallOrder[0]).toBeLessThan((spawnSync as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]);
     expectNoCloudflareCredentials(buildEnvironment(buildProduction));
     expect(spawnSync).toHaveBeenNthCalledWith(1, expect.stringMatching(/node_modules[/\\]\.bin[/\\]wrangler$/), ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], expect.objectContaining({ cwd: root }));
     expect(spawnSync).toHaveBeenNthCalledWith(2, process.execPath, [resolve(root, "scripts/verify-production-artifact.mjs")], expect.objectContaining({ cwd: root }));

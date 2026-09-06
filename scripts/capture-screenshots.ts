@@ -3,13 +3,12 @@ import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 import { runLocalWorkerOwner } from "../e2e/fixtures/local-worker";
 import { createActivePool } from "../e2e/fixtures/local-pool";
-import { screenshotRoutes } from "./screenshot-plan.mjs";
+import { screenshotRoutes, screenshotViewports } from "./screenshot-plan.mjs";
 
 const phase = process.argv.find((argument) => argument.startsWith("--phase="))?.split("=")[1];
 if (phase !== "initial" && phase !== "final") throw new Error("Use --phase=initial or --phase=final.");
 if (!existsSync("dist/client/index.html")) throw new Error("Build browser assets before capturing finish screenshots.");
 
-const viewports = [{ name: "desktop", width: 1280, height: 800 }, { name: "mobile", width: 390, height: 844 }];
 await mkdir("artifacts/screenshots", { recursive: true });
 
 await runLocalWorkerOwner(async (worker) => {
@@ -17,10 +16,10 @@ await runLocalWorkerOwner(async (worker) => {
   try {
     const setup = await browser.newPage();
     const pool = await createActivePool(setup, worker, { slug: "finish-review", name: "Finish Review Pool" });
-    const routes = screenshotRoutes(pool.slug, pool.seasonId);
+    const routes = screenshotRoutes(pool.slug, pool.seasonId, pool.name, pool.seasonLabel);
     const activeRoutes = routes.filter((route) => route.name !== "history");
     const history = routes.find((route) => route.name === "history");
-    for (const viewport of viewports) {
+    for (const viewport of screenshotViewports) {
       const page = await browser.newPage({ viewport });
       await page.context().addCookies(await setup.context().cookies());
       for (const route of activeRoutes) {
@@ -34,7 +33,7 @@ await runLocalWorkerOwner(async (worker) => {
     if (!history) throw new Error("Finish screenshot plan is missing history.");
     const response = await setup.evaluate(async (slug) => { const result = await fetch("/__local-test/season", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolSlug: slug, state: "closed" }) }); return { ok: result.ok, status: result.status }; }, pool.slug);
     if (!response.ok) throw new Error(`Could not close local finish-review season: ${response.status}`);
-    for (const viewport of viewports) {
+    for (const viewport of screenshotViewports) {
       const page = await browser.newPage({ viewport });
       await page.context().addCookies(await setup.context().cookies());
       await page.goto(`${worker.baseURL}${history.path}`, { waitUntil: "networkidle" });

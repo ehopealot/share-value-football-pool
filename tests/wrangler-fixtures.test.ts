@@ -4,6 +4,14 @@ import { describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path: string) => JSON.parse(readFileSync(resolve(root, path), "utf8")) as Record<string, any>;
+const sharedFixtureConfiguration = (configuration: Record<string, any>) => {
+  const normalized = structuredClone(configuration);
+  delete normalized.main;
+  delete normalized.define;
+  delete normalized.triggers;
+  if (normalized.queues) delete normalized.queues.consumers;
+  return normalized;
+};
 
 /**
  * The vitest Worker fixture intentionally diverges from the e2e/production-shaped
@@ -16,21 +24,18 @@ describe("wrangler fixture parity", () => {
   const e2e = read("tests/fixtures/wrangler.test.jsonc");
   const vitest = read("tests/fixtures/wrangler.vitest.jsonc");
 
-  it("keeps every PoolDO-runtime field identical between the fixtures", () => {
-    for (const key of ["compatibility_date", "compatibility_flags", "durable_objects", "migrations", "d1_databases", "r2_buckets", "assets"]) {
-      expect(vitest[key], key).toEqual(e2e[key]);
-    }
-    expect(vitest.queues?.producers).toEqual(e2e.queues?.producers);
+  it("keeps every non-divergent field identical between the fixtures", () => {
+    expect(sharedFixtureConfiguration(vitest)).toEqual(sharedFixtureConfiguration(e2e));
   });
 
   it("diverges only in the documented, test-only ways", () => {
     expect(vitest.main).toBe("./main-vitest.ts");
     expect(e2e.main).toBe("../../src/index.ts");
-    expect(vitest.define).toMatchObject({ "globalThis.POOL_PASSWORD_SCRYPT_LOG_N": "10", "globalThis.POOL_OUTBOX_DRAIN_GRACE_MS": "3600000" });
+    expect(vitest.define).toEqual({ "globalThis.POOL_PASSWORD_SCRYPT_LOG_N": "10", "globalThis.POOL_OUTBOX_DRAIN_GRACE_MS": "3600000" });
     expect(e2e.define).toBeUndefined();
     expect(vitest.queues?.consumers).toBeUndefined();
-    expect(e2e.queues?.consumers).toBeDefined();
+    expect(e2e.queues?.consumers).toEqual([{ queue: "office-pool-reborn-test-events", max_batch_size: 10, max_batch_timeout: 5 }]);
     expect(vitest.triggers).toBeUndefined();
-    expect(e2e.triggers).toBeDefined();
+    expect(e2e.triggers).toEqual({ crons: ["*/2 * * * *"] });
   });
 });

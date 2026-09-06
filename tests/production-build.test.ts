@@ -8,7 +8,7 @@ const root = resolve(import.meta.dirname, "..");
 type ProductionBuildEnvironment = (environment: NodeJS.ProcessEnv, workerConfigPath?: string) => NodeJS.ProcessEnv;
 type SpawnSync = (...args: unknown[]) => { status: number; error?: Error };
 type IsolatedWorkerConfig = { configPath: string; dispose(): void };
-const buildModule = await import(pathToFileURL(resolve(root, "scripts/build-production.mjs")).href).catch(() => ({}));
+const buildModule = await import(pathToFileURL(resolve(root, "scripts/build-production.mjs")).href);
 const viteModule = await import(pathToFileURL(resolve(root, "vite.config.ts")).href);
 const viteConfig = viteModule.default;
 const viteEnvDir = (viteModule as { viteEnvDir?: (e2eBuild: boolean, productionBuild: boolean) => string | false | undefined }).viteEnvDir;
@@ -24,11 +24,23 @@ describe("isolated production build", () => {
     for (const invalid of ["not-a-turnstile-key", "0xtoo short", "0x4AAAAAAEjUfp2Ub4CBu-E_'", "%VITE_TURNSTILE_SITE_KEY%"])
       expect(() => productionBuildEnvironment!({ VITE_TURNSTILE_SITE_KEY: invalid })).toThrow("VITE_TURNSTILE_SITE_KEY is invalid");
 
+    const workerSecretNames = [
+      "BACKUP_ENCRYPTION_KEY",
+      "BETTER_AUTH_SECRET",
+      "ODDS_API_KEY",
+      "POOL_BACKUP_SERVICE_TOKEN",
+      "POOL_COMMAND_AUTHENTICATOR_KEY",
+      "POOL_PROJECTION_SERVICE_TOKEN",
+      "RESEND_API_KEY",
+      "SETTLEMENT_SERVICE_TOKEN",
+      "TURNSTILE_SECRET_KEY",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_API_KEY"
+    ] as const;
     const environment = productionBuildEnvironment!({
       PATH: process.env.PATH,
       VITE_TURNSTILE_SITE_KEY: " 0x4AAAAAAEjUfp2Ub4CBu-E_ ",
-      BETTER_AUTH_SECRET: "test-only-auth-secret",
-      RESEND_API_KEY: "test-only-resend-key"
+      ...Object.fromEntries(workerSecretNames.map((name) => [name, `test-only-${name}`]))
     });
 
     expect(environment).toMatchObject({
@@ -37,8 +49,7 @@ describe("isolated production build", () => {
       CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
       CLOUDFLARE_INCLUDE_PROCESS_ENV: "false"
     });
-    expect(environment.BETTER_AUTH_SECRET).toBeUndefined();
-    expect(environment.RESEND_API_KEY).toBeUndefined();
+    for (const name of workerSecretNames) expect(environment[name], name).toBeUndefined();
   });
 
   it("loads only the public Turnstile key from ignored .env.production.local when the shell has none", () => {
@@ -46,7 +57,9 @@ describe("isolated production build", () => {
     const cwd = mkdtempSync(resolve(tmpdir(), "office-pool-production-env-"));
     try {
       writeFileSync(resolve(cwd, ".env.production.local"), "IGNORED_VALUE=nope\nVITE_TURNSTILE_SITE_KEY='0x4AAAAAAEjUfp2Ub4CBu-E_'\n");
-      expect(localProductionBuildEnvironment!(cwd, { PATH: "test" })).toMatchObject({ PATH: "test", VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_" });
+      const fileEnvironment = localProductionBuildEnvironment!(cwd, { PATH: "test" });
+      expect(fileEnvironment).toMatchObject({ PATH: "test", VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_" });
+      expect(fileEnvironment.IGNORED_VALUE).toBeUndefined();
       expect(localProductionBuildEnvironment!(cwd, { VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_" })).toMatchObject({ VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_" });
       writeFileSync(resolve(cwd, ".env.production.local"), "VITE_TURNSTILE_SITE_KEY=invalid-file-value\n");
       expect(() => productionBuildEnvironment!(localProductionBuildEnvironment!(cwd, {}))).toThrow("VITE_TURNSTILE_SITE_KEY is invalid");
