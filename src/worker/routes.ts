@@ -4,9 +4,7 @@ import { PoolRegistry } from "../services/pool-registry";
 import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
-import { createPoolSchema, createSeasonSchema, joinPoolSchema, seasonIdSchema, updateSettingsSchema } from "./schemas";
-import { executeShareOrderRequest, shareOrderQuoteRequest, reverseShareOrderRequest, transferCommissionerRequest, memberStatusRequest, voidWagerRequest, regradeWagerRequest, seasonAnnotationRequest, updateMemberNicknameRequest, messageBoardReadRequest, messageBoardMutationRequest, messageBoardPostRequest } from "../contracts/http";
-import { auditExportResponse, decimalString, OddsBoardResponse, ReadPoolView, ReadStandings, ReadActivity, ReadMyWagers, ReadSeasonHistory, ReadMessageBoardResponse, MessageBoardMutationResponse, MessageBoardPostResponse, straightWagerQuoteRequest, teaserWagerQuoteRequest, parlayWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerPlacementRequest, parlayWagerPlacementRequest, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot } from "../contracts/http";
+import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -43,10 +41,14 @@ const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.string
 const recipientChunkSize = 100;
 const announcementSendIntervalMs = 250;
 const pause = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+type NotificationKind = "commissioner_announcement" | "message_board_reply" | "pool_join" | "share_order_fulfilled" | "commissioner_transfer";
+const logNotificationFailure = (notification: NotificationKind) => {
+  console.error({ event: "notification_delivery_failed", notification });
+};
 const internalMessageBoardReplyResponse = z.object({ commandVersion: decimalString, replyId: z.string().min(1), postAuthorId: z.string().min(1), replayed: z.boolean() }).strict();
 const legacyMessageBoardReplyReplayResponse = z.object({ commandVersion: decimalString, replayed: z.literal(true) }).strict();
 
-/** Installs only early authenticated pool mutations; reads, wagers, exports, and settlement stay deferred. */
+/** Installs authenticated pool reads and mutations, including wagers, exports, and message-board routes. */
 export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): void {
   const registry = new PoolRegistry(dependencies.db, new DurablePoolCommandClient(dependencies.pools), dependencies.commandAuthenticatorKey);
   const router = new PoolCommandRouter(registry, dependencies.pools, dependencies.db);
@@ -87,7 +89,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       for (const recipient of recipients.results) {
         if (!firstRecipient) await pause(announcementSendIntervalMs);
         firstRecipient = false;
-        await poolNotifier.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` }).catch(() => undefined);
+        await poolNotifier.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` }).catch(() => logNotificationFailure("commissioner_announcement"));
       }
     }
   };
@@ -133,7 +135,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     }
   });
 
-  const read = (type: "ReadPoolView" | "ReadStandings" | "ReadActivity" | "ReadWagers" | "ReadMyWagers" | "ReadSeasonHistory") => (c: Context) => memberRead(c, async (user) => {
+  const read = (type: "ReadPoolView" | "ReadStandings" | "ReadActivity" | "ReadMyWagers" | "ReadSeasonHistory") => (c: Context) => memberRead(c, async (user) => {
     const slug = c.req.param("slug");
     if (!slug) return jsonError(c, "INVALID_REQUEST");
     if (type === "ReadSeasonHistory") {
@@ -142,8 +144,8 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       return c.json(ReadSeasonHistory.parse(await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id, seasonId })));
     }
     const result = await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id });
-    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : type === "ReadMyWagers" ? ReadMyWagers : undefined;
-    return c.json(schema ? schema.parse(result) : result);
+    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : ReadMyWagers;
+    return c.json(schema.parse(result));
   });
   app.get("/api/p/:slug/view", read("ReadPoolView"));
   app.get("/api/p/:slug/standings", read("ReadStandings"));
@@ -167,7 +169,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const result = MessageBoardPostResponse.parse(await router.send(slug, { type: "CreateMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, text: parsed.data.text, announcement: parsed.data.announcement }));
     if (result.isAnnouncement && !result.replayed && result.postId && poolNotifier) {
       const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(result.postId)}`, c.req.url).toString();
-      c.executionCtx.waitUntil(dispatchCommissionerAnnouncement({ slug, actor: user, postId: result.postId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+      c.executionCtx.waitUntil(dispatchCommissionerAnnouncement({ slug, actor: user, postId: result.postId, text: parsed.data.text, boardUrl }).catch(() => logNotificationFailure("commissioner_announcement")));
     }
     return c.json(result);
   }));
@@ -181,7 +183,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       const result = MessageBoardMutationResponse.parse({ commandVersion: reply.data.commandVersion });
       if (!reply.data.replayed && reply.data.postAuthorId !== user.id && poolNotifier?.notifyMessageBoardReply) {
         const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}`, c.req.url).toString();
-        c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
+        c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => logNotificationFailure("message_board_reply")));
       }
       return c.json(result);
     }
@@ -190,7 +192,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     return c.json(MessageBoardMutationResponse.parse({ commandVersion: legacyReplay.data.commandVersion }));
   }));
 
-  /** D1 supplies only canonical public offers; the prior PoolDO member read above is the access boundary. */
+  /** D1 supplies only canonical public offers; the PoolDO read inside this handler is the access boundary. */
   app.get("/api/p/:slug/odds", (c) => memberRead(c, async (user) => {
     const slug = c.req.param("slug");
     if (!slug) return jsonError(c, "INVALID_REQUEST");
@@ -279,7 +281,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   app.post("/api/p/:slug/wagers/parlays/place", wager("parlays", false));
 
   app.post("/api/pools",  (c) => mutation(c, async (user) => {
-    const parsed = createPoolSchema.safeParse(await c.req.json());
+    const parsed = createPoolRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     if (!(await verifyTurnstile({ secret: dependencies.turnstileSecret, token: parsed.data.turnstileToken, action: "submit", remoteIp: clientIp(c), hostname: dependencies.turnstileExpectedHostname ?? new URL(c.req.url).hostname, fetcher: dependencies.fetcher, allowInsecureLocalAuth: dependencies.allowInsecureLocalAuth }))) return jsonError(c, "TURNSTILE_REJECTED", 403);
     if (!limiter.allow(`create:${user.id}:${clientIp(c)}`)) return jsonError(c, "RATE_LIMITED", 429);
@@ -289,7 +291,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   }));
 
   app.post("/api/p/:slug/join", (c) => mutation(c, async (user) => {
-    const parsed = joinPoolSchema.safeParse(await c.req.json());
+    const parsed = joinPoolRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const key = `join:${c.req.param("slug")}:${user.id}:${clientIp(c)}`;
     if (!limiter.allow(key)) return jsonError(c, "RATE_LIMITED", 429);
@@ -299,7 +301,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (result.joined === true && result.replayed !== true && poolNotifier) {
       const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
       const commissioner = await dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(view.pool.commissionerId).first<{ email: string }>();
-      if (commissioner?.email) { try { await poolNotifier.notifyPoolJoin({ to: commissioner.email, poolName: view.pool.name, memberName: parsed.data.displayName ?? user.name }); } catch {} }
+      if (commissioner?.email) { try { await poolNotifier.notifyPoolJoin({ to: commissioner.email, poolName: view.pool.name, memberName: parsed.data.displayName ?? user.name }); } catch { logNotificationFailure("pool_join"); } }
     }
     limiter.reset(key);
     return c.json(result);
@@ -312,7 +314,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   }));
 
   app.post("/api/p/:slug/admin/settings", (c) => mutation(c, async (user) => {
-    const parsed = updateSettingsSchema.safeParse(await c.req.json());
+    const parsed = updatePoolSettingsRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     if (parsed.data.password !== undefined && !(await dependencies.recentlyAuthenticated?.(c.req.raw, user))) return jsonError(c, "RECENT_AUTH_REQUIRED", 403);
     return c.json(await router.send(c.req.param("slug"), { type: "UpdatePoolSettings", commandId: parsed.data.idempotencyKey, actorId: user.id, ...(parsed.data.poolName === undefined ? {} : { poolName: parsed.data.poolName }), ...(parsed.data.password === undefined ? {} : { password: parsed.data.password }), ...(parsed.data.signupsOpen === undefined ? {} : { signupsOpen: parsed.data.signupsOpen }), ...(parsed.data.maxSideBet === undefined ? {} : { maxSideBetMicros: (BigInt(parsed.data.maxSideBet) * MICROS_PER_UNIT).toString() }), ...(parsed.data.commissionerNotice === undefined ? {} : { commissionerNotice: parsed.data.commissionerNotice }) }));
@@ -333,7 +335,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
         const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
         const recipient = await dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(parsed.data.memberId).first<{ email: string }>();
         if (recipient?.email) await poolNotifier.notifyShareOrderFulfilled({ to: recipient.email, poolName: view.pool.name, sharesMicros: result.sharesMicros, valueMicros: result.valueMicros });
-      } catch {}
+      } catch { logNotificationFailure("share_order_fulfilled"); }
     }
     return c.json(result);
   }));
@@ -359,8 +361,8 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
         dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(user.id).first<{ email: string }>()
       ]);
       const details = { poolName: view.pool.name, formerCommissionerName: formerCommissioner?.displayName ?? user.name, newCommissionerName: newCommissioner?.displayName ?? parsed.data.memberId };
-      if (newRecipient?.email) { try { await poolNotifier.notifyCommissionerTransfer({ to: newRecipient.email, ...details, recipient: "new" }); } catch {} }
-      if (formerRecipient?.email) { try { await poolNotifier.notifyCommissionerTransfer({ to: formerRecipient.email, ...details, recipient: "former" }); } catch {} }
+      if (newRecipient?.email) { try { await poolNotifier.notifyCommissionerTransfer({ to: newRecipient.email, ...details, recipient: "new" }); } catch { logNotificationFailure("commissioner_transfer"); } }
+      if (formerRecipient?.email) { try { await poolNotifier.notifyCommissionerTransfer({ to: formerRecipient.email, ...details, recipient: "former" }); } catch { logNotificationFailure("commissioner_transfer"); } }
     }
     return c.json(result);
   }));
@@ -388,17 +390,17 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   }));
 
   app.post("/api/p/:slug/admin/seasons", (c) => mutation(c, async (user) => {
-    const parsed = createSeasonSchema.safeParse(await c.req.json());
+    const parsed = createSeasonRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     return c.json(await router.send(c.req.param("slug"), { type: "CreateSeason", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: parsed.data.seasonId, label: parsed.data.label, ...(parsed.data.defaultOrder === undefined ? {} : { defaultOrder: parsed.data.defaultOrder }) }));
   }));
   app.post("/api/p/:slug/admin/seasons/:seasonId/open", (c) => mutation(c, async (user) => {
-    const parsed = seasonIdSchema.safeParse(await c.req.json());
+    const parsed = seasonCommandRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     return c.json(await router.send(c.req.param("slug"), { type: "OpenSeason", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: c.req.param("seasonId") }));
   }));
   app.post("/api/p/:slug/admin/seasons/:seasonId/super-bowl/confirm", (c) => mutation(c, async (user) => {
-    const parsed = seasonIdSchema.extend({ eventId: z.string().min(1) }).safeParse(await c.req.json());
+    const parsed = seasonCommandRequest.extend({ eventId: z.string().min(1) }).safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     return c.json(await router.send(c.req.param("slug"), { type: "ConfirmSuperBowl", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: c.req.param("seasonId"), eventId: parsed.data.eventId }));
   }));

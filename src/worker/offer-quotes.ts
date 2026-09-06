@@ -43,11 +43,6 @@ export class OfferQuotes {
   }
 }
 
-/**
- * Rechecks every placement term against the canonical D1 offer immediately before
- * Worker-to-PoolDO dispatch. A changed quote must be shown and confirmed again;
- * the DO only receives the D1-validated immutable proof.
- */
 /** Builds a quote's accepted terms solely from the current canonical D1 offer. */
 export async function canonicalizeWagerQuote(db: D1Database, proposed: Placement, now = new Date()): Promise<Placement> {
   const proposedLegs = proposed.type === "PlaceStraightWager" ? [proposed.leg] : proposed.legs;
@@ -83,6 +78,11 @@ export function quoteRequestMatchesCanonical(submitted: { rulesetVersion: string
   });
 }
 
+/**
+ * Rechecks every placement term against the canonical D1 offer immediately before
+ * Worker-to-PoolDO dispatch. A changed quote must be shown and confirmed again;
+ * the DO only receives the D1-validated immutable proof.
+ */
 export async function revalidateWagerOffers(db: D1Database, command: Placement, now = new Date()): Promise<Placement> {
   const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
   const snapshot = await readPlacementSnapshot(db, legs);

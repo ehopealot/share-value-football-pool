@@ -310,6 +310,24 @@ describe("production entrypoint composition", () => {
     expect(await bindings.DB.prepare("SELECT user_id, pool_name, role, status, projection_version FROM membership_projection WHERE pool_id = ?").bind(poolId).first()).toEqual({ user_id: "owner", pool_name: "Composition Pool", role: "commissioner", status: "active", projection_version: "1" });
   }, 30_000);
 
+  it("retries a malformed queue body after the consumer rejects it", async () => {
+    let acked = false;
+    let retryOptions: QueueRetryOptions | undefined;
+    const batch = {
+      messages: [{
+        id: "malformed-message", timestamp: Date.now(), attempts: 1, body: {},
+        ack: () => { acked = true; }, retry: (options?: QueueRetryOptions) => { retryOptions = options; }
+      }]
+    } as unknown as Parameters<NonNullable<typeof worker.queue>>[0];
+    const background: Promise<unknown>[] = [];
+    const context = { waitUntil: (promise: Promise<unknown>) => { background.push(promise); } } as unknown as ExecutionContext;
+    worker.queue!(batch, env as unknown as Env, context);
+    await Promise.all(background);
+
+    expect(acked).toBe(false);
+    expect(retryOptions).toEqual({ delaySeconds: 30 });
+  });
+
   it("runs the scheduled handler as a no-op without odds or backup configuration", async () => {
     const background: Promise<unknown>[] = [];
     const context = { waitUntil: (promise: Promise<unknown>) => { background.push(promise); } } as unknown as ExecutionContext;
