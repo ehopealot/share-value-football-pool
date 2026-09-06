@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
-import { activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
 import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
@@ -13,7 +13,7 @@ const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
 
 function WagerLine({ leg }: { leg: Leg }) {
   const line = formatActivityLeg(leg);
-  const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";
+  const gradeClass = activityLegGradeClass(leg.grade);
   return <span className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
 }
 
@@ -45,6 +45,6 @@ export function MyWagersPage() {
   if (!data) return <Layout signedIn><p role="status">Loading bets…</p></Layout>;
   const open = sortWagersByStartTime(data.wagers.filter((w) => w.status === "open"));
   const settled = sortWagersByStartTime(data.wagers.filter((w) => w.status !== "open"));
-  const table = (title: string, rows: Wager[]) => <section className="activity-member-section"><h2 className="activity-member-ribbon">{title}</h2>{rows.length ? <div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th></tr></thead><tbody>{rows.map((w: any) => <WagerRows key={w.wagerId} wager={w} />)}</tbody></table></div> : <p>No {title.toLowerCase()}.</p>}</section>;
+  const table = (title: string, rows: Wager[]) => <section className="activity-member-section"><h2 className="activity-member-ribbon">{title}</h2>{rows.length ? <div className="table-scroll" tabIndex={0}><table className="activity-table" aria-label={title}><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th></tr></thead><tbody>{rows.map((w: any) => <WagerRows key={w.wagerId} wager={w} />)}</tbody></table></div> : <p>No {title.toLowerCase()}.</p>}</section>;
   return <Layout signedIn><div className="my-wagers-page"><h1>My Bets</h1><p>Bets cannot be canceled after placement.</p>{table("Open bets", open)}{table("Settled bets", settled)}<Link to={`/p/${slug}/odds`}>Return to games</Link></div></Layout>;
 }

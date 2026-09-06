@@ -32,7 +32,7 @@ describe("Activity member ribbons", () => {
     expect(styles).toMatch(/\.activity-wager-column\s*\{[^}]*width:\s*52%/);
     expect(styles).toMatch(/\.activity-staked-column\s*\{[^}]*width:\s*16%/);
     expect(styles).toMatch(/\.activity-pnl-column\s*\{[^}]*width:\s*12%/);
-    expect(styles).toContain('.activity-table .activity-leg-loss, .activity-table .activity-leg-win, .activity-table .activity-leg-neutral { display: block; white-space: normal; overflow-wrap: anywhere; }');
+    expect(styles).toContain('.activity-table .activity-leg-loss, .activity-table .activity-leg-win, .activity-table .activity-leg-push, .activity-table .activity-leg-neutral { display: block; white-space: normal; overflow-wrap: anywhere; }');
     expect(styles).toContain('@media (max-width: 600px) { .activity-table { min-width: 35rem; font-size: 0.9rem; } .activity-table th, .activity-table td { padding: 0.3rem 0.4rem; } .activity-wager-column { width: 50%; } .activity-pnl-column { width: 14%; } }');
     expect(html).toContain("UCLA");
   });
@@ -47,5 +47,28 @@ describe("Activity member ribbons", () => {
     expect(html).toContain('<td rowSpan="2"><span class="activity-staked">');
     expect(styles).toContain('.activity-table .activity-wager-leg-row > td { border-top: 0; padding-top: 0; }');
     expect(styles).toContain('.activity-wager-leg-row-leading > td:not([rowspan]) { border-bottom: 0; padding-bottom: 0; }');
+  });
+
+  it("shows revealed multi-leg grades with one neutral hidden-selection row", () => {
+    const partiallyHiddenMember = { ...member, wagers: [{ ...member.wagers[0], type: "parlay", hiddenLegCount: 2, legs: [
+      { ...member.wagers[0].legs[0], grade: "win" },
+      { ...member.wagers[0].legs[0], eventId: "game-2", awayTeam: "Oregon", homeTeam: "Washington", eventStartsAt: "2026-09-07T20:00:00.000Z", grade: "loss" }
+    ] }] };
+    const html = render(createElement(MemberActivitySection, { member: partiallyHiddenMember as any }));
+
+    expect(html).toContain('class="activity-leg-win"');
+    expect(html).toContain('class="activity-leg-loss"');
+    expect(html).toContain('<span class="activity-leg-neutral">2 other selections hidden until game time.</span>');
+    expect(html.match(/class="wager-start-time"/g)).toHaveLength(2);
+    expect(html).toContain('<td rowSpan="3"><span class="activity-staked">');
+    expect(html).toContain('<td class="activity-performance-won" rowSpan="3">+500.00</td>');
+  });
+
+  it("keeps entirely unstarted multi-leg selections hidden", () => {
+    const hiddenMultiMember = { ...member, wagers: [{ ...member.wagers[0], type: "parlay", status: "open", performanceMicros: "0", legs: undefined, hiddenLegCount: 4 }] };
+    const html = render(createElement(MemberActivitySection, { member: hiddenMultiMember as any }));
+
+    expect(html).toContain("Selection hidden until game time.");
+    expect(html).not.toContain("other selections hidden until game time.");
   });
 });
