@@ -8,8 +8,11 @@ class FakeCommands implements PoolCommandClient {
   calls: InitializePoolInput[] = [];
   fail = false;
   pending: Promise<void> | undefined;
+  private markStarted!: () => void;
+  readonly started = new Promise<void>((resolve) => { this.markStarted = resolve; });
   async initializePool(input: InitializePoolInput) {
     this.calls.push(input);
+    this.markStarted();
     await this.pending;
     if (this.fail) throw new Error("DO unavailable");
     return { commandVersion: "1" };
@@ -55,7 +58,7 @@ describe("pool registry reservation saga", () => {
     commands.pending = new Promise<void>((resolve) => { release = resolve; });
     const registry = new PoolRegistry(db, commands, "test-command-authenticator-key");
     const first = registry.create({ slug: "in-flight", creatorId: "u1", idempotencyKey: "k-flight", ...material });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await commands.started;
     const replay = await registry.create({ slug: "in-flight", creatorId: "u1", idempotencyKey: "k-flight", ...material });
     expect(replay.status).toBe("initializing");
     expect(commands.calls).toEqual([expect.objectContaining({ commandId: "k-flight", ...material })]);
