@@ -16,24 +16,32 @@ export function shapeWagers(sql: SqlStorage, viewerId: string, now = new Date(),
   return shapeWagersWithPolicy(sql, viewerId, now, ownerOnly, seasonId, "owner-or-started", exposeStartedTerms);
 }
 
+/** Activity gives non-owners the number, but never the terms, of legs still protected by kickoff privacy. */
+export function shapeActivityWagers(sql: SqlStorage, viewerId: string, now = new Date()): { wagers: unknown[] } {
+  return shapeWagersWithPolicy(sql, viewerId, now, false, undefined, "owner-or-started", true, true);
+}
+
 /** Member exports keep owner financial fields but reveal every ticket's legs only as each leg starts. */
 export function shapeAuditExportWagers(sql: SqlStorage, requesterId: string, now = new Date()): { wagers: unknown[] } {
   return shapeWagersWithPolicy(sql, requesterId, now, false, undefined, "started-only");
 }
 
-function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, ownerOnly: boolean, seasonId: string | undefined, legRevealPolicy: LegRevealPolicy, exposeStartedTerms = false): { wagers: unknown[] } {
+function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, ownerOnly: boolean, seasonId: string | undefined, legRevealPolicy: LegRevealPolicy, exposeStartedTerms = false, includeHiddenLegCount = false): { wagers: unknown[] } {
   // This read powers My Wagers: unlike the member-visible activity ledger it never returns another member's ticket.
   const conditions = [ownerOnly ? "owner_id = ?" : undefined, seasonId ? "season_id = ?" : undefined].filter((condition): condition is string => Boolean(condition));
   const query = `SELECT wager.id, wager.season_id, wager.owner_id, member.display_name AS owner_display_name, wager.type, wager.risk_micros, wager.accepted_odds, wager.status, wager.ruleset_version, wager.confirmed_at, (SELECT MIN(event_starts_at) FROM wager_leg WHERE wager_id = wager.id) AS activity_week_start FROM wager JOIN member ON member.user_id = wager.owner_id${conditions.length ? ` WHERE ${conditions.join(" AND ")}` : ""} ORDER BY wager.confirmed_at, wager.rowid`;
   const wagers = [...sql.exec<Row>(query, ...(ownerOnly ? [viewerId] : []), ...(seasonId ? [seasonId] : []))].map((wager) => {
     const ownsTicket = String(wager.owner_id) === viewerId;
-    const revealed = [...sql.exec<Row>("SELECT event_id, league, canonical_book, retrieved_at, policy_version, offer_version, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, wager_leg_snapshot.home_team AS home_team, wager_leg_snapshot.away_team AS away_team, grade, result_version FROM wager_leg LEFT JOIN wager_leg_snapshot ON wager_leg_snapshot.wager_leg_id = wager_leg.id WHERE wager_id = ? ORDER BY id", wager.id)]
+    // Count persisted legs before filtering so Activity can disclose only how many remain hidden.
+    const legs = [...sql.exec<Row>("SELECT event_id, league, canonical_book, retrieved_at, policy_version, offer_version, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, wager_leg_snapshot.home_team AS home_team, wager_leg_snapshot.away_team AS away_team, grade, result_version FROM wager_leg LEFT JOIN wager_leg_snapshot ON wager_leg_snapshot.wager_leg_id = wager_leg.id WHERE wager_id = ? ORDER BY id", wager.id)];
+    const revealed = legs
       .filter((leg) => (ownsTicket && legRevealPolicy === "owner-or-started") || new Date(String(leg.event_starts_at)).getTime() <= now.getTime())
       .map((leg) => ({ eventId: String(leg.event_id), league: String(leg.league), canonicalBook: String(leg.canonical_book), retrievedAt: String(leg.retrieved_at), policyVersion: String(leg.policy_version), offerVersion: String(leg.offer_version), market: String(leg.market), selection: String(leg.selection), originalLine: leg.original_line === null ? undefined : String(leg.original_line), originalOdds: Number(leg.original_odds), teaserAdjustment: leg.teaser_adjustment === null ? undefined : String(leg.teaser_adjustment), adjustedLine: leg.adjusted_line === null ? undefined : String(leg.adjusted_line), eventStartsAt: String(leg.event_starts_at), ...(leg.home_team === null ? {} : { homeTeam: String(leg.home_team), awayTeam: String(leg.away_team) }), grade: leg.grade === null ? undefined : String(leg.grade), resultVersion: leg.result_version === null ? undefined : String(leg.result_version) }));
+    const hiddenLegCount = includeHiddenLegCount && !ownsTicket ? legs.length - revealed.length : 0;
     const settlement = firstSettlement(sql, String(wager.id));
     const performanceMicros = settlement?.outcome === "won" ? settlement.profitMicros : settlement?.outcome === "lost" ? (-BigInt(String(wager.risk_micros))).toString() : "0";
     const termsAreVisible = ownsTicket || (exposeStartedTerms && (revealed.length > 0 || settlement !== undefined));
-    return redactRecursively({ wagerId: String(wager.id), seasonId: String(wager.season_id), memberId: String(wager.owner_id), memberDisplayName: String(wager.owner_display_name), type: String(wager.type), status: String(wager.status), confirmedAt: String(wager.confirmed_at), weekStart: weekStartOf(new Date(String(wager.activity_week_start))).toISOString(), performanceMicros, ...(termsAreVisible ? { riskMicros: String(wager.risk_micros), acceptedOdds: Number(wager.accepted_odds) } : {}), ...(ownsTicket ? { rulesetVersion: String(wager.ruleset_version), ...(settlement ?? {}) } : {}), ...(revealed.length ? { legs: revealed } : {}) });
+    return redactRecursively({ wagerId: String(wager.id), seasonId: String(wager.season_id), memberId: String(wager.owner_id), memberDisplayName: String(wager.owner_display_name), type: String(wager.type), status: String(wager.status), confirmedAt: String(wager.confirmed_at), weekStart: weekStartOf(new Date(String(wager.activity_week_start))).toISOString(), performanceMicros, ...(termsAreVisible ? { riskMicros: String(wager.risk_micros), acceptedOdds: Number(wager.accepted_odds) } : {}), ...(ownsTicket ? { rulesetVersion: String(wager.ruleset_version), ...(settlement ?? {}) } : {}), ...(revealed.length ? { legs: revealed } : {}), ...(hiddenLegCount > 0 ? { hiddenLegCount } : {}) });
   });
   return { wagers };
 }

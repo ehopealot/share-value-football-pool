@@ -169,10 +169,10 @@ describe("T11 authoritative member reads", () => {
     expect(asNonOwner.activity.orders[0]).toEqual({ orderId: String(reversal.orderId), memberId: "n", memberDisplayName: "Nne", sharesMicros: "-2000000", valueMicros: "-2000000", priceMicros: "1000000", reason: "reversal n1", createdAt: "2026-02-04T00:00:00.000Z" });
     expect(asNonOwner.activity.orders[3]).toEqual({ orderId: String(m1.orderId), memberId: "m", memberDisplayName: "Mem", sharesMicros: "2000000", valueMicros: "2000000", priceMicros: "1000000", reason: "funding m", createdAt: "2026-02-01T00:00:00.000Z" });
     expect(asNonOwner.activity.wagers.map((wager: any) => wager.wagerId)).toEqual(["w-m", "w-n"]);
-    // Another member's unstarted selection must expose identity and its safe week only — no risk, terms, or legs.
+    // Another member's unstarted selection exposes identity, safe week, and count only — no risk, terms, or legs.
     const hidden = asNonOwner.activity.wagers[0];
-    expect(Object.keys(hidden).sort()).toEqual(["confirmedAt", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
-    expect(hidden).toEqual({ wagerId: "w-m", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: "2026-03-01T00:00:00.000Z", weekStart: "2030-03-05T05:00:00.000Z", performanceMicros: "0" });
+    expect(Object.keys(hidden).sort()).toEqual(["confirmedAt", "hiddenLegCount", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
+    expect(hidden).toEqual({ wagerId: "w-m", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: "2026-03-01T00:00:00.000Z", weekStart: "2030-03-05T05:00:00.000Z", performanceMicros: "0", hiddenLegCount: 1 });
     const own = asNonOwner.activity.wagers[1];
     expect(own).toMatchObject({ wagerId: "w-n", type: "straight", status: "refunded", confirmedAt: "2026-03-02T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "refunded", returnMicros: "1000000", profitMicros: "0" });
     expect(own.settledAt).toEqual(expect.any(String));
@@ -201,6 +201,46 @@ describe("T11 authoritative member reads", () => {
     const ownUnstarted = asOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-m");
     expect(ownUnstarted).toMatchObject({ wagerId: "w-m", status: "lost", performanceMicros: "-1000000", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1" });
     expect(ownUnstarted.legs[0]).toMatchObject({ eventId: "w-m", market: "spread", selection: "home" });
+  }, 90_000);
+
+  it("reports only the count of an Activity nonowner's hidden multi-leg selections", async () => {
+    const slug = `t11-activity-hidden-leg-count-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "m", "Member");
+    await join(slug, "n", "Nonowner");
+    await draftSeason(slug, "s1", "2026");
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      const wager = (id: string) => sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, settled_result_version, confirmed_at) VALUES (?, 's1', 'm', 'parlay', '1000000', 300, 'open', 'PARLAY_2026_V1', NULL, '2026-01-01T00:00:00.000Z')", id);
+      const wagerLeg = (id: string, wagerId: string, eventId: string, eventStartsAt: string) => {
+        sql.exec("INSERT INTO wager_leg (id, wager_id, event_id, league, canonical_book, retrieved_at, policy_version, offer_version, canonical_offer_id, canonical_proof_json, market, selection, original_line, original_odds, teaser_adjustment, adjusted_line, event_starts_at, is_super_bowl, grade, result_version) VALUES (?, ?, ?, 'nfl', 'DraftKings', '2026-01-01T00:00:00.000Z', 'CANONICAL_BOOKS_2026_V1', 'v1', NULL, NULL, 'spread', 'home', '-3', -110, NULL, '-3', ?, 0, NULL, NULL)", id, wagerId, eventId, eventStartsAt);
+        sql.exec("INSERT INTO wager_leg_snapshot (wager_leg_id, home_team, away_team) VALUES (?, 'Home', 'Away')", id);
+      };
+      wager("partially-started");
+      wagerLeg("partial-started-1", "partially-started", "started-one", "2000-01-01T00:00:00.000Z");
+      wagerLeg("partial-started-2", "partially-started", "started-two", "2000-01-02T00:00:00.000Z");
+      wagerLeg("partial-hidden-1", "partially-started", "future-one", "2099-01-01T00:00:00.000Z");
+      wagerLeg("partial-hidden-2", "partially-started", "future-two", "2099-01-02T00:00:00.000Z");
+      wager("unstarted");
+      wagerLeg("unstarted-hidden-1", "unstarted", "future-three", "2099-02-01T00:00:00.000Z");
+      wagerLeg("unstarted-hidden-2", "unstarted", "future-four", "2099-02-02T00:00:00.000Z");
+    });
+
+    const nonowner = await send(slug, { type: "ReadActivity", commandId: "activity-nonowner", actorId: "n" });
+    const partial = nonowner.activity.wagers.find((wager: any) => wager.wagerId === "partially-started");
+    expect(partial).toMatchObject({ hiddenLegCount: 2 });
+    expect(partial.legs.map((leg: any) => leg.eventId)).toEqual(["started-one", "started-two"]);
+    expect(JSON.stringify(partial)).not.toMatch(/future-one|future-two/);
+    const unstarted = nonowner.activity.wagers.find((wager: any) => wager.wagerId === "unstarted");
+    expect(unstarted).toEqual({ wagerId: "unstarted", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2099-01-27T05:00:00.000Z", performanceMicros: "0", hiddenLegCount: 2 });
+    expect(JSON.stringify(unstarted)).not.toMatch(/future-three|future-four|DraftKings|spread|home|-3/);
+
+    const ownerActivity = await send(slug, { type: "ReadActivity", commandId: "activity-owner", actorId: "m" });
+    expect(ownerActivity.activity.wagers.find((wager: any) => wager.wagerId === "partially-started")).toMatchObject({ legs: expect.arrayContaining([expect.objectContaining({ eventId: "future-one" }), expect.objectContaining({ eventId: "future-two" })]) });
+    expect(ownerActivity.activity.wagers.find((wager: any) => wager.wagerId === "partially-started")).not.toHaveProperty("hiddenLegCount");
+    const myWagers = await send(slug, { type: "ReadMyWagers", commandId: "my-wagers-owner", actorId: "m" });
+    expect(myWagers.wagers.find((wager: any) => wager.wagerId === "partially-started")).toMatchObject({ legs: expect.arrayContaining([expect.objectContaining({ eventId: "future-one" }), expect.objectContaining({ eventId: "future-two" })]) });
+    expect(myWagers.wagers.find((wager: any) => wager.wagerId === "partially-started")).not.toHaveProperty("hiddenLegCount");
   }, 90_000);
 
   it("uses annotation append order when archived timestamps tie", async () => {
@@ -291,7 +331,7 @@ describe("T11 authoritative member reads", () => {
     const owner = await send(slug, { type: "ReadActivity", commandId: "owner-parlay", actorId: "m" });
     expect(owner.activity.wagers[0]).toMatchObject({ type: "parlay", acceptedOdds: 300, settledOdds: 250, outcome: "won", returnMicros: "3500000" });
     const nonowner = await send(slug, { type: "ReadActivity", commandId: "nonowner-parlay", actorId: "n" });
-    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 300 });
+    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 300, hiddenLegCount: 1 });
     expect(nonowner.activity.wagers[0]).not.toHaveProperty("settledOdds");
   }, 90_000);
 
@@ -310,6 +350,6 @@ describe("T11 authoritative member reads", () => {
     // No local read-time table exists in production storage, and the unstarted leg stays hidden by real time.
     expect(await storage(slug, (state) => [...state.storage.sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'local_read_time'")].map((row) => row.name))).toEqual([]);
     const asNonOwner = await send(slug, { type: "ReadActivity", commandId: "read-n", actorId: "n" });
-    expect(asNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-future")).toEqual({ wagerId: "w-future", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: expect.any(String), weekStart: expect.any(String), performanceMicros: "0" });
+    expect(asNonOwner.activity.wagers.find((wager: any) => wager.wagerId === "w-future")).toEqual({ wagerId: "w-future", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: expect.any(String), weekStart: expect.any(String), performanceMicros: "0", hiddenLegCount: 1 });
   }, 90_000);
 });

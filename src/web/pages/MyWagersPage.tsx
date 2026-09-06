@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
-import { activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
 import { displayWagerStartTimes, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
@@ -13,7 +13,7 @@ const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
 
 function WagerLine({ leg }: { leg: Leg }) {
   const line = formatActivityLeg(leg);
-  const gradeClass = leg.grade === "loss" ? "activity-leg-loss" : leg.grade === "win" ? "activity-leg-win" : "activity-leg-neutral";
+  const gradeClass = activityLegGradeClass(leg.grade);
   return <span className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
 }
 
