@@ -36,7 +36,7 @@ const dateLabel = (startsAt: string): string => new Intl.DateTimeFormat("en-US",
 /** Mobile tables lift repeated dates into one compact ticket ribbon. */
 export const displayWagerDateLabel = (wager: WagerWithStartTime): string => {
   const start = representativeWagerStartTime(wager);
-  return start ? dateLabel(start) : "Start unavailable";
+  return start ? dateLabel(start) : "Upcoming";
 };
 
 export const displayWagerStartTimeOnly = (wager: WagerWithStartTime): string[] => {
