@@ -10,8 +10,9 @@ describe("mobile wager tables", () => {
     expect(css).toContain(".my-wagers-page .activity-table { min-width: 27.25rem; }");
     expect(css).toContain(".activity-start-column { width: 3rem; }");
     expect(css).toContain(".activity-staked-column { width: 12%; }");
-    expect(css).toContain(".my-wagers-page .activity-staked-column { width: 12%; }");
+    expect(css).toContain(".my-wagers-page .activity-staked-column { width: 13%; }");
     expect(css).toContain(".my-wagers-page .activity-pnl-column { width: 14%; }");
+    expect(css).toContain(".my-wagers-page .activity-payout-column { width: 13%; }");
     expect(css).toContain(".activity-table th, .activity-table td { padding: 0.2rem 0.25rem; }");
     expect(css).toContain(".my-wagers-page .activity-wager-column { overflow-wrap: anywhere; }");
     expect(css).toContain(".my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-push, .my-wagers-page .activity-leg-neutral { white-space: normal; }");
