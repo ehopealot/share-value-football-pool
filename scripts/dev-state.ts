@@ -57,12 +57,14 @@ export const ensureSharedDevVars = async (worktreeDirectory: string, canonicalDe
 
   const current = await entryFor(worktreeDevVarsPath);
   let brokenLinkTarget: string | undefined;
+  let brokenLinkBackupTarget: string | undefined;
   if (current) {
     try {
       if (await realpath(worktreeDevVarsPath) === canonicalTarget) return undefined;
     } catch (error) {
       if (!current.isSymbolicLink() || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       brokenLinkTarget = await readlink(worktreeDevVarsPath);
+      brokenLinkBackupTarget = resolve(dirname(worktreeDevVarsPath), brokenLinkTarget);
     }
   }
   if (!current) {
@@ -74,7 +76,7 @@ export const ensureSharedDevVars = async (worktreeDirectory: string, canonicalDe
   await mkdir(dirname(backupPath), { recursive: true });
   if (brokenLinkTarget) {
     try {
-      await symlink(brokenLinkTarget, backupPath);
+      await symlink(brokenLinkBackupTarget!, backupPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Cannot replace ${worktreeDevVarsPath}: preserved local config already exists at ${backupPath}.`);
       throw error;

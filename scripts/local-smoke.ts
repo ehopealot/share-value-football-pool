@@ -6,11 +6,22 @@ import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess } from "./owned-process";
 import { assertProductionPortAvailable } from "./production-route-probe";
+import { isDirectExecution } from "./direct-entry.mjs";
+import { nonPublishingCloudflareEnvironment } from "./cloudflare-credentials.mjs";
 
 type Fetch = typeof fetch;
+type OutputSource = { pause(): unknown; resume(): unknown };
+type OutputDestination = { write(chunk: Buffer): boolean; once(event: "drain", listener: () => void): unknown };
 
 export const localSmokeMigrationArgs = (wrangler: string, persistence: string) => [wrangler, "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"];
 export const localSmokeWorkerArgs = (wrangler: string, port: number, persistence: string) => [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-smoke-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-smoke-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-smoke-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-smoke-backup-token"];
+export const localSmokeEnvironment = (environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => nonPublishingCloudflareEnvironment(environment);
+export function forwardLocalSmokeOutput(source: OutputSource, destination: OutputDestination, chunk: Buffer) {
+  if (!destination.write(chunk)) {
+    source.pause();
+    destination.once("drain", () => source.resume());
+  }
+}
 
 export async function startLocalSmokeWorker<T>(baseURL: string, spawnWorker: () => T, request: Fetch = fetch): Promise<T> {
   await assertProductionPortAvailable(baseURL, request, "local smoke Worker");
@@ -45,8 +56,9 @@ const cleanup = () => cleanupPromise ??= (async () => {
   if (control.enabled) await control.settled();
 })();
 const signalCleanup = installOwnedSignalCleanup({ cleanup });
+const childEnvironment = localSmokeEnvironment();
 // This owns its timeout and waits for TERM/KILL descendant cleanup before it settles.
-const run = (command: string, args: string[]) => runOwnedProcess(command, args, STAGE_TIMEOUT_MS);
+const run = (command: string, args: string[]) => runOwnedProcess(command, args, STAGE_TIMEOUT_MS, "inherit", {}, childEnvironment);
 const request = async (path: string, user: string, body?: unknown) => bounded(path, (async () => {
   const response = await fetch(`${base}${path}`, { method: body === undefined ? "GET" : "POST", headers: { origin: base, "content-type": "application/json", "x-local-test-user": user }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(STAGE_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
@@ -58,19 +70,20 @@ try {
   // Wrangler's Vite integration serves the generated Worker entry; rebuild it for this isolated journey.
   await run("npm", ["run", "build:local"]);
   await run(process.execPath, localSmokeMigrationArgs(wrangler, persistence));
-  child = await startLocalSmokeWorker(base, () => spawn(process.execPath, localSmokeWorkerArgs(wrangler, port, persistence), { stdio: ["ignore", "pipe", "pipe"], detached: true, env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } }), fetch);
+  child = await startLocalSmokeWorker(base, () => spawn(process.execPath, localSmokeWorkerArgs(wrangler, port, persistence), { stdio: ["ignore", "pipe", "pipe"], detached: true, env: childEnvironment }), fetch);
   if (!child.pid) throw new Error("local smoke Worker did not provide a process-group leader PID");
-  const observe = (chunk: Buffer) => process.stdout.write(chunk);
+  const observeStdout = (chunk: Buffer) => forwardLocalSmokeOutput(child!.stdout!, process.stdout, chunk);
+  const observeStderr = (chunk: Buffer) => forwardLocalSmokeOutput(child!.stderr!, process.stderr, chunk);
   const onChildError = (error: Error) => { childFailure ??= new Error(`local smoke Worker spawn failed: ${error.message}`, { cause: error }); };
   const onChildExit = (code: number | null, signal: NodeJS.Signals | null) => { childFailure ??= new Error(`local smoke Worker exited ${code ?? signal ?? "unknown"} before readiness`); };
   const assertChildLive = () => {
     if (childFailure) throw childFailure;
     if (child?.exitCode != null || child?.signalCode != null) throw new Error(`local smoke Worker exited ${child.exitCode ?? child.signalCode ?? "unknown"} before readiness`);
   };
-  child.stdout?.on("data", observe); child.stderr?.on("data", observe);
+  child.stdout?.on("data", observeStdout); child.stderr?.on("data", observeStderr);
   child.once("error", onChildError); child.once("exit", onChildExit);
   removeChildObservers = () => {
-    child?.stdout?.removeListener("data", observe); child?.stderr?.removeListener("data", observe);
+    child?.stdout?.removeListener("data", observeStdout); child?.stderr?.removeListener("data", observeStderr);
     child?.removeListener("error", onChildError); child?.removeListener("exit", onChildExit);
   };
   assertChildLive();
@@ -144,4 +157,4 @@ try {
 }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await runLocalSmoke();
+if (isDirectExecution(import.meta.url)) await runLocalSmoke();

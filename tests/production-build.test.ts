@@ -1,8 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { cloudflareCredentialNames, workerSecretNames } from "../scripts/cloudflare-credentials.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 type ProductionBuildEnvironment = (environment: NodeJS.ProcessEnv, workerConfigPath?: string) => NodeJS.ProcessEnv;
@@ -24,23 +26,12 @@ describe("isolated production build", () => {
     for (const invalid of ["not-a-turnstile-key", "0xtoo short", "0x4AAAAAAEjUfp2Ub4CBu-E_'", "%VITE_TURNSTILE_SITE_KEY%"])
       expect(() => productionBuildEnvironment!({ VITE_TURNSTILE_SITE_KEY: invalid })).toThrow("VITE_TURNSTILE_SITE_KEY is invalid");
 
-    const workerSecretNames = [
-      "BACKUP_ENCRYPTION_KEY",
-      "BETTER_AUTH_SECRET",
-      "ODDS_API_KEY",
-      "POOL_BACKUP_SERVICE_TOKEN",
-      "POOL_COMMAND_AUTHENTICATOR_KEY",
-      "POOL_PROJECTION_SERVICE_TOKEN",
-      "RESEND_API_KEY",
-      "SETTLEMENT_SERVICE_TOKEN",
-      "TURNSTILE_SECRET_KEY",
-      "CLOUDFLARE_API_TOKEN",
-      "CLOUDFLARE_API_KEY"
-    ] as const;
+    const sensitiveNames = [...workerSecretNames, ...cloudflareCredentialNames];
     const environment = productionBuildEnvironment!({
       PATH: process.env.PATH,
       VITE_TURNSTILE_SITE_KEY: " 0x4AAAAAAEjUfp2Ub4CBu-E_ ",
-      ...Object.fromEntries(workerSecretNames.map((name) => [name, `test-only-${name}`]))
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: "true",
+      ...Object.fromEntries(sensitiveNames.map((name) => [name, `test-only-${name}`]))
     });
 
     expect(environment).toMatchObject({
@@ -49,7 +40,7 @@ describe("isolated production build", () => {
       CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
       CLOUDFLARE_INCLUDE_PROCESS_ENV: "false"
     });
-    for (const name of workerSecretNames) expect(environment[name], name).toBeUndefined();
+    for (const name of sensitiveNames) expect(environment[name], name).toBeUndefined();
   });
 
   it("loads only the public Turnstile key from ignored .env.production.local when the shell has none", () => {
@@ -82,6 +73,25 @@ describe("isolated production build", () => {
     } finally {
       isolated.dispose();
     }
+  });
+
+  it("rejects symbolic links instead of omitting them from production artifact verification", () => {
+    const fixture = mkdtempSync(resolve(tmpdir(), "office-pool-production-artifact-link-"));
+    const production = resolve(fixture, "production");
+    try {
+      mkdirSync(production);
+      const target = resolve(fixture, "operator.env");
+      writeFileSync(target, "SECRET=must-not-be-skipped\n");
+      symlinkSync(target, resolve(production, ".env.production"));
+      const result = spawnSync(process.execPath, [resolve(root, "scripts/verify-production-artifact.mjs")], {
+        cwd: root,
+        env: { ...process.env, PRODUCTION_ARTIFACT_DIR: production, LOCAL_ARTIFACT_DIR: resolve(fixture, "local") },
+        encoding: "utf8",
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("unsupported symbolic link");
+      expect(result.stderr).toContain(".env.production");
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
   it("emits source maps for native Workers diagnostic symbolication", () => {
