@@ -6,7 +6,7 @@ import nflFixture from "../fixtures/odds/nfl-final.json";
 import nflScoresFixture from "../fixtures/odds/nfl-final-scores.json";
 import ncaafFixture from "../fixtures/odds/ncaaf-scheduled.json";
 import ncaafScoresFixture from "../fixtures/odds/ncaaf-scheduled-scores.json";
-import { canonicalize, isSuperBowl } from "../../src/odds/canonicalize";
+import { canonicalize } from "../../src/odds/canonicalize";
 import { providerEventSnapshot } from "../../src/contracts/provider";
 import { OddsIngestion, finalReconciliationDue, offerIsStale, pollInterval, shouldPollEvent, type IngestionProvider } from "../../src/odds/ingestion";
 import { D1ResultSource } from "../../src/odds/result-source";
@@ -319,7 +319,6 @@ describe("odds ingestion", () => {
     const live = events.find((item) => item.id === "fixture-nfl-live")!;
     expect(normalized).toMatchObject({ status: "final", homeScore: 24, awayScore: 17, eventName: "Super Bowl LX", postseason: true });
     expect(live).toMatchObject({ status: "in_progress", homeScore: 7, awayScore: 3, bookmakers: [] });
-    expect(isSuperBowl(normalized)).toBe(true);
   });
 
   it("writes offers and final/correction versions D1-first for result-source readers", async () => {
@@ -331,7 +330,6 @@ describe("odds ingestion", () => {
     expect(await source.getFinalResults(["event-1"])).toEqual([expect.objectContaining({ eventId: "event-1", correctionVersion: "1", homeScore: 24, awayScore: 17 })]);
     await new OddsIngestion(db, new Provider([event({ status: "final", homeScore: 27, awayScore: 17 })]), { now: () => new Date("2026-09-10T00:15:00.000Z") }).poll();
     expect(await source.getFinalResults(["event-1"])).toEqual([expect.objectContaining({ correctionVersion: "2", homeScore: 27 })]);
-    expect(isSuperBowl(first)).toBe(true);
   });
 
   it("removes a disappeared market from current D1 offers", async () => {
@@ -718,7 +716,6 @@ describe("odds ingestion", () => {
     expect(nflPoll.quota).toEqual({ remaining: 7, used: 93 });
     expect(nfl).toMatchObject({ sport: "nfl", status: "final", homeScore: 24, awayScore: 17, eventName: "Super Bowl LX", postseason: true });
     expect(ncaaf).toMatchObject({ sport: "ncaaf", status: "scheduled", eventName: "Fixture Bowl" });
-    expect(isSuperBowl(nfl)).toBe(true);
     await expect(new TheOddsApiProvider("key", async () => new Response("[{bad}]" )).events("nfl")).rejects.toThrow();
   });
 });

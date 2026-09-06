@@ -53,12 +53,8 @@ export type LocalTestControls = {
 const LOCAL_FIXTURE_MODE_PROVIDER = "local-fixture-mode";
 const LOCAL_FIXTURE_IDS = LOCAL_FIXTURE_EVENTS.map((event) => event.id);
 const LOCAL_FIXTURE_ID_LIST = LOCAL_FIXTURE_IDS.map(() => "?").join(", ");
-const LOCAL_FIXTURE_START_OFFSET_MS: Record<string, number> = {
-  "local-nfl-upcoming": 24 * 60 * 60 * 1000 + 5 * 60 * 1000,
-  "local-nfl-super-bowl": 24 * 60 * 60 * 1000 + 6 * 60 * 1000
-};
 
-const fixtureStartsAt = (event: typeof LOCAL_FIXTURE_EVENTS[number], now: Date) => event.completed ? event.commenceTime : new Date(now.getTime() + LOCAL_FIXTURE_START_OFFSET_MS[event.id]!).toISOString();
+const fixtureStartsAt = (event: typeof LOCAL_FIXTURE_EVENTS[number], now: Date) => event.status === "final" ? event.commenceTime : new Date(now.getTime() + event.startOffsetMs).toISOString();
 const modeStatement = (db: D1Database, mode: "auto" | "manual", observedAt: string) => db.prepare("INSERT INTO odds_ingestion (provider, cursor, last_polled_at, last_success_at, last_error) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET cursor=excluded.cursor, last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(LOCAL_FIXTURE_MODE_PROVIDER, mode, observedAt, observedAt);
 const currentOddsStatement = (db: D1Database, observedAt: string) => db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(observedAt, observedAt);
 
@@ -76,7 +72,7 @@ export async function seedLocalFixtures(db: D1Database, now = new Date()): Promi
   for (const event of LOCAL_FIXTURE_EVENTS) {
     const startsAt = fixtureStartsAt(event, now);
     await db.prepare("INSERT OR REPLACE INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, home_score, away_score, correction_version, finalized_at, event_name, postseason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'local-v1', ?, ?, ?)")
-      .bind(event.id, event.id, event.sport, event.homeTeam, event.awayTeam, startsAt, event.status, event.homeScore === undefined ? null : String(event.homeScore), event.awayScore === undefined ? null : String(event.awayScore), event.completed ? startsAt : null, event.eventName ?? null, event.postseason ? 1 : 0).run();
+      .bind(event.id, event.id, event.sport, event.homeTeam, event.awayTeam, startsAt, event.status, event.homeScore === undefined ? null : String(event.homeScore), event.awayScore === undefined ? null : String(event.awayScore), event.status === "final" ? startsAt : null, event.eventName ?? null, event.postseason ? 1 : 0).run();
     for (const market of event.bookmakers[0].markets) {
       await db.prepare("INSERT OR REPLACE INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, ?, 'DraftKings', ?, 'local-v1', ?)")
         .bind(event.id, market.key, observedAt, JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: market.outcomes })).run();
@@ -96,7 +92,7 @@ export async function refreshLocalFixtures(db: D1Database, now = new Date()): Pr
   if (mode?.cursor !== "auto") return seedLocalFixtures(db, now);
   await removeNonFixtureRows(db);
   const observedAt = now.toISOString();
-  const scheduled = LOCAL_FIXTURE_EVENTS.filter((event) => !event.completed);
+  const scheduled = LOCAL_FIXTURE_EVENTS.filter((event) => event.status === "scheduled");
   await db.batch([
     ...scheduled.map((event) => db.prepare("UPDATE sports_event SET starts_at = ? WHERE provider_event_id = ? AND status = 'scheduled'").bind(fixtureStartsAt(event, now), event.id)),
     db.prepare(`UPDATE market_offer SET retrieved_at = ? WHERE event_id IN (${LOCAL_FIXTURE_ID_LIST})`).bind(observedAt, ...LOCAL_FIXTURE_IDS),

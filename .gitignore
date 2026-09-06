@@ -4,6 +4,7 @@
 # Dependencies and build output
 node_modules/
 dist/
+*.tsbuildinfo
 .wrangler/
 coverage/
 playwright-report/
