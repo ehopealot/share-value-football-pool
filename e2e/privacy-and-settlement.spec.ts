@@ -437,7 +437,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
     expect(hiddenCommissioner).toBe(hiddenViewer);
     expect(teaserFrom(hiddenViewer).legs).toBeUndefined();
     for (const protectedText of [...forbiddenFutureFields, "local-nfl-upcoming", "local-nfl-super-bowl", "Local Home", "Local Away", "T11 Super Home", "T11 Super Away", "riskMicros"]) expect(hiddenViewer).not.toContain(protectedText);
-    const teaserRows = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: ticketOwnerName }).locator(".activity-table tbody tr");
+    const teaserRows = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: ticketOwnerName }).locator(".activity-table tbody tr:not(.wager-date-row)");
     const teaserPAndL = (actor: Page) => teaserRows(actor).locator("td").last();
     await viewer.goto(`${worker.baseURL}/p/${slug}/activity`);
     await expect(teaserRows(viewer)).toContainText("Selection hidden until game time.");
@@ -576,7 +576,7 @@ test("activity stays immutable and presents only the current settlement without 
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await settleFixtureResult(page, slug, 17, 24);
-    const activityRow = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: commissionerName }).locator(".activity-table tbody tr");
+    const activityRow = (actor: Page) => actor.locator(".activity-member-section").filter({ hasText: commissionerName }).locator(".activity-table tbody tr:not(.wager-date-row)");
     const activityPAndL = (actor: Page) => activityRow(actor).locator("td").last();
     // Both viewers receive the same safe settlement performance, while only the owner receives protected terms.
     await page.goto(`${worker.baseURL}/p/${slug}/activity`);

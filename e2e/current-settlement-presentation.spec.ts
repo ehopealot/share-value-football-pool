@@ -62,24 +62,25 @@ test("My Wagers shows only the current settlement economics after real regrades 
   await page.reload();
   const settledBets = page.getByRole("table", { name: "Settled bets" });
   await expect(page.getByRole("heading", { name: "Settled bets" })).toBeVisible();
-  await expect(settledBets.locator("tbody tr").first().locator("td").first()).toHaveText(/^\d{2}\/\d{2} \d{2}:\d{2}[ap]$/);
-  await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveText("+1.00");
-  await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveClass("activity-performance-won");
-  await expect(settledBets.locator("tbody tr").first()).toContainText("2.00");
+  const settledRow = settledBets.locator("tbody tr:not(.wager-date-row)").first();
+  await expect(settledRow.locator(".wager-start-time")).toHaveText(/^\d{2}\/\d{2} \d{2}:\d{2}[ap]$/);
+  await expect(settledRow.locator("td").last()).toHaveText("+1.00");
+  await expect(settledRow.locator("td").last()).toHaveClass("activity-performance-won");
+  await expect(settledRow).toContainText("2.00");
 
   const regraded = await page.evaluate(async ({ poolSlug, id }) => (await fetch(`/api/p/${poolSlug}/admin/corrections/${id}/regrade`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reason: "Official correction", correctedResults: [{ eventId: "local-nfl-upcoming", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "official-loss-v2" }] }) })).status, { poolSlug: slug, id: wagerId });
   expect(regraded).toBe(200);
   await page.reload();
-  await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveText("-1.00");
-  await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveClass("activity-performance-lost");
-  await expect(settledBets.locator("tbody tr").first()).toContainText("0.00");
+  await expect(settledRow.locator("td").last()).toHaveText("-1.00");
+  await expect(settledRow.locator("td").last()).toHaveClass("activity-performance-lost");
+  await expect(settledRow).toContainText("0.00");
 
   const voided = await page.evaluate(async ({ poolSlug, id }) => (await fetch(`/api/p/${poolSlug}/admin/corrections/${id}/void`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reason: "Settled ticket void" }) })).status, { poolSlug: slug, id: wagerId });
   expect(voided).toBe(200);
   await page.reload();
-  await expect(settledBets.locator("tbody tr").first().locator("td").last()).toHaveText("0.00");
-  await expect(settledBets.locator("tbody tr").first().locator("td").last()).not.toHaveClass(/activity-performance-(won|lost)/);
-  await expect(settledBets.locator("tbody tr").first()).toContainText("1.00");
+  await expect(settledRow.locator("td").last()).toHaveText("0.00");
+  await expect(settledRow.locator("td").last()).not.toHaveClass(/activity-performance-(won|lost)/);
+  await expect(settledRow).toContainText("1.00");
   await expect(page.getByRole("button", { name: /cancel/i })).toHaveCount(0);
 
   const memberContext = await browser.newContext();
