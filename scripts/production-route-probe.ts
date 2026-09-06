@@ -25,7 +25,8 @@ const isConnectionRefused = (error: unknown) => {
 
 export async function assertProductionPortAvailable(baseURL: string, request: Fetch = fetch, owner = "production probe") {
   try {
-    await request(`${baseURL}/health/app`, { signal: AbortSignal.timeout(500) });
+    // Any HTTP response, including a redirect, proves this port is occupied.
+    await request(`${baseURL}/health/app`, { signal: AbortSignal.timeout(500), redirect: "manual" });
   } catch (error) {
     if (isConnectionRefused(error)) return;
     throw new Error(`${owner} port availability could not be confirmed at ${baseURL}`, { cause: error });

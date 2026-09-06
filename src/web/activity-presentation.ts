@@ -43,7 +43,7 @@ export function formatActivityWagerPerformance(wager: WagerOutcome & Pick<Wager,
 }
 
 export function activityWagerPerformanceClass(wager: WagerOutcome): string {
-  return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : "";
+  return terminalOutcome(wager) === "won" ? "activity-performance-won" : terminalOutcome(wager) === "lost" ? "activity-performance-lost" : terminalOutcome(wager) === "refunded" ? "activity-performance-refunded" : "";
 }
 
 /** Public Activity stakes may omit protected accepted odds. */
@@ -55,6 +55,11 @@ export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedO
 /** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
 export function activitySelectedOutcomeClass(wager: WagerOutcome): string {
   return terminalOutcome(wager) === "won" ? "activity-picked-won" : terminalOutcome(wager) === "lost" ? "activity-picked-lost" : "";
+}
+
+/** Keeps settled leg grades visually consistent across Activity and My Bets. */
+export function activityLegGradeClass(grade: string | undefined): string {
+  return grade === "win" ? "activity-leg-win" : grade === "loss" ? "activity-leg-loss" : grade === "push" ? "activity-leg-push" : "activity-leg-neutral";
 }
 
 /** The available feed has kickoff, but no live/finished game-state signal. */
