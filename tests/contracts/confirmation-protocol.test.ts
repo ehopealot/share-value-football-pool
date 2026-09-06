@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Confirmation } from "../../src/web/components/Confirmation";
-import { straightWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerPlacementRequest, shareOrderQuoteSnapshot } from "../../src/contracts/http";
+import { straightWagerQuoteRequest, straightWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerPlacementRequest, shareOrderQuoteRequest, shareOrderQuoteSnapshot } from "../../src/contracts/http";
 import { buildShareOrderExecution, buildStraightPlacement, buildTeaserPlacement, parseShareOrderQuoteSuccess, parseStraightQuoteSuccess, parseTeaserQuoteSuccess } from "../../src/web/api";
 
 const time = "2030-09-01T12:00:00.000Z";
-const request = { quoteKey: "quote-1", commandId: "quote-1", wagerId: "wager-1", seasonId: "season-1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event-1:spread:home", offerVersion: "7" } };
+const request: z.infer<typeof straightWagerQuoteRequest> = { quoteKey: "quote-1", commandId: "quote-1", wagerId: "wager-1", seasonId: "season-1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event-1:spread:home", offerVersion: "7" } };
 
 describe("immutable confirmation protocol", () => {
   it("constructs a browser quote without accepted terms", () => {
@@ -49,7 +50,7 @@ describe("immutable confirmation protocol", () => {
       expect(() => parseStraightQuoteSuccess(request, { ...quote, leg: { ...quote.leg, [key]: value, canonicalOfferProof: proof } })).toThrow();
     }
     const order = shareOrderQuoteSnapshot.parse({ seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", commandVersion: "12" });
-    const orderRequest = { seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", idempotencyKey: "order-quote" };
+    const orderRequest: z.infer<typeof shareOrderQuoteRequest> = { seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", idempotencyKey: "order-quote" };
     for (const [key, value] of Object.entries({ seasonId: "other-season", memberId: "other-member", mode: "value", amountMicros: "2000000" })) expect(() => parseShareOrderQuoteSuccess(orderRequest, { ...order, [key]: value })).toThrow();
     expect(buildShareOrderExecution(order, "mutation", "reason")).toMatchObject({ seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000" });
     expect(buildTeaserPlacement({ quoteKey: "quote-teaser", seasonId: "season-1", ownerMemberId: "owner", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", commandVersion: "13", legs: [{ ...quote.leg, adjustedLine: 2.5 }, { ...quote.leg, adjustedLine: 2.5, eventId: "event-2", canonicalOfferProof: { ...quote.leg.canonicalOfferProof, eventId: "event-2", offerId: "event-2:spread:home" } }, { ...quote.leg, adjustedLine: 2.5, eventId: "event-3", canonicalOfferProof: { ...quote.leg.canonicalOfferProof, eventId: "event-3", offerId: "event-3:spread:home" } }] } as any, "wager-teaser", "mutation-teaser")).toMatchObject({ wagerId: "wager-teaser", quoteKey: "quote-teaser", teaserPoints: 6 });
@@ -79,7 +80,7 @@ describe("immutable confirmation protocol", () => {
     expect(teaserWagerPlacementRequest.safeParse(teaser).success).toBe(true);
     expect(teaserWagerPlacementRequest.safeParse({ ...teaser, legs: teaser.legs.slice(0, 2) }).success).toBe(false);
     expect(teaserWagerPlacementRequest.safeParse({ ...teaser, legs: [{ ...teaserLeg, adjustedLine: -13 }, ...teaser.legs.slice(1)] }).success).toBe(false);
-    const teaserRequest = { quoteKey: "quote-teaser", commandId: "quote-teaser", wagerId: "wager-teaser", seasonId: "season-1", riskMicros: "1000000", teaserPoints: 10, rulesetVersion: "SHARE_POOL_2026_V1", legs: teaser.legs.map(({ eventId, canonicalBook, market, selection, canonicalOfferProof, offerVersion }) => ({ eventId, canonicalBook, market, selection, offerId: canonicalOfferProof.offerId, offerVersion })) };
+    const teaserRequest: z.infer<typeof teaserWagerQuoteRequest> = { quoteKey: "quote-teaser", commandId: "quote-teaser", wagerId: "wager-teaser", seasonId: "season-1", riskMicros: "1000000", teaserPoints: 10, rulesetVersion: "SHARE_POOL_2026_V1", legs: teaser.legs.map(({ eventId, canonicalBook, market, selection, canonicalOfferProof, offerVersion }) => ({ eventId, canonicalBook, market, selection, offerId: canonicalOfferProof.offerId, offerVersion })) };
     const teaserSnapshot = { quoteKey: "quote-teaser", seasonId: "season-1", ownerMemberId: "owner", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 10, rulesetVersion: "SHARE_POOL_2026_V1", commandVersion: "12", legs: teaser.legs };
     expect(() => parseTeaserQuoteSuccess(teaserRequest, { ...teaserSnapshot, legs: [...teaserSnapshot.legs].reverse() })).toThrow();
     // Every request-mirrored teaser scalar and leg identity is rejected before Confirmation can receive it.

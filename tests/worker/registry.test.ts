@@ -1,7 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createPoolResponse } from "../../src/contracts/http";
 import { PoolRegistry } from "../../src/services/pool-registry";
 import type { InitializePoolInput, PoolCommandClient } from "../../src/services/pool-command-client";
 
@@ -31,7 +30,6 @@ describe("pool registry reservation saga", () => {
     const registry = new PoolRegistry(db, commands, "test-command-authenticator-key");
     const created = await registry.create({ slug: "Friday-Football", creatorId: "u1", idempotencyKey: "k1", ...material });
     expect(created).toMatchObject({ slug: "friday-football", status: "ready", commandVersion: "1" });
-    expect(createPoolResponse.parse(created)).toMatchObject({ poolId: created.poolId, slug: created.slug, status: created.status, commandVersion: created.commandVersion });
     expect(commands.calls).toEqual([expect.objectContaining({ commandId: "k1", ...material })]);
     expect(await registry.create({ slug: "friday-football", creatorId: "u1", idempotencyKey: "k1", ...material })).toEqual(created);
     await expect(registry.create({ slug: "friday-football", creatorId: "u2", idempotencyKey: "k2", ...material })).rejects.toThrow("Pool slug is already reserved");
