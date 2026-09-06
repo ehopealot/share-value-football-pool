@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, appendFile, mkdir, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -7,6 +7,16 @@ const EXIT_TIMEOUT_MS = 5_000;
 const PROBE_TIMEOUT_MS = 1_000;
 
 type GroupProbe = (pgid: number) => Promise<boolean>;
+
+export async function readProcessCommand(pid: string, readCommand = (path: string) => readFile(path, "utf8")) {
+  try { return (await readCommand(`/proc/${pid}/cmdline`)).replaceAll("\0", " "); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ESRCH") return undefined;
+    throw new Error(`cannot read command for PID ${pid}`, { cause: error });
+  }
+}
+
 export type CleanupOptions = {
   cleanupTimeoutMs?: number;
   probeTimeoutMs?: number;
@@ -31,6 +41,7 @@ export type OwnedSignalCleanupOptions = {
   cleanup: () => Promise<void>;
   signalSource?: SignalSource;
   exit?: (code: number) => void;
+  reportError?: (error: unknown) => void;
 };
 
 /** Local-test-only cooperative control channel for exercising a real owner process. */
@@ -96,7 +107,7 @@ export function createOwnerControl(env = process.env): OwnerControl {
  * Installs persistent SIGINT/SIGTERM listeners around one owner cleanup.
  * A first signal starts cleanup; later signals are deliberately absorbed until it settles.
  */
-export function installOwnedSignalCleanup({ cleanup, signalSource = process, exit = (code) => process.exit(code) }: OwnedSignalCleanupOptions) {
+export function installOwnedSignalCleanup({ cleanup, signalSource = process, exit = (code) => process.exit(code), reportError = (error) => console.error(error instanceof Error ? error.stack ?? error.message : error) }: OwnedSignalCleanupOptions) {
   let settled: Promise<void> | undefined;
   let signalExitScheduled = false;
   const remove = () => {
@@ -109,7 +120,7 @@ export function installOwnedSignalCleanup({ cleanup, signalSource = process, exi
     signalExitScheduled = true;
     void settle().then(
       () => exit(1),
-      () => exit(1),
+      (error) => { try { reportError(error); } finally { exit(1); } },
     );
   };
   signalSource.on("SIGINT", onSignal);
@@ -141,7 +152,7 @@ const waitForExit = (child: ChildProcess, timeout = EXIT_TIMEOUT_MS) => child.ex
   ? Promise.resolve(true)
   : Promise.race([new Promise<boolean>((resolve) => child.once("exit", () => resolve(true))), delay(timeout).then(() => false)]);
 
-const groupHasMembers = async (pgid: number, _timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> => {
+const groupHasMembers = async (pgid: number): Promise<boolean> => {
   // Signal zero is a direct kernel process-group existence probe: no helper process or pipe can leak.
   try { process.kill(-pgid, 0); return true; }
   catch (error) {
@@ -150,17 +161,25 @@ const groupHasMembers = async (pgid: number, _timeoutMs = PROBE_TIMEOUT_MS): Pro
   }
 };
 
-const withDeadline = async <T>(operation: Promise<T>, timeoutMs: number) => Promise.race([
-  operation,
-  delay(timeoutMs).then(() => { throw new Error("process-group verification timed out"); })
-]);
+const withDeadline = async <T>(operation: Promise<T>, timeoutMs: number) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error("process-group verification timed out")), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 export const waitForProcessGroupExit = async (pgid: number, attempts = 20, intervalMs = 100, options: CleanupOptions = {}) => {
   const deadline = Date.now() + (options.cleanupTimeoutMs ?? attempts * intervalMs + PROBE_TIMEOUT_MS);
-  const probe = options.groupProbe ?? ((id: number) => groupHasMembers(id, options.probeTimeoutMs));
+  const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+  const probe = options.groupProbe ?? groupHasMembers;
   for (let attempt = 0; attempt < attempts && Date.now() < deadline; attempt++) {
     const remaining = deadline - Date.now();
-    const hasMembers = await withDeadline(probe(pgid), Math.max(1, remaining));
+    const hasMembers = await withDeadline(probe(pgid), Math.max(1, Math.min(remaining, probeTimeoutMs)));
     if (!hasMembers) return true;
     if (attempt + 1 < attempts) await delay(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
   }

@@ -6,8 +6,21 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess } from "./owned-process";
 import { assertProductionPortAvailable } from "./production-route-probe";
+import { isDirectExecution } from "./direct-entry.mjs";
+import { nonPublishingCloudflareEnvironment } from "./cloudflare-credentials.mjs";
 
 type Fetch = typeof fetch;
+const LOCAL_RESPONSE_TIMEOUT_MS = 30_000;
+
+export const localResponseBarrierEnvironment = (environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => nonPublishingCloudflareEnvironment(environment);
+
+export const localResponseBarrierRequest = (
+  baseURL: string,
+  path: string,
+  body?: unknown,
+  request: Fetch = fetch,
+  signal: AbortSignal = AbortSignal.timeout(LOCAL_RESPONSE_TIMEOUT_MS),
+) => request(`${baseURL}${path}`, { method: body ? "POST" : "GET", headers: { origin: baseURL, "content-type": "application/json", "x-local-test-user": "local-owner" }, body: body ? JSON.stringify(body) : undefined, signal });
 
 export async function startLocalResponseBarrierWorker<T>(baseURL: string, spawnWorker: () => T, request: Fetch = fetch): Promise<T> {
   await assertProductionPortAvailable(baseURL, request, "local response barrier Worker");
@@ -17,8 +30,9 @@ export async function startLocalResponseBarrierWorker<T>(baseURL: string, spawnW
 async function runLocalResponseBarrier() {
 const require = createRequire(import.meta.url); const persistence = await mkdtemp(join(tmpdir(), "share-value-pool-owned-barrier-"));
 const port = 35000 + Math.floor(Math.random() * 1000); const base = `http://127.0.0.1:${port}`; let child: ChildProcess | undefined; let childFailure: Error | undefined; let primary: unknown; let removeChildObservers = () => {}; const control = createOwnerControl();
-const run = (command: string, args: string[]) => runOwnedProcess(command, args, 30_000);
-const request = async (path: string, body?: unknown, signal?: AbortSignal) => fetch(`${base}${path}`, { method: body ? "POST" : "GET", headers: { origin: base, "content-type": "application/json", "x-local-test-user": "local-owner" }, body: body ? JSON.stringify(body) : undefined, signal });
+const childEnvironment = localResponseBarrierEnvironment();
+const run = (command: string, args: string[]) => runOwnedProcess(command, args, 30_000, "inherit", {}, childEnvironment);
+const request = (path: string, body?: unknown, signal?: AbortSignal) => localResponseBarrierRequest(base, path, body, fetch, signal);
 let cleanupPromise: Promise<void> | undefined;
 const cleanup = () => cleanupPromise ??= (async () => {
   if (control.enabled) { await control.cleanupEntered(); if (control.holdCleanup) await control.waitForCleanupHold(); if (!control.failBeforeReady) await control.waitForRelease(); }
@@ -30,7 +44,7 @@ try {
   await run("npm", ["run", "build:local"]);
   const wrangler = require.resolve("wrangler");
   await run(process.execPath, [wrangler, "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"]);
-  child = await startLocalResponseBarrierWorker(base, () => spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-barrier-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-barrier-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-barrier-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-barrier-backup-token"], { detached: true, stdio: "ignore", env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } }), fetch);
+  child = await startLocalResponseBarrierWorker(base, () => spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-barrier-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-barrier-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-barrier-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-barrier-backup-token"], { detached: true, stdio: "ignore", env: childEnvironment }), fetch);
   if (!child.pid) throw new Error("barrier Worker did not provide a process-group leader PID");
   const onChildError = (error: Error) => { childFailure ??= new Error(`barrier Worker spawn failed: ${error.message}`, { cause: error }); };
   const onChildExit = (code: number | null, signal: NodeJS.Signals | null) => { childFailure ??= new Error(`barrier Worker exited ${code ?? signal ?? "unknown"} before readiness`); };
@@ -73,4 +87,4 @@ try {
 }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await runLocalResponseBarrier();
+if (isDirectExecution(import.meta.url)) await runLocalResponseBarrier();

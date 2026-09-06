@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 import ts from "typescript";
@@ -5,8 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
 import { installLocalTestControls } from "../../src/worker/test-controls";
 import { LOCAL_FIXTURE_EVENTS } from "../../src/odds/fixtures/runtime";
-import { startLocalResponseBarrierWorker } from "../../scripts/local-response-barrier";
-import { localSmokeMigrationArgs, localSmokeWorkerArgs, startLocalSmokeWorker } from "../../scripts/local-smoke";
+import { cloudflareCredentialNames, workerSecretNames } from "../../scripts/cloudflare-credentials.mjs";
+import { localResponseBarrierEnvironment, localResponseBarrierRequest, startLocalResponseBarrierWorker } from "../../scripts/local-response-barrier";
+import { forwardLocalSmokeOutput, localSmokeEnvironment, localSmokeMigrationArgs, localSmokeWorkerArgs, startLocalSmokeWorker } from "../../scripts/local-smoke";
 
 describe("deterministic local smoke support", () => {
   it("ships completed and placeable canonical Super Bowl fixtures without disturbing upcoming order", () => {
@@ -81,6 +83,43 @@ describe("deterministic local smoke support", () => {
     expect(workerArgs).toEqual(["/sentinel/wrangler", "dev", "--local", "--env-file", "/dev/null", "--port=24123", "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-smoke-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-smoke-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-smoke-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-smoke-backup-token"]);
     expect(migrationArgs[migrationArgs.indexOf("--persist-to") + 1]).toBe(persistence);
     expect(workerArgs[workerArgs.indexOf("--persist-to") + 1]).toBe(persistence);
+  });
+
+  it("bounds local response-barrier requests with the caller-visible abort signal", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    const request = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }));
+    try {
+      const pending = localResponseBarrierRequest("http://127.0.0.1:35000", "/__local-test/seed", {}, request);
+      expect(timeout).toHaveBeenCalledWith(30_000);
+      expect(request.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+      controller.abort(new DOMException("timed out", "TimeoutError"));
+      await expect(pending).rejects.toMatchObject({ name: "TimeoutError" });
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it("pauses local-smoke output until its destination drains", () => {
+    const source = Object.assign(new EventEmitter(), { pause: vi.fn(), resume: vi.fn() });
+    const destination = Object.assign(new EventEmitter(), { write: vi.fn(() => false) });
+    forwardLocalSmokeOutput(source, destination, Buffer.from("bounded output"));
+    expect(destination.write).toHaveBeenCalledWith(Buffer.from("bounded output"));
+    expect(source.pause).toHaveBeenCalledOnce();
+    expect(source.resume).not.toHaveBeenCalled();
+    destination.emit("drain");
+    expect(source.resume).toHaveBeenCalledOnce();
+  });
+
+  it("isolates local Wrangler harness environments from credentials, Worker secrets, dotenv, and process bindings", () => {
+    const sensitiveNames = [...cloudflareCredentialNames, ...workerSecretNames];
+    const credentials = Object.fromEntries(sensitiveNames.map((name) => [name, `secret-${name}`]));
+    for (const environment of [localSmokeEnvironment({ PATH: "test", CLOUDFLARE_INCLUDE_PROCESS_ENV: "true", ...credentials }), localResponseBarrierEnvironment({ PATH: "test", CLOUDFLARE_INCLUDE_PROCESS_ENV: "true", ...credentials })]) {
+      expect(environment).toMatchObject({ PATH: "test", CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", CLOUDFLARE_INCLUDE_PROCESS_ENV: "false" });
+      for (const name of sensitiveNames) expect(environment[name], name).toBeUndefined();
+    }
   });
 
   it("fails direct local harnesses closed on occupied or indeterminate ports before spawning", async () => {

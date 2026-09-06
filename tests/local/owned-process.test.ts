@@ -3,9 +3,10 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { cleanupOwnedResources, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess, waitForProcessGroupExit } from "../../scripts/owned-process";
+import { cleanupOwnedResources, installOwnedSignalCleanup, readProcessCommand, runOwnedProcess, stopOwnedProcess, waitForProcessGroupExit } from "../../scripts/owned-process";
 
 const root = resolve(import.meta.dirname, "../..");
 const OWNER_TIMEOUT_MS = 90_000;
@@ -91,6 +92,51 @@ describe("owned local process protocol", () => {
     signals.emit("SIGINT"); signals.emit("SIGTERM"); await Promise.resolve();
     expect(cleanupCalls).toBe(1); expect(exits).toEqual([]); expect(signals.listenerCount("SIGINT")).toBe(1); expect(signals.listenerCount("SIGTERM")).toBe(1);
     releaseCleanup(); await owner.settled(); expect(exits).toEqual([1]); expect(signals.listenerCount("SIGINT")).toBe(0); expect(signals.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("reports signal-triggered cleanup failures before retaining the nonzero exit", async () => {
+    const signals = new EventEmitter(); const exits: number[] = []; const reported: unknown[] = [];
+    const failure = new Error("injected cleanup failure");
+    const owner = installOwnedSignalCleanup({
+      cleanup: async () => { throw failure; },
+      signalSource: signals,
+      reportError: (error) => { reported.push(error); },
+      exit: (code) => { exits.push(code); },
+    });
+    signals.emit("SIGTERM");
+    await expect(owner.settled()).rejects.toBe(failure);
+    expect(reported).toEqual([failure]);
+    expect(exits).toEqual([1]);
+    expect(signals.listenerCount("SIGINT")).toBe(0);
+    expect(signals.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("ignores only disappeared proc entries while surfacing other command-read failures with PID context", async () => {
+    for (const code of ["ENOENT", "ESRCH"]) {
+      const missing = Object.assign(new Error("gone"), { code });
+      await expect(readProcessCommand("123", async () => { throw missing; })).resolves.toBeUndefined();
+    }
+    const inaccessible = Object.assign(new Error("denied"), { code: "EACCES" });
+    await expect(readProcessCommand("456", async () => { throw inaccessible; })).rejects.toThrow("cannot read command for PID 456");
+  });
+
+  it("clears a successful process-group probe deadline instead of retaining the Node process", async () => {
+    const moduleUrl = pathToFileURL(resolve(root, "scripts/owned-process.ts")).href;
+    const source = `import { waitForProcessGroupExit } from ${JSON.stringify(moduleUrl)}; if (!await waitForProcessGroupExit(1, 1, 1, { cleanupTimeoutMs: 3_000, groupProbe: async () => false })) process.exitCode = 1;`;
+    const startedAt = Date.now();
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", source], { cwd: root, stdio: "ignore" });
+    expect(await waitForExit(child, "probe-deadline child exit")).toBe(0);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+  });
+
+  it("bounds a never-settling process-group probe by the configured probe timeout", async () => {
+    const startedAt = Date.now();
+    await expect(waitForProcessGroupExit(1, 1, 1, {
+      cleanupTimeoutMs: 3_000,
+      probeTimeoutMs: 25,
+      groupProbe: async () => new Promise<boolean>(() => {}),
+    })).rejects.toThrow("process-group verification timed out");
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
   it("owns prerequisite builds and all real owner cleanup and pre-ready failures within deadlines", async () => {

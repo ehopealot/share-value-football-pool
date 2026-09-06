@@ -182,6 +182,26 @@ exit 0
     }
   });
 
+  it("preserves the referent of a relative broken worktree secret symlink in its backup", async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), "office-pool-dev-vars-"));
+    const root = join(sandbox, "root");
+    const worktree = join(root, ".worktrees", "parlays");
+    const canonicalDevVarsPath = join(root, ".dev.vars");
+    const worktreeDevVarsPath = join(worktree, ".dev.vars");
+    const relativeTarget = "../../missing-dev-vars";
+    try {
+      await mkdir(worktree, { recursive: true });
+      await writeFile(canonicalDevVarsPath, "BETTER_AUTH_SECRET=canonical\n");
+      await symlink(relativeTarget, worktreeDevVarsPath);
+      const backupPath = sharedDevVarsBackupPathFor(worktree, canonicalDevVarsPath);
+      expect(await ensureSharedDevVars(worktree, canonicalDevVarsPath)).toBe(backupPath);
+      expect(await readlink(worktreeDevVarsPath)).toBe(canonicalDevVarsPath);
+      expect(await readlink(backupPath)).toBe(resolve(dirname(worktreeDevVarsPath), relativeTarget));
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
   it("refuses to overwrite either local secret file when a backup already exists", async () => {
     const sandbox = await mkdtemp(join(tmpdir(), "office-pool-dev-vars-"));
     const root = join(sandbox, "root");

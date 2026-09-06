@@ -21,9 +21,22 @@ async function navigateWithinSpa(page: Page, pathname: string) {
   await page.evaluate((nextPath) => { window.history.pushState({}, "", nextPath); window.dispatchEvent(new PopStateEvent("popstate")); }, pathname);
 }
 
-const waitForFailedPost = (page: Page, pathname: string) => page.waitForEvent("requestfailed", {
-  predicate: (request) => request.method() === "POST" && new URL(request.url()).pathname === pathname
-});
+const waitForFailedPost = (page: Page, pathname: string) => {
+  const started = page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === pathname);
+  const finished = started.then(async (request) => {
+    const response = await request.response();
+    if (response) {
+      // Workerd may turn a withheld handler response into HTTP 500 rather than
+      // a browser transport failure. Both enter the application's retry path.
+      await response.finished();
+      expect(response.status()).toBeGreaterThanOrEqual(500);
+    } else {
+      expect(request.failure()?.errorText).toBeTruthy();
+    }
+    return request;
+  });
+  return { started, finished };
+};
 
 async function signInOwner(
   page: import("@playwright/test").Page,
@@ -76,10 +89,13 @@ test("a pending straight quote cannot leak into a newly selected pool", async ({
   const failedQuote = waitForFailedPost(page, `/api/p/${source.slug}/wagers/straight/quote`);
   await page.getByRole("button", { name: "Place bets" }).click();
   await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toBeVisible();
+  // Reviewing starts with an odds refresh; navigation before the POST would
+  // correctly cancel the quote and leave no failed request to observe.
+  await failedQuote.started;
 
   await navigateWithinSpa(page, "/p/route-destination/odds");
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  expect((await failedQuote).failure()?.errorText).toBeTruthy();
+  await failedQuote.finished;
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toHaveCount(0);
 });
@@ -107,11 +123,11 @@ test("a pending straight placement cannot leak into a newly selected pool", asyn
     return response.ok() && request.method() === "POST" && new URL(request.url()).pathname === placementPath;
   });
   await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await failedPlacement.started;
 
   await navigateWithinSpa(page, "/p/placement-route-destination/odds");
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  const [failedRequest, replayResponse] = await Promise.all([failedPlacement, completedPlacementReplay]);
-  expect(failedRequest.failure()?.errorText).toBeTruthy();
+  const [failedRequest, replayResponse] = await Promise.all([failedPlacement.finished, completedPlacementReplay]);
   expect(replayResponse.request().postData()).toBe(failedRequest.postData());
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review straight wagers" })).toHaveCount(0);
@@ -136,10 +152,11 @@ test("a pending teaser quote cannot leak into a newly selected pool", async ({ p
   const failedTeaserQuote = waitForFailedPost(page, `/api/p/${source.slug}/wagers/teasers/quote`);
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await expect(page.getByRole("heading", { name: "Reviewing teaser wager" })).toBeVisible();
+  await failedTeaserQuote.started;
 
   await navigateWithinSpa(page, "/p/teaser-route-destination/teaser");
   await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
-  expect((await failedTeaserQuote).failure()?.errorText).toBeTruthy();
+  await failedTeaserQuote.finished;
   await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Confirm teaser wager" })).toHaveCount(0);
 });

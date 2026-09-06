@@ -2,17 +2,21 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, stopOwnedProcess } from "./owned-process";
+import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup } from "./owned-process";
+import { isDirectExecution } from "./direct-entry.mjs";
+import { nonPublishingCloudflareEnvironment } from "./cloudflare-credentials.mjs";
 
 const require = createRequire(import.meta.url);
 const timeoutMs = 30_000;
 const productionConfig = process.env.PRODUCTION_PROBE_CONFIG ?? "dist/office_pool_reborn/wrangler.json";
 const productionBuild = process.env.PRODUCTION_PROBE_BUILD ?? "dist/office_pool_reborn";
-const port = Number(process.env.PRODUCTION_PROBE_PORT ?? 25173);
+const productionPort = process.env.PRODUCTION_PROBE_PORT ?? "25173";
 type Fetch = typeof fetch;
 type AssertChildLive = () => void;
+
+export const productionProbeEnvironment = (environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => nonPublishingCloudflareEnvironment(environment);
 
 const isConnectionRefused = (error: unknown) => {
   let current = error;
@@ -48,12 +52,22 @@ export async function waitForProductionReadiness(baseURL: string, request: Fetch
   assertChildLive();
   throw new Error("production Worker did not become ready");
 }
-export type ProductionProbeOptions = { spawn?: typeof spawn; port?: number; preflight?: typeof assertProductionPortAvailable; ready?: typeof waitForProductionReadiness; fetch?: Fetch; stop?: (child: ChildProcess | undefined) => Promise<void>; remove?: (path: string, options: { recursive: true; force: true }) => Promise<void> };
+export type ProductionProbeOptions = { spawn?: typeof spawn; port?: number; preflight?: typeof assertProductionPortAvailable; ready?: typeof waitForProductionReadiness; fetch?: Fetch; stop?: (child: ChildProcess | undefined) => Promise<void>; remove?: (path: string, options: { recursive: true; force: true }) => Promise<void>; environment?: NodeJS.ProcessEnv };
+
+export function validateProductionProbeInputs(configValue: string, buildValue: string, portValue: string | number) {
+  const config = resolve(configValue); const build = resolve(buildValue);
+  const fromBuild = relative(build, config);
+  if (!fromBuild || fromBuild === ".." || fromBuild.startsWith(`..${sep}`) || isAbsolute(fromBuild)) {
+    throw new Error("production probe config must be generated inside the production build");
+  }
+  const port = Number(portValue);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("production probe port must be an integer from 1 to 65535");
+  return { config, port };
+}
 
 export async function probeProductionRoutes(options: ProductionProbeOptions = {}) {
-  const config = resolve(productionConfig); const build = resolve(productionBuild);
-  if (!config.startsWith(build)) throw new Error("production probe config must be generated inside the production build");
-  const baseURL = `http://127.0.0.1:${options.port ?? port}`;
+  const { config, port } = validateProductionProbeInputs(productionConfig, productionBuild, options.port ?? productionPort);
+  const baseURL = `http://127.0.0.1:${port}`;
   const request = options.fetch ?? fetch;
   await (options.preflight ?? assertProductionPortAvailable)(baseURL, request);
   const persistence = await mkdtemp(join(tmpdir(), "share-value-pool-owned-production-probe-"));
@@ -70,7 +84,7 @@ export async function probeProductionRoutes(options: ProductionProbeOptions = {}
   })();
   const signalCleanup = installOwnedSignalCleanup({ cleanup });
   try {
-    child = (options.spawn ?? spawn)(process.execPath, [require.resolve("wrangler"), "dev", "--local", "--env-file", "/dev/null", `--port=${options.port ?? port}`, "--persist-to", persistence, "--config", config, "--var", "BETTER_AUTH_SECRET:production-probe-auth-secret-with-32-characters", "--var", "RESEND_API_KEY:production-probe-resend-key"], { detached: true, stdio: "ignore", env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
+    child = (options.spawn ?? spawn)(process.execPath, [require.resolve("wrangler"), "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", config, "--var", "BETTER_AUTH_SECRET:production-probe-auth-secret-with-32-characters", "--var", "RESEND_API_KEY:production-probe-resend-key"], { detached: true, stdio: "ignore", env: productionProbeEnvironment(options.environment) });
     if (!child.pid) throw new Error("production Worker did not provide a process-group leader PID");
     const onChildError = (error: Error) => { childFailure ??= new Error(`production Worker spawn failed: ${error.message}`, { cause: error }); };
     const onChildExit = (code: number | null, signal: NodeJS.Signals | null) => { childFailure ??= new Error(`production Worker exited ${code ?? signal ?? "unknown"} before probe completion`); };
@@ -92,7 +106,7 @@ export async function probeProductionRoutes(options: ProductionProbeOptions = {}
     if (control.enabled) await control.waitForCleanup();
     for (const method of ["GET", "POST", "OPTIONS"]) {
       assertChildLive();
-      const response = await request(`${baseURL}/__local-test/probe`, { method, signal: AbortSignal.timeout(5_000) });
+      const response = await request(`${baseURL}/__local-test/probe`, { method, redirect: "manual", signal: AbortSignal.timeout(5_000) });
       assertChildLive();
       if (response.status !== 404) throw new Error(`${method} /__local-test/probe returned ${response.status}, expected 404`);
     }
@@ -103,4 +117,4 @@ export async function probeProductionRoutes(options: ProductionProbeOptions = {}
     finally { removeChildObservers(); }
   }
 }
-if (import.meta.url === `file://${process.argv[1]}`) await probeProductionRoutes();
+if (isDirectExecution(import.meta.url)) await probeProductionRoutes();

@@ -1,12 +1,16 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { describe, expect, it, vi } from "vitest";
 import {
   T10_SERIAL_GATE_STAGES,
+  forwardSerialGateOutput,
   runSerialGate,
 } from "../../scripts/run-t10-serial-gate.mjs";
+import { cloudflareCredentialNames, workerSecretNames } from "../../scripts/cloudflare-credentials.mjs";
 import { waitForProcessGroupExit } from "../../scripts/owned-process";
 
 type SerialGateStage = { label: string; command: string; args: string[] };
@@ -56,19 +60,71 @@ describe("T10 serial gate", () => {
   it("uses the exact approved serial command order and bounded stage configuration", async () => {
     expect(T10_SERIAL_GATE_STAGES.map((stage) => [stage.label, stage.command, stage.args])).toEqual(expectedStages);
     const root = await temporary("share-value-pool-serial-gate-order-");
+    const lockPath = join(root, "gate.lock");
     const seen: string[] = [];
     try {
       await runSerialGate({
         cwd: root,
-        lockPath: join(root, "gate.lock"),
+        lockPath,
         stages: T10_SERIAL_GATE_STAGES,
         timeoutMs: 123,
         executeStage: async (stage, context) => {
           seen.push(stage.label);
           expect(context.timeoutMs).toBe(123);
+          expect(JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")).cwd).toBe(resolve(root));
         },
       });
       expect(seen).toEqual(expectedStages.map(([label]) => label));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates default stage children from Cloudflare credentials, Worker secrets, dotenv, and process bindings", async () => {
+    const root = await temporary("share-value-pool-serial-gate-environment-");
+    const lockPath = join(root, "gate.lock");
+    const environmentPath = join(root, "environment.json");
+    const sensitiveNames = [...cloudflareCredentialNames, ...workerSecretNames];
+    const originalValues = Object.fromEntries([...sensitiveNames, "CLOUDFLARE_INCLUDE_PROCESS_ENV", "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV"].map((name) => [name, process.env[name]]));
+    try {
+      for (const name of sensitiveNames) process.env[name] = `secret-${name}`;
+      process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = "true";
+      process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "true";
+      await runSerialGate({
+        cwd: root,
+        lockPath,
+        stages: [{
+          label: "final owned-resource cleanup",
+          command: process.execPath,
+          args: ["-e", `require("node:fs").writeFileSync(${JSON.stringify(environmentPath)}, JSON.stringify(process.env))`],
+        }],
+      });
+      const childEnvironment = JSON.parse(await readFile(environmentPath, "utf8")) as NodeJS.ProcessEnv;
+      expect(childEnvironment).toMatchObject({ CLOUDFLARE_INCLUDE_PROCESS_ENV: "false", CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" });
+      for (const name of sensitiveNames) expect(childEnvironment[name], name).toBeUndefined();
+    } finally {
+      for (const [name, value] of Object.entries(originalValues)) {
+        if (value === undefined) delete process.env[name]; else process.env[name] = value;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runs fallback cleanup when a custom final-cleanup label is followed by a failing stage", async () => {
+    const root = await temporary("share-value-pool-serial-gate-final-cleanup-");
+    let fallbackCalls = 0;
+    try {
+      await expect(runSerialGate({
+        cwd: root,
+        lockPath: join(root, "gate.lock"),
+        stages: [
+          { label: "final owned-resource cleanup", command: "ignored", args: [] },
+          { label: "later failure", command: "ignored", args: [] },
+        ],
+        executeStage: async (stage) => { if (stage.label === "later failure") throw new Error("later stage failed"); },
+        finalCleanup: async () => { fallbackCalls++; },
+      })).rejects.toThrow("later stage failed");
+      expect(fallbackCalls).toBe(1);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -103,6 +159,218 @@ describe("T10 serial gate", () => {
     } finally {
       release?.();
       await first.catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["ownerless", undefined],
+    ["stale", JSON.stringify({ token: "stale", pid: 2_147_483_647, processStartIdentity: "0" })],
+    ["malformed", "not JSON"],
+  ])("rejects all concurrent contenders for an existing %s lock without mutation or leaks", async (_kind, owner) => {
+    const root = await temporary("share-value-pool-serial-gate-contenders-");
+    const lockPath = join(root, "gate.lock");
+    const executeStage = vi.fn(async () => {});
+    try {
+      await mkdir(lockPath);
+      if (owner !== undefined) await writeFile(join(lockPath, "owner.json"), owner);
+      const results = await Promise.allSettled(Array.from({ length: 3 }, () => runSerialGate({
+        cwd: root, lockPath, stages: noOpStages, executeStage,
+      })));
+      expect(results.map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);
+      expect(executeStage).not.toHaveBeenCalled();
+      expect(await readdir(root)).toEqual(["gate.lock"]);
+      if (owner === undefined) expect(await readdir(lockPath)).toEqual([]);
+      else expect(await readFile(join(lockPath, "owner.json"), "utf8")).toBe(owner);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an ownerless lock left by an interrupted acquisition until manual recovery", async () => {
+    const root = await temporary("share-value-pool-serial-gate-ownerless-");
+    const lockPath = join(root, "gate.lock");
+    try {
+      await mkdir(lockPath);
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/manual recovery/);
+      expect(await readdir(lockPath)).toEqual([]);
+      await rm(lockPath, { recursive: true });
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
+      await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires manual recovery after the exact owner process is killed", async () => {
+    const root = await temporary("share-value-pool-serial-gate-stale-owner-");
+    const lockPath = join(root, "gate.lock");
+    const enteredPath = join(root, "entered");
+    const holderPath = join(root, "holder.mjs");
+    const gateUrl = pathToFileURL(resolve(import.meta.dirname, "../../scripts/run-t10-serial-gate.mjs")).href;
+    await writeFile(holderPath, `import { writeFile } from "node:fs/promises"; import { runSerialGate } from ${JSON.stringify(gateUrl)}; await runSerialGate({ lockPath: ${JSON.stringify(lockPath)}, stages: [{ label: "hold", command: "ignored", args: [] }], executeStage: async () => { await writeFile(${JSON.stringify(enteredPath)}, "ready"); await new Promise(() => setInterval(() => {}, 1_000)); } });`);
+    const holder = spawn(process.execPath, [holderPath], { cwd: root, stdio: "ignore" });
+    const exited = new Promise<number | null>((resolveExit) => holder.once("exit", resolveExit));
+    try {
+      await expect.poll(async () => { try { await access(enteredPath); return true; } catch { return false; } }).toBe(true);
+      holder.kill("SIGKILL");
+      expect(await exited).toBeNull();
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/manual recovery/);
+      await rm(lockPath, { recursive: true });
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
+      await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      holder.kill("SIGKILL");
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a killed owner's lock while its exact detached stage group remains", async () => {
+    const root = await temporary("share-value-pool-serial-gate-orphan-stage-");
+    const lockPath = join(root, "gate.lock");
+    const stageReadyPath = join(root, "stage-ready");
+    const holderPath = join(root, "holder.mjs");
+    const gateUrl = pathToFileURL(resolve(import.meta.dirname, "../../scripts/run-t10-serial-gate.mjs")).href;
+    const stageSource = `require("node:fs").writeFileSync(${JSON.stringify(stageReadyPath)}, "ready"); setInterval(() => {}, 1_000);`;
+    await writeFile(holderPath, `import { runSerialGate } from ${JSON.stringify(gateUrl)}; await runSerialGate({ cwd: ${JSON.stringify(root)}, lockPath: ${JSON.stringify(lockPath)}, stages: [{ label: "hold detached stage", command: process.execPath, args: ["-e", ${JSON.stringify(stageSource)}] }], finalCleanup: async () => {} });`);
+    const holder = spawn(process.execPath, [holderPath], { cwd: root, stdio: "ignore" });
+    const holderExited = new Promise<number | null>((resolveExit) => holder.once("exit", resolveExit));
+    let stagePgid: number | undefined;
+    let groupVerifiedAbsent = false;
+    try {
+      await expect.poll(async () => {
+        try {
+          const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"));
+          stagePgid = owner.activeStage?.pid;
+          await access(stageReadyPath);
+          return Number.isSafeInteger(stagePgid) && stagePgid! > 0;
+        } catch { return false; }
+      }).toBe(true);
+      holder.kill("SIGKILL");
+      expect(await holderExited).toBeNull();
+
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/already running/);
+      expect(stagePgid).toBeDefined();
+      expect(await waitForProcessGroupExit(stagePgid!, 1, 1, { cleanupTimeoutMs: 100 })).toBe(false);
+
+      process.kill(-stagePgid!, "SIGTERM");
+      await expect(waitForProcessGroupExit(stagePgid!, 30, 50, { cleanupTimeoutMs: 5_000 })).resolves.toBe(true);
+      groupVerifiedAbsent = true;
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/manual recovery/);
+      await rm(lockPath, { recursive: true });
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
+    } finally {
+      holder.kill("SIGKILL");
+      await holderExited;
+      try {
+        if (stagePgid && !groupVerifiedAbsent) await forceProcessGroupExit(stagePgid, "orphaned serial stage");
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
+  }, 20_000);
+
+  it("rolls back a newly created lock when owner metadata cannot be written", async () => {
+    const root = await temporary("share-value-pool-serial-gate-owner-write-");
+    const lockPath = join(root, "gate.lock");
+    try {
+      await expect(runSerialGate({
+        cwd: root,
+        lockPath,
+        stages: noOpStages,
+        executeStage: async () => {},
+        writeOwner: async () => { throw new Error("injected owner write failure"); },
+      })).rejects.toThrow("injected owner write failure");
+      await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps acquisition exclusive while owner metadata is being published", async () => {
+    const root = await temporary("share-value-pool-serial-gate-publication-");
+    const lockPath = join(root, "gate.lock");
+    const executeContender = vi.fn(async () => {});
+    try {
+      await runSerialGate({
+        cwd: root, lockPath, stages: noOpStages, executeStage: async () => {},
+        renameLock: async (from, to) => {
+          await expect(runSerialGate({
+            cwd: root, lockPath, stages: noOpStages, executeStage: executeContender,
+          })).rejects.toThrow(/already running/);
+          await rename(from, to);
+        },
+      });
+      expect(executeContender).not.toHaveBeenCalled();
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes both the reservation and prepared metadata after publication fails", async () => {
+    const root = await temporary("share-value-pool-serial-gate-publication-failure-");
+    const lockPath = join(root, "gate.lock");
+    const primary = new Error("injected publication failure");
+    try {
+      await expect(runSerialGate({
+        cwd: root, lockPath, stages: noOpStages, executeStage: async () => {},
+        renameLock: async () => { throw primary; },
+      })).rejects.toBe(primary);
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves rename failure identity and reports prepared-lock removal failure", async () => {
+    const root = await temporary("share-value-pool-serial-gate-rename-cleanup-");
+    const lockPath = join(root, "gate.lock");
+    try {
+      await expect(runSerialGate({
+        cwd: root,
+        lockPath,
+        stages: noOpStages,
+        executeStage: async () => {},
+        renameLock: async () => { throw new Error("injected rename failure"); },
+        removePending: async () => { throw new Error("injected pending removal failure"); },
+      })).rejects.toMatchObject({
+        message: "injected rename failure",
+        cleanupDiagnostics: expect.objectContaining({ message: expect.stringContaining("injected pending removal failure") }),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("pauses serial-stage output until the destination drains", () => {
+    const source = Object.assign(new EventEmitter(), { pause: vi.fn(), resume: vi.fn() });
+    const destination = Object.assign(new EventEmitter(), { write: vi.fn(() => false) });
+    forwardSerialGateOutput(source, destination, Buffer.from("bounded output"));
+    expect(destination.write).toHaveBeenCalledWith(Buffer.from("bounded output"));
+    expect(source.pause).toHaveBeenCalledOnce();
+    expect(source.resume).not.toHaveBeenCalled();
+    destination.emit("drain");
+    expect(source.resume).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a replacement lock when owner metadata preparation fails", async () => {
+    const root = await temporary("share-value-pool-serial-gate-owner-replacement-");
+    const lockPath = join(root, "gate.lock");
+    const replacementOwner = JSON.stringify({ token: "replacement" });
+    try {
+      await expect(runSerialGate({
+        cwd: root,
+        lockPath,
+        stages: noOpStages,
+        executeStage: async () => {},
+        writeOwner: async () => {
+          await mkdir(lockPath);
+          await writeFile(join(lockPath, "owner.json"), replacementOwner);
+          throw new Error("injected owner write failure after replacement");
+        },
+      })).rejects.toThrow("injected owner write failure after replacement");
+      await expect(readFile(join(lockPath, "owner.json"), "utf8")).resolves.toBe(replacementOwner);
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
