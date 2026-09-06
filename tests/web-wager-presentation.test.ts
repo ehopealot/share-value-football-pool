@@ -27,8 +27,17 @@ describe("owner ticket presentation", () => {
     expect(displayWagerStartTimes(parlay)).toEqual([formatKickoff("2026-09-06T18:00:00.000Z"), formatKickoff("2026-09-07T20:00:00.000Z")]);
     expect(displayWagerStartTimeOnly(parlay)).toEqual([formatKickoff("2026-09-06T18:00:00.000Z").split(" ")[1], formatKickoff("2026-09-07T20:00:00.000Z").split(" ")[1]]);
     expect(displayWagerDateLabel(early)).toBe("Sun, Sep 6");
-    expect(displayWagerDateLabel(parlay)).toBe("Sun, Sep 6 – Mon, Sep 7");
+    expect(displayWagerDateLabel(parlay)).toBe("Sun, Sep 6");
     expect(sortWagersByStartTime([late, early, parlay]).map((item) => item.wagerId)).toEqual(["parlay", "early", "late"]);
+  });
+
+  it("groups multi-day wagers under their soonest active or upcoming game", () => {
+    const multiDay = wager({ legs: [{ eventStartsAt: "2026-09-06T18:00:00.000Z", grade: "win" }, { eventStartsAt: "2026-09-07T20:00:00.000Z" }] });
+    const nextDay = wager({ wagerId: "next-day", legs: [{ eventStartsAt: "2026-09-07T21:00:00.000Z" }] });
+
+    expect(displayWagerDateLabel(multiDay)).toBe("Mon, Sep 7");
+    expect(displayWagerStartTimeOnly(multiDay)).toEqual(["Sun", formatKickoff("2026-09-07T20:00:00.000Z").split(" ")[1]]);
+    expect(sortWagersByStartTime([nextDay, multiDay]).map((item) => item.wagerId)).toEqual(["wager", "next-day"]);
   });
 
   it("places unavailable starts last and breaks start-time ties deterministically", () => {
