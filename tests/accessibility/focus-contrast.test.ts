@@ -16,10 +16,26 @@ function contrast(first: string, second: string) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+const declarations = (selector: string) => {
+  const match = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((candidate) => candidate[1].replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim() === selector);
+  expect(match, `CSS rule ${selector}`).toBeDefined();
+  return match![2];
+};
+const property = (selector: string, name: string) => {
+  const value = declarations(selector).match(new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`))?.[1]?.trim();
+  expect(value, `${name} in ${selector}`).toBeDefined();
+  return value!;
+};
+const sharedFocusSelectors = ["a:focus-visible", "button:focus-visible", "input:focus-visible", "select:focus-visible", "textarea:focus-visible"];
+const sharedFocusRule = () => declarations(sharedFocusSelectors.join(", "));
+
 describe("focus indicator", () => {
-  it("covers selects as well as links, buttons, and inputs", () => {
-    expect(css).toMatch(/a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible/);
+  it("applies the intended visible outline to links and every form control", () => {
+    const rule = sharedFocusRule();
+    expect(rule).toMatch(/(?:^|;)\s*outline:\s*3px\s+solid\s+var\(--focus\)\s*(?:;|$)/);
+    expect(rule).toMatch(/(?:^|;)\s*outline-offset:\s*2px\s*(?:;|$)/);
   });
+
   it("has at least 3:1 contrast on paper and dark navigation surfaces", () => {
     const focus = css.match(/--focus:\s*(#[0-9a-fA-F]{6})/)?.[1];
     const focusOnDark = css.match(/--focus-on-dark:\s*(#[0-9a-fA-F]{6})/)?.[1];
@@ -33,7 +49,8 @@ describe("focus indicator", () => {
     expect(contrast(focusOnDark!, blue!)).toBeGreaterThanOrEqual(3);
   });
 
-  it("uses the dark-surface focus token for the signed-in logout button", () => {
-    expect(css).toMatch(/\.nav-button:focus-visible\s*\{[^}]*outline-color:\s*var\(--focus-on-dark\)/);
+  it("uses the dark-surface focus token for navigation links and the signed-in logout button", () => {
+    expect(property(".nav-bar a:focus-visible", "outline-color")).toBe("var(--focus-on-dark)");
+    expect(property(".nav-button:focus-visible", "outline-color")).toBe("var(--focus-on-dark)");
   });
 });
