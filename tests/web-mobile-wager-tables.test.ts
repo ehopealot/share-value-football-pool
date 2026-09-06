@@ -16,8 +16,8 @@ describe("mobile wager tables", () => {
     expect(css).toContain(".my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-push, .my-wagers-page .activity-leg-neutral { white-space: normal; }");
     expect(css).toContain(".wager-date-row { display: table-row; }");
     expect(css).toContain(".wager-date-row th { padding: 0 0.25rem;");
-    expect(css).toContain(".activity-table thead th, .activity-member-ribbon, .wager-date-row th { font-size: 0.78rem; }");
-    expect(css).toContain(".activity-member-ribbon { padding: 0.15rem 0.35rem; line-height: 1.15; }");
+    expect(css).toContain(".activity-table thead th, .wager-date-row th { font-size: 0.78rem; }");
+    expect(css).not.toContain(".activity-member-ribbon { padding: 0.15rem 0.35rem; line-height: 1.15; }");
     expect(css).toContain("line-height: 1.1;");
     expect(css).toContain(".activity-wager-column { width: 46%; }");
     expect(css).toContain(".wager-start-time { display: none; }");
