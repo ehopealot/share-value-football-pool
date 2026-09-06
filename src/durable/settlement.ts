@@ -102,6 +102,9 @@ export function settleWagers(sql: Sql, results: readonly FinalResultVersion[], o
     const graded = gradeResults(wager, legs, source, grades);
     const prior = currentSettlement(sql, wager.id);
     if (prior && String(prior.actor_id) !== "system" && grades.includes("pending")) continue;
+    // Completed legs publish their grade immediately so an in-process teaser or
+    // parlay can color its finished legs while later games are still pending.
+    updateObservedLegs(sql, legs, grades, byEvent);
     if (!graded) {
       // Only an automatic loss applied from incomplete provider evidence may be
       // reopened by another incomplete provider observation. Commissioner
