@@ -1,21 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import type { z } from "zod";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, buildTeaserPlacement, commandOutcome, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { Confirmation } from "../components/Confirmation";
 import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
 import { adjustedLine, readTeaserSlip, validateTeaser, writeTeaserSlip, type TeaserLeg } from "../teaser-slip";
-import { teaserOdds } from "../../domain/teaser-table";
+import { MICROS_PER_UNIT } from "../../domain/fixed-point";
+import { TEASER_POINT_OPTIONS, TEASER_RULESET_ID, teaserOdds, type TeaserPoints } from "../../domain/teaser-table";
 import { ticketReturns } from "../wager-presentation";
 import { outcomeForSelection } from "../selection-matcher";
 import { formatAmericanOdds } from "../odds-format";
 import { teaserRiskError } from "../selection-tray";
 import { PageGeneration } from "../page-generation";
 import { displayTeamName } from "../team-display";
-import type { teaserPoints } from "../../contracts/commands";
-type TeaserPoints = z.infer<typeof teaserPoints>;
-const teaserPointOptions = [6, 6.5, 7, 7.5, 10] as const satisfies readonly TeaserPoints[];
 export type TeaserSemantic = { legs: TeaserLeg[]; points: TeaserPoints; risk: string; quoteKey: string; wagerId: string };
 type TeaserReview = { tag: "reviewing"; request: TeaserSemantic; quote: any; mutationKey: string };
 type TeaserUnresolvedPlacement = { tag: "placement-unknown"; request: TeaserSemantic; quote: any; mutationKey: string };
@@ -34,6 +31,10 @@ export const teaserUnresolvedPlacementTransition = (attempt: TeaserPlacementAtte
 export const teaserUnknownPlacementMessage = "Placement result unknown. Retry this exact placement to check its result.";
 export const teaserQuoteAttemptTransition = (request: TeaserSemantic) => ({ state: { tag: "quoting" as const, request }, error: "" });
 export const teaserPlacementAttemptTransition = (attempt: TeaserPlacementAttempt) => ({ state: { tag: "submitting" as const, request: attempt.request, quote: attempt.quote, mutationKey: attempt.mutationKey }, error: "" });
+export const teaserQuoteRequest = (request: TeaserSemantic, seasonId: string) => ({
+  wagerId: request.wagerId, seasonId, riskMicros: (BigInt(request.risk) * MICROS_PER_UNIT).toString(), teaserPoints: request.points, rulesetVersion: TEASER_RULESET_ID,
+  legs: request.legs.map((leg) => ({ eventId: leg.eventId, canonicalBook: leg.canonicalBook, market: leg.market, selection: leg.selection, offerId: `${leg.eventId}:${leg.market}:${leg.selection}`, offerVersion: leg.offerVersion })), quoteKey: request.quoteKey, commandId: request.quoteKey
+});
 
 /** Rebuilds every teaser leg from the current board, never from LINE_CHANGED details. */
 export async function recoverTeaserSemantic(slug: string, request: Semantic): Promise<{ tag: "recovered"; editor: Semantic } | { tag: "unavailable" }> {
@@ -83,7 +84,7 @@ export function TeaserPage() {
     const validation = teaserRiskError(editor.risk, { maxSideBetMicros: view.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (validation) return setError(validation);
     const request = editor; const attempt = teaserQuoteAttemptTransition(request); setError(attempt.error); setState(attempt.state);
     try {
-      const quote = await api.quoteTeaser(slug, { wagerId: request.wagerId, seasonId: view.activeSeason.id, riskMicros: (BigInt(request.risk) * 1000000n).toString(), teaserPoints: request.points, rulesetVersion: "SHARE_POOL_2026_V1", legs: request.legs.map(l => ({ eventId: l.eventId, canonicalBook: l.canonicalBook, market: l.market, selection: l.selection, offerId: `${l.eventId}:${l.market}:${l.selection}`, offerVersion: l.offerVersion })), quoteKey: request.quoteKey, commandId: request.quoteKey });
+      const quote = await api.quoteTeaser(slug, teaserQuoteRequest(request, view.activeSeason.id));
       if (!generations.current.current(ticket)) return;
       setState({ tag: "reviewing", request, quote, mutationKey: crypto.randomUUID() });
     } catch (e) {
@@ -124,7 +125,7 @@ export function TeaserPage() {
   }
   if (state.tag === "quoting") return <Layout signedIn><h1>Reviewing teaser wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg, {state.request.points}-point teaser · Risk {state.request.risk || "0"}</p></Layout>;
   const invalid = validateTeaser(editor!.legs, editor!.points) || riskError;
-  const odds = editor && teaserOdds(editor.legs.length, editor.points as 6 | 6.5 | 7 | 7.5 | 10);
-  const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * 1000000n).toString(), odds).total : undefined;
-  return <Layout signedIn><h1>Teaser builder</h1><p>Select spread or total offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<fieldset disabled={pending}><legend>Point adjustment</legend>{teaserPointOptions.map(points => <label key={points}><input type="radio" checked={editor!.points === points} onChange={() => edit({ ...editor!, points })} />{points} points</label>)}</fieldset><div className="table-scroll" tabIndex={0}><table><thead><tr><th>Matchup</th><th>Original line</th><th>Adjustment</th><th>Action</th></tr></thead><tbody>{editor!.legs.map((leg, i) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? <SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={teaserSelectedDetail(leg, editor!.points)} /> : "Game details unavailable"}</td><td>{pickAtLine(leg, leg.originalLine)}</td><td>{teaserAdjustment(leg, editor!.points)}</td><td><button disabled={pending} onClick={() => { const legs = editor!.legs.filter((_, index) => index !== i); writeTeaserSlip(slug, legs); edit({ ...editor!, legs }); }}>Remove</button></td></tr>)}</tbody></table></div>{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="teaser-terms"><strong>Odds:</strong> {formatAmericanOdds(odds)} · <strong>Payout:</strong> {payout ?? "Enter a risk"}</p>}<div className="teaser-risk-actions"><label>Risk <input disabled={pending} type="number" min="1" step="1" value={editor!.risk} onChange={e => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action teaser-review-action" disabled={pending || !!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>{pending ? "Reviewing…" : "Review teaser wager"}</button></div></Layout>;
+  const odds = editor && teaserOdds(editor.legs.length, editor.points);
+  const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * MICROS_PER_UNIT).toString(), odds).total : undefined;
+  return <Layout signedIn><h1>Teaser builder</h1><p>Select spread or total offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<fieldset disabled={pending}><legend>Point adjustment</legend>{TEASER_POINT_OPTIONS.map(points => <label key={points}><input type="radio" checked={editor!.points === points} onChange={() => edit({ ...editor!, points })} />{points} points</label>)}</fieldset><div className="table-scroll" tabIndex={0}><table><thead><tr><th>Matchup</th><th>Original line</th><th>Adjustment</th><th>Action</th></tr></thead><tbody>{editor!.legs.map((leg, i) => <tr key={`${leg.eventId}-${leg.market}-${leg.selection}`}><td>{leg.awayTeam && leg.homeTeam ? <SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={teaserSelectedDetail(leg, editor!.points)} /> : "Game details unavailable"}</td><td>{pickAtLine(leg, leg.originalLine)}</td><td>{teaserAdjustment(leg, editor!.points)}</td><td><button disabled={pending} onClick={() => { const legs = editor!.legs.filter((_, index) => index !== i); writeTeaserSlip(slug, legs); edit({ ...editor!, legs }); }}>Remove</button></td></tr>)}</tbody></table></div>{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="teaser-terms"><strong>Odds:</strong> {formatAmericanOdds(odds)} · <strong>Payout:</strong> {payout ?? "Enter a risk"}</p>}<div className="teaser-risk-actions"><label>Risk <input disabled={pending} type="number" min="1" step="1" value={editor!.risk} onChange={e => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action teaser-review-action" disabled={pending || !!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>{pending ? "Reviewing…" : "Review teaser wager"}</button></div></Layout>;
 }

@@ -1,15 +1,15 @@
 import { teaserOdds, type TeaserPoints } from "./teaser-table";
 import type { LegGrade, ScoreResult, TeaserLeg } from "./types";
 
-/** Guards untyped boundary data in addition to the discriminated TeaserLeg type. */
-function assertValidMarketSelection(leg: TeaserLeg): void {
+/** Validates the selection pair for a typed/canonical market; callers must supply a supported market. */
+function assertSelectionMatchesKnownMarket(leg: TeaserLeg): void {
   if (leg.market === "spread" && leg.selection !== "home" && leg.selection !== "away") throw new Error("Spread selection must be home or away.");
   if (leg.market === "total" && leg.selection !== "over" && leg.selection !== "under") throw new Error("Total selection must be over or under.");
   if (leg.market === "moneyline" && leg.selection !== "home" && leg.selection !== "away") throw new Error("Moneyline selection must be home or away.");
 }
 
 export function gradeLeg(leg: TeaserLeg, result: ScoreResult): LegGrade {
-  assertValidMarketSelection(leg);
+  assertSelectionMatchesKnownMarket(leg);
   if (result.status === "cancelled" || result.status === "no_contest") return "void";
   if (result.status === "postponed" && (!result.sameEventId || (result.hoursDelayed ?? Infinity) > 48)) return "void";
   if (result.status === "postponed") return "pending";
@@ -28,7 +28,7 @@ export function gradeLeg(leg: TeaserLeg, result: ScoreResult): LegGrade {
 }
 
 export function adjustTeaserLine(leg: TeaserLeg, points: TeaserPoints): number {
-  assertValidMarketSelection(leg);
+  assertSelectionMatchesKnownMarket(leg);
   if (leg.market === "moneyline") throw new Error("Moneylines cannot be teaser legs.");
   if (leg.market === "total") return leg.selection === "over" ? leg.line - points : leg.line + points;
   // Spread lines are stored from the selected team's perspective: both favorites
@@ -36,22 +36,31 @@ export function adjustTeaserLine(leg: TeaserLeg, points: TeaserPoints): number {
   return leg.line + points;
 }
 
+type TeaserSelectionIdentity = { eventId?: string; market: "spread" | "total"; selection: "home" | "away" | "over" | "under" };
+
+const teaserSelectionKey = (leg: TeaserSelectionIdentity) => `${leg.eventId}:${leg.market}:${leg.selection}`;
+
+/** Shared duplicate/opposition policy; callers retain their own admission limits and error text. */
+export function teaserSelectionConflict(existing: readonly TeaserSelectionIdentity[], candidate: TeaserSelectionIdentity): "duplicate" | "opposing" | undefined {
+  const identity = teaserSelectionKey(candidate);
+  if (existing.some((leg) => teaserSelectionKey(leg) === identity)) return "duplicate";
+  const opposite = candidate.market === "spread"
+    ? `${candidate.eventId}:spread:${candidate.selection === "home" ? "away" : "home"}`
+    : `${candidate.eventId}:total:${candidate.selection === "over" ? "under" : "over"}`;
+  return existing.some((leg) => teaserSelectionKey(leg) === opposite) ? "opposing" : undefined;
+}
+
 export function validateTeaser(legs: TeaserLeg[], points: TeaserPoints): void {
   if (teaserOdds(legs.length, points) === undefined) throw new Error("The requested leg count is not available for this teaser size.");
-  const exact = new Set<string>();
-  const opposing = new Set<string>();
+  const accepted: TeaserSelectionIdentity[] = [];
   for (const leg of legs) {
-    assertValidMarketSelection(leg);
+    assertSelectionMatchesKnownMarket(leg);
     if (!leg.eventId) throw new Error("Teaser legs require an event ID.");
     if (leg.market === "moneyline") throw new Error("Moneyline legs are not allowed in teasers.");
-    const key = `${leg.eventId}:${leg.market}:${leg.selection}`;
-    if (exact.has(key)) throw new Error("Duplicate teaser selection.");
-    exact.add(key);
-    const opposition = leg.market === "spread"
-      ? `${leg.eventId}:spread:${leg.selection === "home" ? "away" : "home"}`
-      : `${leg.eventId}:total:${leg.selection === "over" ? "under" : "over"}`;
-    if (opposing.has(key) || exact.has(opposition)) throw new Error("Opposing teaser selections are not allowed.");
-    opposing.add(opposition);
+    const conflict = teaserSelectionConflict(accepted, leg);
+    if (conflict === "duplicate") throw new Error("Duplicate teaser selection.");
+    if (conflict === "opposing") throw new Error("Opposing teaser selections are not allowed.");
+    accepted.push(leg);
   }
 }
 

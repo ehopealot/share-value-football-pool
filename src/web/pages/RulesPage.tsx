@@ -4,8 +4,9 @@ import type { OddsBoardResponse, ReadPoolView } from "../../contracts/http";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { PARLAY_RULESET_ID } from "../../domain/parlay";
-import { TEASER_RULESET_ID } from "../../domain/teaser-table";
-const teaserRows = [[2, "-120", "-130", "-140", "-160", "—"], [3, "+150", "+135", "+120", "+105", "-120"], [4, "+235", "+215", "+200", "+140", "—"], [5, "+350", "+320", "+300", "+235", "—"], [6, "+550", "+500", "+475", "+325", "—"], [7, "+800", "+700", "+600", "+445", "—"]] as const;
+import { TEASER_LEG_COUNTS, TEASER_PAYOUT_MATRIX, TEASER_POINT_OPTIONS, TEASER_RULESET_ID } from "../../domain/teaser-table";
+
+const formatTeaserOdds = (odds: number | undefined) => odds === undefined ? "—" : `${odds > 0 ? "+" : ""}${odds}`;
 
 export function RulesContent({ slug, view, board }: { slug: string; view: ReadPoolView; board: OddsBoardResponse }) {
   const season = view.activeSeason ?? view.latestClosedSeason;
@@ -22,7 +23,7 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
     </section>
     {supported && <section className="table-ribbon-section" aria-labelledby="teaser-rules-heading">
       <h2 className="table-ribbon" id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>
-      <div className="table-scroll" tabIndex={0}><table><thead><tr><th scope="col">Legs</th><th scope="col">6 points</th><th scope="col">6.5 points</th><th scope="col">7 points</th><th scope="col">7.5 points</th><th scope="col">10 points</th></tr></thead><tbody>{teaserRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => index === 0 ? <th key={index} scope="row">{cell === 7 ? "7 (legacy only)" : cell}</th> : <td key={index}>{cell}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll" tabIndex={0}><table><thead><tr><th scope="col">Legs</th>{TEASER_POINT_OPTIONS.map((points) => <th key={points} scope="col">{points} points</th>)}</tr></thead><tbody>{TEASER_LEG_COUNTS.map((legs) => <tr key={legs}><th scope="row">{legs === 7 ? "7 (legacy only)" : legs}</th>{TEASER_POINT_OPTIONS.map((points) => <td key={points}>{formatTeaserOdds(TEASER_PAYOUT_MATRIX[legs]?.[points])}</td>)}</tr>)}</tbody></table></div>
       <p>Regular teasers allow 2–6 legs. New teaser tickets are capped at six legs. 10-point teasers require exactly 3 legs. Moneylines are ineligible. NFL and NCAA sides and totals may be mixed.</p>
       <p>The seven-leg row applies only to previously accepted legacy tickets.</p>
       <p>A teaser settles as soon as any final leg loses. Wins and refunds wait until all legs are final; pushed or void legs are then removed and the remaining valid leg count is repriced from this table. If every leg pushes or voids, or too few winning legs remain, the risk is refunded.</p>

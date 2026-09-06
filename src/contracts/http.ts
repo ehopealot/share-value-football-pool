@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CANONICAL_INTEGER_TEXT_PATTERN } from "../domain/fixed-point";
 import { validateCanonicalMarket } from "../odds/market-semantics";
 import { americanOdds, canonicalIntegerText, positiveCanonicalIntegerText, quoteKey, wagerId, teaserPoints, quoteStraightSemantic, quoteTeaserSemanticBase, teaserSemanticIssues, quoteParlaySemanticBase, parlaySemanticIssues, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, shareOrderQuoteSnapshot, placeStraightWager, placeTeaserWager, placeTeaserWagerShape, placeParlayWager, placeParlayWagerShape, correctedEventResult } from "./commands";
 
@@ -67,7 +68,7 @@ export const straightWagerRequest = straightWagerPlacementRequest;
 export const teaserWagerRequest = teaserWagerPlacementRequest;
 
 /** Member-only lifecycle snapshot. Readers must parse this exact shape rather than infer state from legacy fields. */
-export const decimalString = z.string().regex(/^(?:0|-?[1-9]\d*)$/);
+export const decimalString = z.string().regex(CANONICAL_INTEGER_TEXT_PATTERN);
 export const seasonSummary = z.object({
   id: z.string().min(1), label: z.string().min(1), rulesetVersion: z.string().min(1), state: z.enum(["draft", "active"]),
   createdAt: z.string().datetime(), openedAt: z.string().datetime().nullable(), closedAt: z.null(),

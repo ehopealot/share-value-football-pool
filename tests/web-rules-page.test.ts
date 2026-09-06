@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
+import { TEASER_LEG_COUNTS, TEASER_PAYOUT_MATRIX, TEASER_POINT_OPTIONS } from "../src/domain/teaser-table";
 import { RulesContent } from "../src/web/pages/RulesPage";
 
 const season = (state: "active" | "closed", label: string, rulesetVersion = "SHARE_POOL_2026_V1") => ({ id: `${state}-season`, label, state, rulesetVersion, createdAt: "2026-01-01T00:00:00.000Z", openedAt: "2026-01-02T00:00:00.000Z", closedAt: state === "closed" ? "2027-02-15T00:00:00.000Z" : null, ...(state === "closed" ? { closeReason: "complete" } : {}), defaultOrderMode: null, defaultOrderAmountMicros: null, floatMicros: "0", notionalValueMicros: "0" });
@@ -37,6 +38,13 @@ describe("truthful rules and feed presentation", () => {
 
   it("publishes the complete fixed teaser and parlay policies", () => {
     const html = render(view(true, false), board("current"));
+    for (const legs of TEASER_LEG_COUNTS) {
+      const cells = TEASER_POINT_OPTIONS.map((points) => {
+        const odds = TEASER_PAYOUT_MATRIX[legs]?.[points];
+        return `<td>${odds === undefined ? "—" : `${odds > 0 ? "+" : ""}${odds}`}</td>`;
+      }).join("");
+      expect(html).toContain(`<th scope="row">${legs === 7 ? "7 (legacy only)" : legs}</th>${cells}`);
+    }
     expect(html).toContain("10-point teasers require exactly 3 legs");
     expect(html).toContain("Regular teasers allow 2–6 legs");
     expect(html).toContain("7 (legacy only)");

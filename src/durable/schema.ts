@@ -1,4 +1,4 @@
-import { TEASER_RULESET_ID } from "../domain/teaser-table";
+import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 
 /** PoolDO-local authority schema. Accounting amounts are canonical integer TEXT, never REAL. */
 export const poolSchema = [
@@ -56,7 +56,7 @@ export const migrateSeasonCreatedAt = (sql: SqlStorage): void => {
   sql.exec("UPDATE season SET created_at = COALESCE(NULLIF(created_at, ''), opened_at, closed_at, '1970-01-01T00:00:00.000Z') WHERE created_at IS NULL OR created_at = ''");
   if (!columns.some((column) => column.name === "ruleset_version")) sql.exec("ALTER TABLE season ADD COLUMN ruleset_version TEXT");
   // Seasons created before ruleset snapshots all used the sole fixed table available at that time.
-  sql.exec("UPDATE season SET ruleset_version = ? WHERE ruleset_version IS NULL OR ruleset_version = ''", TEASER_RULESET_ID);
+  sql.exec("UPDATE season SET ruleset_version = ? WHERE ruleset_version IS NULL OR ruleset_version = ''", SHARE_POOL_RULESET_ID);
   const poolColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")];
   if (!poolColumns.some((column) => column.name === "max_side_bet_micros")) sql.exec("ALTER TABLE pool ADD COLUMN max_side_bet_micros TEXT NOT NULL DEFAULT '800000000'");
   sql.exec("UPDATE pool SET max_side_bet_micros = '800000000' WHERE max_side_bet_micros IS NULL OR max_side_bet_micros = ''");

@@ -1,3 +1,7 @@
+/**
+ * Compatibility/reference ledger retained for existing imports and model checks.
+ * Production accounting authority lives in the durable SQL repositories and commands.
+ */
 import { divideRoundHalfEven, MICROS_PER_UNIT, WHOLE_SHARE_MICROS } from "./fixed-point";
 import type { LedgerEntry, OrderQuote, SeasonLedger, ShareAccount } from "./season";
 

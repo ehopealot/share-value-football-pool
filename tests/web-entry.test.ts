@@ -5,7 +5,7 @@ import { destination } from "../src/web/pages/AuthPages";
 import { boardEnablesWagerReview, failureReason, groupBoardByEvent, inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, straightPlacementBatchTransition, straightQuoteRequest, trayLabel, weekStartOf } from "../src/web/pages/OddsPage";
 import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-matcher";
 import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
-import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
+import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserQuoteRequest, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
 import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
 import { PageGeneration } from "../src/web/page-generation";
@@ -124,6 +124,16 @@ describe("entry redirects", () => {
     const offer = { eventId: "event-1", market: "spread" as const, homeTeam: "Home", awayTeam: "Away", canonicalBook: "DraftKings", offerVersion: "v2", startsAt: "2030-09-01T12:00:00.000Z", outcomes: [{ name: "Home", price: -105, point: -2.5 }] };
     const request = straightQuoteRequest({ pick: { offer, outcome: offer.outcomes[0]! }, risk: "3", wagerId: "wager-1", quoteKey: "quote-v1" }, "season-1");
     expect(request).toMatchObject({ wagerId: "wager-1", seasonId: "season-1", riskMicros: "3000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event-1:spread:home", offerVersion: "v2" }, quoteKey: "quote-v1", commandId: "quote-v1" });
+    const teaserLeg = { eventId: "teaser-event-1", league: "nfl" as const, canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v2", canonicalOfferProof: { offerId: "teaser-event-1:spread:home" }, market: "spread" as const, selection: "home" as const, originalLine: -2.5, originalOdds: -105, eventStartsAt: "2030-09-01T12:00:00.000Z", homeTeam: "Home", awayTeam: "Away" };
+    const teaserTotalLeg = { ...teaserLeg, eventId: "teaser-event-2", offerVersion: "v3", canonicalOfferProof: { offerId: "teaser-event-2:total:over" }, market: "total" as const, selection: "over" as const, originalLine: 44.5 };
+    expect(teaserQuoteRequest({ wagerId: "teaser-1", quoteKey: "teaser-quote", risk: "3", points: 6, legs: [teaserLeg, teaserTotalLeg] }, "season-1")).toEqual({
+      wagerId: "teaser-1", seasonId: "season-1", riskMicros: "3000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1",
+      legs: [
+        { eventId: "teaser-event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "teaser-event-1:spread:home", offerVersion: "v2" },
+        { eventId: "teaser-event-2", canonicalBook: "DraftKings", market: "total", selection: "over", offerId: "teaser-event-2:total:over", offerVersion: "v3" }
+      ],
+      quoteKey: "teaser-quote", commandId: "teaser-quote"
+    });
 
     const later = { ...offer, eventId: "event-2", startsAt: "2030-09-01T13:00:00.000Z", market: "total" as const, outcomes: [{ name: "Over", price: -110, point: 44.5 }] };
     const moneyline = { ...offer, eventId: "event-3", startsAt: "2030-09-01T11:00:00.000Z", market: "moneyline" as const, outcomes: [{ name: "Home", price: -135 }, { name: "Away", price: 115 }] };

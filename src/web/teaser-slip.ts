@@ -1,4 +1,5 @@
-import { adjustTeaserLine } from "../domain/grading";
+import { adjustTeaserLine, teaserSelectionConflict } from "../domain/grading";
+import type { TeaserPoints } from "../domain/teaser-table";
 import type { TeaserLeg as DomainTeaserLeg } from "../domain/types";
 export type TeaserLeg = { eventId:string; league:"nfl"|"ncaaf"; canonicalBook:string; retrievedAt:string; policyVersion:string; offerVersion:string; canonicalOfferProof:any; market:"spread"|"total"; selection:"home"|"away"|"over"|"under"; originalLine:number; originalOdds:number; eventStartsAt:string; homeTeam?:string; awayTeam?:string; adjustedLine?:number };
 type Offer = { eventId:string; league:"nfl"|"ncaaf"; canonicalBook:string; retrievedAt:string; policyVersion:string; offerVersion:string; startsAt:string; market:"spread"|"total"; homeTeam?:string; awayTeam?:string };
@@ -15,17 +16,22 @@ export const teaserLegForOutcome = (offer: Offer, outcome: Outcome, selection: T
 /** Adds one eligible semantic leg without allowing a duplicate, an opposite, or more than six new legs. */
 export const addTeaserLeg = (legs: TeaserLeg[], leg: TeaserLeg): { legs: TeaserLeg[]; error: string } => {
  if (legs.length >= 6) return { legs, error: "Choose no more than six legs." };
- const identity = `${leg.eventId}:${leg.market}:${leg.selection}`;
- const opposite = `${leg.eventId}:${leg.market}:${leg.market === "spread" ? leg.selection === "home" ? "away" : "home" : leg.selection === "over" ? "under" : "over"}`;
- if (legs.some((candidate) => `${candidate.eventId}:${candidate.market}:${candidate.selection}` === identity)) return { legs, error: "Duplicate selections are not allowed." };
- if (legs.some((candidate) => `${candidate.eventId}:${candidate.market}:${candidate.selection}` === opposite)) return { legs, error: "Opposing selections are not allowed." };
+ const conflict = teaserSelectionConflict(legs, leg);
+ if (conflict === "duplicate") return { legs, error: "Duplicate selections are not allowed." };
+ if (conflict === "opposing") return { legs, error: "Opposing selections are not allowed." };
  return { legs: [...legs, leg], error: "" };
 };
 export const readTeaserSlip = (slug:string): TeaserLeg[] => { try { return JSON.parse(sessionStorage.getItem(key(slug)) ?? "[]"); } catch { return []; } };
 export const writeTeaserSlip = (slug:string, legs:TeaserLeg[]) => sessionStorage.setItem(key(slug), JSON.stringify(legs));
-export const adjustedLine = (leg:TeaserLeg, points:number) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as DomainTeaserLeg, points as 6 | 6.5 | 7 | 7.5 | 10);
+export const adjustedLine = (leg:TeaserLeg, points:number) => adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as DomainTeaserLeg, points as TeaserPoints);
 export const validateTeaser = (legs:TeaserLeg[], points:number) => {
  if (legs.length < 2 || legs.length > 6 || (points === 10 && legs.length !== 3)) return points === 10 ? "A 10-point teaser requires exactly three legs." : "Choose two to six legs.";
- const ids = new Set<string>(); for (const leg of legs) { const id=`${leg.eventId}:${leg.market}:${leg.selection}`; if(ids.has(id)) return "Duplicate selections are not allowed."; ids.add(id); const opposite=leg.market === "spread" ? `${leg.eventId}:spread:${leg.selection === "home" ? "away" : "home"}` : `${leg.eventId}:total:${leg.selection === "over" ? "under" : "over"}`; if(ids.has(opposite)) return "Opposing selections are not allowed."; }
+ const accepted: TeaserLeg[] = [];
+ for (const leg of legs) {
+  const conflict = teaserSelectionConflict(accepted, leg);
+  if (conflict === "duplicate") return "Duplicate selections are not allowed.";
+  if (conflict === "opposing") return "Opposing selections are not allowed.";
+  accepted.push(leg);
+ }
  return "";
 };
