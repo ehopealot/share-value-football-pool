@@ -112,10 +112,12 @@ describe("PARLAY_2026_V1 pricing and validation", () => {
     ])).toThrow(PARLAY_ODDS_OUT_OF_RANGE);
   });
 
-  it("uses loss precedence and refuses unresolved grading", () => {
+  it("uses loss precedence and refuses unresolved or misaligned grading", () => {
     const legs = [leg("one", "spread", "home"), leg("two", "total", "over")];
     expect(gradeParlay(grades("loss", "pending"), legs)).toEqual({ outcome: "loss", winningLegs: 0 });
     expect(() => gradeParlay(grades("win", "pending"), legs)).toThrow(/pending/i);
+    expect(() => gradeParlay(grades("win"), legs)).toThrow("Parlay grades must match leg count.");
+    expect(() => gradeParlay(grades("win", "win", "win"), legs)).toThrow("Parlay grades must match leg count.");
   });
 
   it("reprices surviving legs, breaks same-game pairs, and refunds no survivors", () => {
