@@ -34,7 +34,7 @@ export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<
   const signalCleanup = installOwnedSignalCleanup({ cleanup });
   try {
     await run(process.execPath, [resolveWrangler(), "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--env-file", "/dev/null"], e2eEnvironment);
-    child = spawn(process.execPath, [resolveWrangler(), "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-e2e-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-e2e-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-e2e-projection-token", "--var", "ALLOW_INSECURE_LOCAL_AUTH:true"], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: e2eEnvironment });
+    child = spawn(process.execPath, [resolveWrangler(), "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-e2e-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-e2e-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-e2e-projection-token"], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: e2eEnvironment });
     const stdout = ringBuffer(child.stdout); const stderr = ringBuffer(child.stderr); const baseURL = `http://127.0.0.1:${port}`;
     if (!child.pid) throw new Error("local Worker did not provide a child PID before owner publication");
     let childError: Error | undefined;

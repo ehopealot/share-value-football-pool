@@ -21,7 +21,7 @@ try {
   await run("npm", ["run", "build:local"]);
   const wrangler = require.resolve("wrangler");
   await run(process.execPath, [wrangler, "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"]);
-  child = spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-barrier-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-barrier-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-barrier-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-barrier-backup-token", "--var", "ALLOW_INSECURE_LOCAL_AUTH:true"], { detached: true, stdio: "ignore", env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
+  child = spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-barrier-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-barrier-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-barrier-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-barrier-backup-token"], { detached: true, stdio: "ignore", env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
   await control.resourceCreated({ pid: process.pid, pgid: child.pid!, persistence });
   control.throwIfFailBeforeReady();
   for (let i = 0; i < 120; i++) { try { if ((await fetch(`${base}/health/app`)).ok) break; } catch {} await delay(100); if (i === 119) throw new Error("barrier worker did not become ready"); }

@@ -11,18 +11,20 @@ import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decode
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
 import { offerIsStale } from "../odds/ingestion";
-import type { PoolJoinNotifier } from "../auth/email-sender";
+import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
 
 export type AuthenticatedUser = { id: string; name: string };
 export type RouteDependencies = {
   db: D1Database; pools: DurableObjectNamespace; commandAuthenticatorKey?: string; turnstileSecret?: string;
   /** Fixed in production; local callers derive the request hostname. */
   turnstileExpectedHostname?: string;
-  /** Deliberate local-development opt-in; production omits this and fails closed. */
+  /** Deliberate local-development opt-in; production must never enable it, and false or omission fails closed. */
   allowInsecureLocalAuth?: boolean;
   currentUser(request: Request): Promise<AuthenticatedUser | null>;
   recentlyAuthenticated?(request: Request, user: AuthenticatedUser): Promise<boolean>;
-  entitlement?: SeasonEntitlementService; limiter?: RateLimiter; fetcher?: typeof fetch; poolJoinNotifier?: PoolJoinNotifier;
+  entitlement?: SeasonEntitlementService; limiter?: RateLimiter; fetcher?: typeof fetch; poolNotifier?: PoolNotifier;
+  /** @deprecated Use poolNotifier. */
+  poolJoinNotifier?: PoolJoinNotifier;
   /** Local composition can renew its deterministic board before an authenticated odds read. */
   beforeOddsRead?: () => Promise<void>;
 };
@@ -48,6 +50,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   const registry = new PoolRegistry(dependencies.db, new DurablePoolCommandClient(dependencies.pools), dependencies.commandAuthenticatorKey);
   const router = new PoolCommandRouter(registry, dependencies.pools, dependencies.db);
   const limiter = dependencies.limiter ?? new RateLimiter();
+  const poolNotifier = dependencies.poolNotifier ?? dependencies.poolJoinNotifier;
   const requireUser = async (c: Context) => {
     if (!csrf(c)) return undefined;
     return dependencies.currentUser(c.req.raw);
@@ -71,7 +74,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
 
   /** Best-effort only: a committed announcement never waits for, retries, or exposes mail delivery. */
   const dispatchCommissionerAnnouncement = async (input: { slug: string; actor: AuthenticatedUser; postId: string; text: string; boardUrl: string }) => {
-    if (!dependencies.poolJoinNotifier) return;
+    if (!poolNotifier) return;
     const view = ReadPoolView.parse(await router.send(input.slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: input.actor.id }));
     const recipientIds = view.members.filter((member) => member.status === "active" && member.memberId !== view.pool.commissionerId && member.memberId !== input.actor.id).map((member) => member.memberId);
     const authorName = view.members.find((member) => member.memberId === input.actor.id)?.displayName ?? input.actor.name;
@@ -83,14 +86,14 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       for (const recipient of recipients.results) {
         if (!firstRecipient) await pause(announcementSendIntervalMs);
         firstRecipient = false;
-        await dependencies.poolJoinNotifier.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` }).catch(() => undefined);
+        await poolNotifier.notifyCommissionerAnnouncement({ to: recipient.email, poolName: view.pool.name, authorName, text: input.text, boardUrl: input.boardUrl, idempotencyKey: `announcement/${input.postId}/${recipient.id}` }).catch(() => undefined);
       }
     }
   };
 
   /** Best-effort only: a reply remains committed even when delivery fails or its original author is no longer active. */
   const dispatchMessageBoardReply = async (input: { slug: string; actor: AuthenticatedUser; replyId: string; postAuthorId: string; text: string; boardUrl: string }) => {
-    const notify = dependencies.poolJoinNotifier?.notifyMessageBoardReply;
+    const notify = poolNotifier?.notifyMessageBoardReply;
     if (!notify) return;
     const view = ReadPoolView.parse(await router.send(input.slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: input.actor.id }));
     const originalAuthor = view.members.find((member) => member.memberId === input.postAuthorId);
@@ -161,7 +164,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const slug = c.req.param("slug");
     if (!slug) return jsonError(c, "INVALID_REQUEST");
     const result = MessageBoardPostResponse.parse(await router.send(slug, { type: "CreateMessageBoardPost", commandId: parsed.data.idempotencyKey, actorId: user.id, text: parsed.data.text, announcement: parsed.data.announcement }));
-    if (result.isAnnouncement && !result.replayed && result.postId && dependencies.poolJoinNotifier) {
+    if (result.isAnnouncement && !result.replayed && result.postId && poolNotifier) {
       const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(result.postId)}`, c.req.url).toString();
       c.executionCtx.waitUntil(dispatchCommissionerAnnouncement({ slug, actor: user, postId: result.postId, text: parsed.data.text, boardUrl }).catch(() => undefined));
     }
@@ -175,7 +178,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const reply = internalMessageBoardReplyResponse.safeParse(raw);
     if (reply.success) {
       const result = MessageBoardMutationResponse.parse({ commandVersion: reply.data.commandVersion });
-      if (!reply.data.replayed && reply.data.postAuthorId !== user.id && dependencies.poolJoinNotifier?.notifyMessageBoardReply) {
+      if (!reply.data.replayed && reply.data.postAuthorId !== user.id && poolNotifier?.notifyMessageBoardReply) {
         const boardUrl = new URL(`/p/${encodeURIComponent(slug)}/board#post-${encodeURIComponent(postId)}`, c.req.url).toString();
         c.executionCtx.waitUntil(dispatchMessageBoardReply({ slug, actor: user, replyId: reply.data.replyId, postAuthorId: reply.data.postAuthorId, text: parsed.data.text, boardUrl }).catch(() => undefined));
       }
@@ -292,10 +295,10 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!(await verifyTurnstile({ secret: dependencies.turnstileSecret, token: parsed.data.turnstileToken, action: "submit", remoteIp: clientIp(c), hostname: dependencies.turnstileExpectedHostname ?? new URL(c.req.url).hostname, fetcher: dependencies.fetcher, allowInsecureLocalAuth: dependencies.allowInsecureLocalAuth }))) return jsonError(c, "TURNSTILE_REJECTED", 403);
     const slug = c.req.param("slug");
     const result = await router.send(slug, { type: "JoinPool", commandId: parsed.data.idempotencyKey, actorId: user.id, displayName: parsed.data.displayName ?? user.name, password: parsed.data.password });
-    if (result.joined === true && result.replayed !== true && dependencies.poolJoinNotifier) {
+    if (result.joined === true && result.replayed !== true && poolNotifier) {
       const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
       const commissioner = await dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(view.pool.commissionerId).first<{ email: string }>();
-      if (commissioner?.email) { try { await dependencies.poolJoinNotifier.notifyPoolJoin({ to: commissioner.email, poolName: view.pool.name, memberName: parsed.data.displayName ?? user.name }); } catch {} }
+      if (commissioner?.email) { try { await poolNotifier.notifyPoolJoin({ to: commissioner.email, poolName: view.pool.name, memberName: parsed.data.displayName ?? user.name }); } catch {} }
     }
     limiter.reset(key);
     return c.json(result);
@@ -324,11 +327,11 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const slug = c.req.param("slug");
     const result = await router.send(slug, { type: "ExecuteShareOrder", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: parsed.data.seasonId, memberId: parsed.data.memberId, mode: parsed.data.mode, amountMicros: parsed.data.amountMicros, quote: parsed.data.quote, reason: parsed.data.reason });
-    if (result.replayed !== true && dependencies.poolJoinNotifier && typeof result.sharesMicros === "string" && typeof result.valueMicros === "string") {
+    if (result.replayed !== true && poolNotifier && typeof result.sharesMicros === "string" && typeof result.valueMicros === "string") {
       try {
         const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
         const recipient = await dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(parsed.data.memberId).first<{ email: string }>();
-        if (recipient?.email) await dependencies.poolJoinNotifier.notifyShareOrderFulfilled({ to: recipient.email, poolName: view.pool.name, sharesMicros: result.sharesMicros, valueMicros: result.valueMicros });
+        if (recipient?.email) await poolNotifier.notifyShareOrderFulfilled({ to: recipient.email, poolName: view.pool.name, sharesMicros: result.sharesMicros, valueMicros: result.valueMicros });
       } catch {}
     }
     return c.json(result);
@@ -346,7 +349,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!(await dependencies.recentlyAuthenticated?.(c.req.raw, user))) return jsonError(c, "RECENT_AUTH_REQUIRED", 403);
     const slug = c.req.param("slug");
     const result = await router.send(slug, { type: "TransferCommissioner", commandId: parsed.data.idempotencyKey, actorId: user.id, memberId: parsed.data.memberId, reason: parsed.data.reason });
-    if (result.transferred === true && result.replayed !== true && dependencies.poolJoinNotifier) {
+    if (result.transferred === true && result.replayed !== true && poolNotifier) {
       const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
       const newCommissioner = view.members.find((member) => member.memberId === parsed.data.memberId);
       const formerCommissioner = view.members.find((member) => member.memberId === user.id);
@@ -355,8 +358,8 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
         dependencies.db.prepare("SELECT email FROM user WHERE id = ?").bind(user.id).first<{ email: string }>()
       ]);
       const details = { poolName: view.pool.name, formerCommissionerName: formerCommissioner?.displayName ?? user.name, newCommissionerName: newCommissioner?.displayName ?? parsed.data.memberId };
-      if (newRecipient?.email) { try { await dependencies.poolJoinNotifier.notifyCommissionerTransfer({ to: newRecipient.email, ...details, recipient: "new" }); } catch {} }
-      if (formerRecipient?.email) { try { await dependencies.poolJoinNotifier.notifyCommissionerTransfer({ to: formerRecipient.email, ...details, recipient: "former" }); } catch {} }
+      if (newRecipient?.email) { try { await poolNotifier.notifyCommissionerTransfer({ to: newRecipient.email, ...details, recipient: "new" }); } catch {} }
+      if (formerRecipient?.email) { try { await poolNotifier.notifyCommissionerTransfer({ to: formerRecipient.email, ...details, recipient: "former" }); } catch {} }
     }
     return c.json(result);
   }));

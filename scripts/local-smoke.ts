@@ -44,7 +44,7 @@ try {
   // Wrangler's Vite integration serves the generated Worker entry; rebuild it for this isolated journey.
   await run("npm", ["run", "build:local"]);
   await run(process.execPath, [wrangler, "d1", "migrations", "apply", "DB", "--local", "--persist-to", persistence, "--config", "wrangler.local.jsonc"]);
-  child = spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-smoke-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-smoke-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-smoke-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-smoke-backup-token", "--var", "ALLOW_INSECURE_LOCAL_AUTH:true"], { stdio: ["ignore", "pipe", "pipe"], detached: true, env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
+  child = spawn(process.execPath, [wrangler, "dev", "--local", "--env-file", "/dev/null", `--port=${port}`, "--persist-to", persistence, "--config", "wrangler.local.jsonc", "--var", "BETTER_AUTH_SECRET:local-smoke-auth-secret-with-32-characters", "--var", "POOL_COMMAND_AUTHENTICATOR_KEY:local-smoke-command-authenticator", "--var", "POOL_PROJECTION_SERVICE_TOKEN:local-smoke-projection-token", "--var", "POOL_BACKUP_SERVICE_TOKEN:local-smoke-backup-token"], { stdio: ["ignore", "pipe", "pipe"], detached: true, env: { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false" } });
   const observe = (chunk: Buffer) => process.stdout.write(chunk);
   child.stdout?.on("data", observe); child.stderr?.on("data", observe);
   await control.resourceCreated({ pid: process.pid, pgid: child.pid!, persistence });

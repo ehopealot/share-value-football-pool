@@ -6,8 +6,3 @@ POOL_PROJECTION_SERVICE_TOKEN=local-projection-service-token
 POOL_BACKUP_SERVICE_TOKEN=local-backup-service-token
 # Canonical base64 encoding of exactly 32 bytes; service-only encryption key name.
 BACKUP_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-# Explicit local fixture opt-in; local requests must also be loopback.
-LOCAL_TEST_CONTROLS=true
-ALLOW_INSECURE_LOCAL_AUTH=true
-# Optional: add your own Odds API credential only to ignored .dev.vars for live local odds.
-# ODDS_API_KEY=

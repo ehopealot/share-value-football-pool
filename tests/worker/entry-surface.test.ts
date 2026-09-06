@@ -3,10 +3,11 @@ import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAuthBoundary } from "../../src/auth";
 import { DevelopmentMailbox } from "../../src/auth/development-mailbox";
+import { authenticatedUserFromSession, sessionIsRecentForUser } from "../../src/auth/session";
 import type { EmailSender } from "../../src/auth/email-sender";
 import { createWorkerApp } from "../../src/worker/app";
 import { RateLimiter } from "../../src/security/rate-limit";
-import { createAuthAbuseGuard, verifyTurnstile } from "../../src/security/turnstile";
+import { createAuthAbuseGuard, isLoopbackHostname, verifyTurnstile } from "../../src/security/turnstile";
 import { createPoolRequest, joinPoolRequest } from "../../src/contracts/http";
 import worker, { handleInternalSettlement, type Env } from "../../src/index";
 import { canonicalizeWagerQuote, revalidateWagerOffers } from "../../src/worker/offer-quotes";
@@ -33,6 +34,19 @@ const appFor = (user: { id: string; name: string } | null, options: { turnstileS
   const { recentlyAuthenticated, ...dependencies } = options;
   return createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => user, recentlyAuthenticated: async () => recentlyAuthenticated === true, ...dependencies });
 };
+
+describe("shared auth session policy", () => {
+  const session = (id: string, createdAt: Date | string) => ({ user: { id, name: "Member" }, session: { createdAt } });
+
+  it("maps authenticated users and preserves the recent-session checks", () => {
+    expect(authenticatedUserFromSession(null)).toBeNull();
+    expect(authenticatedUserFromSession(session("member", new Date()))).toEqual({ id: "member", name: "Member" });
+    expect(sessionIsRecentForUser(session("member", new Date(Date.now() - 14 * 60 * 1000)), "member")).toBe(true);
+    expect(sessionIsRecentForUser(session("member", new Date(Date.now() - 16 * 60 * 1000)), "member")).toBe(false);
+    expect(sessionIsRecentForUser(session("member", "invalid"), "member")).toBe(false);
+    expect(sessionIsRecentForUser(session("other", new Date()), "member")).toBe(false);
+  });
+});
 
 describe("Better Auth D1 boundary", () => {
   beforeEach(async () => {
@@ -96,7 +110,7 @@ describe("authenticated pool HTTP boundary", () => {
     await bindings.DB.exec("DELETE FROM pool_registry_command_response; DELETE FROM pool_registry; INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('owner', 'Owner', 'owner@example.test', 1, 0, 0), ('member', 'Member', 'member@example.test', 1, 0, 0);");
   });
 
-  it("fails closed before serving production traffic when Resend is not configured", async () => {
+  it("fails closed before serving production app traffic when Resend is not configured", async () => {
     const productionEnv = { ...env, BETTER_AUTH_SECRET: "test-only-auth-secret-that-is-long-enough", RESEND_API_KEY: undefined } as Env;
     const request = new Request("https://attacker.example/health/app") as unknown as Parameters<NonNullable<typeof worker.fetch>>[0];
     const response = await worker.fetch!(request, productionEnv, {} as ExecutionContext);
@@ -127,11 +141,15 @@ describe("authenticated pool HTTP boundary", () => {
     expect((await owner.fetch(request("/api/p/secure-pool/admin/seasons/s1/close", { idempotencyKey: "close", reason: "season closed" }, { "x-recent-auth": "true" }))).status).toBe(404);
   }, 90_000);
 
-  it("fails closed for a missing production Turnstile secret and permits only explicit local opt-in", async () => {
+  it("fails closed for a missing production Turnstile secret and permits only explicit loopback composition", async () => {
     const body = { slug: "missing-secret", poolName: "Missing Secret", password: "correct-password", idempotencyKey: "create" };
     const production = appFor({ id: "owner", name: "Owner" });
     expect((await production.fetch(request("/api/pools", body))).status).toBe(403);
     expect((await production.fetch(request("/api/p/missing-secret/join", { password: "correct-password", idempotencyKey: "join" }))).status).toBe(403);
+    expect(["http://127.0.0.1/", "http://localhost/"].map((url) => isLoopbackHostname(new URL(url).hostname))).toEqual([true, true]);
+    expect(isLoopbackHostname(new URL("http://[::1]/").hostname)).toBe(false);
+    expect(isLoopbackHostname("pool.example.test")).toBe(false);
+    expect(isLoopbackHostname(undefined)).toBe(false);
     expect(await verifyTurnstile({ allowInsecureLocalAuth: true, hostname: "127.0.0.1" })).toBe(true);
     expect(await verifyTurnstile({ allowInsecureLocalAuth: true, hostname: "pool.example.test" })).toBe(false);
   });
@@ -296,7 +314,6 @@ describe("production entrypoint composition", () => {
     const background: Promise<unknown>[] = [];
     const context = { waitUntil: (promise: Promise<unknown>) => { background.push(promise); } } as unknown as ExecutionContext;
     worker.scheduled!({} as ScheduledEvent, env as unknown as Env, context);
-    await Promise.all(background);
-    expect(await bindings.DB.prepare("SELECT COUNT(*) AS count FROM projection_delivery").first<{ count: number }>()).toMatchObject({ count: 0 });
+    expect(background).toEqual([]);
   }, 30_000);
 });

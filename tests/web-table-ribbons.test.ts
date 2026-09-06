@@ -18,6 +18,7 @@ describe("table ribbons", () => {
   it("uses the shared blue ribbon immediately above each requested table", () => {
     expect(styles).toContain('.table-ribbon, .activity-member-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }');
     expect(odds).toContain('className="table-ribbon">Current odds</h2>');
+    expect(odds).toContain('<table aria-label="Current odds" className="odds-board">');
     expect(standings).toContain('className="table-ribbon">Active season holdings</h2>');
     expect(rules).toContain('className="table-ribbon" id="season-rules-heading">Applicable season</h2>');
     expect(rules).toContain('className="table-ribbon" id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>');
@@ -26,6 +27,7 @@ describe("table ribbons", () => {
     expect(orders).toContain('className="table-ribbon">Order history</h2>');
     expect(members).toContain('className="table-ribbon">Active and suspended members</h2>');
     expect(corrections).toContain('className="table-ribbon">Eligible active-season wagers</h2>');
+    expect(corrections).toContain('<table aria-label="Eligible active-season wagers">');
     expect(corrections).toContain('className="table-ribbon">Settlements and reversals</h3>');
     expect(home).toContain('className="table-ribbon">Your active memberships</h2>');
   });

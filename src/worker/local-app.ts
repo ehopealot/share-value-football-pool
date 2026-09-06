@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import type { AppDependencies } from "./app";
+import { isLoopbackHostname } from "../security/turnstile";
 import { installLocalTestControls, LocalResponseBarrier, localFixtureControls } from "./test-controls";
 
 export type LocalAppDependencies = Pick<AppDependencies, "db" | "pools"> & {
@@ -14,7 +15,7 @@ const responseBarrier = new LocalResponseBarrier();
 export function installLocalAppControls(app: Hono, dependencies: LocalAppDependencies): LocalResponseBarrier {
   app.use("/__local-test/*", async (c, next) => {
     const host = new URL(c.req.url).hostname;
-    if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return c.json({ code: "NOT_FOUND" }, 404);
+    if (!isLoopbackHostname(host)) return c.json({ code: "NOT_FOUND" }, 404);
     await next();
   });
   const controls = localFixtureControls(dependencies.db, dependencies.pools, dependencies.projectionServiceToken);
