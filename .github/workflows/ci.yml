@@ -7,16 +7,18 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 2
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
       - run: npm ci
       - run: npm test -- --maxWorkers=5
@@ -32,15 +34,17 @@ jobs:
   e2e:
     if: github.event_name == 'pull_request'
     continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          node-version: 24
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.20.0
           cache: npm
       - run: npm ci
       - name: Install Playwright Chromium
@@ -51,29 +55,41 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     concurrency:
       group: production-deploy
       cancel-in-progress: false
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Check deployment freshness
         id: freshness
         run: |
-          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          set -o pipefail
+          remote_main="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
+          git config --local --unset-all http.https://github.com/.extraheader
           if [ "$GITHUB_SHA" = "$remote_main" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             echo "Skipping stale commit $GITHUB_SHA; main is $remote_main"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
       - run: npm ci
+      - name: Verify production artifacts before migration
+        if: steps.freshness.outputs.deploy == 'true'
+        env:
+          CI: "true"
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+        run: |
+          npm run build:production
+          npm run build:local
+          npm run verify:production-artifact
       - name: Apply D1 migrations
         if: steps.freshness.outputs.deploy == 'true'
         env:
