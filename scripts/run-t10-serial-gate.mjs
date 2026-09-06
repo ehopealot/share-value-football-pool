@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,101 +47,15 @@ const checkoutLockPath = (cwd) => {
   return `/tmp/share-value-pool-t10-serial-gate-${key}.lock`;
 };
 
-const validateOwner = (owner, lockPath) => {
-  if (typeof owner.token !== "string" || !owner.token || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) {
-    throw new Error(`T10 serial gate existing lock has invalid owner metadata (${lockPath})`);
-  }
-  if (owner.activeStage !== undefined && (
-    !Number.isSafeInteger(owner.activeStage?.pid) || owner.activeStage.pid <= 0
-    || !(typeof owner.activeStage.processStartIdentity === "string" && owner.activeStage.processStartIdentity
-      || owner.activeStage.processStartIdentity === null && owner.activeStage.leaderExitedBeforeRegistration === true)
-  )) throw new Error(`T10 serial gate existing lock has invalid active-stage metadata (${lockPath})`);
-};
-
-const processGroupExists = (pgid) => {
-  try { process.kill(-pgid, 0); return true; }
-  catch (error) {
-    if (error?.code === "ESRCH") return false;
-    throw error;
-  }
-};
-
-const ownerStillActive = async (owner, lockPath) => {
-  validateOwner(owner, lockPath);
-  const liveOwnerIdentity = await processStartIdentity(owner.pid);
-  if (liveOwnerIdentity && (typeof owner.processStartIdentity !== "string" || liveOwnerIdentity === owner.processStartIdentity)) return true;
-  if (!owner.activeStage) return false;
-  const liveStageIdentity = await processStartIdentity(owner.activeStage.pid);
-  if (liveStageIdentity) return liveStageIdentity === owner.activeStage.processStartIdentity;
-  // A leaderless group retains its original PGID. If that number is reused, a new
-  // group leader exists at the PID and the start-identity comparison above fails.
-  return processGroupExists(owner.activeStage.pid);
-};
-
-const reclaimOwnerlessLock = async (lockPath) => {
-  const stalePath = `${lockPath}.ownerless-${randomUUID()}`;
-  try { await rename(lockPath, stalePath); }
-  catch (error) {
-    if (error?.code === "ENOENT") return true;
-    throw error;
-  }
-  try {
-    try { await readFile(`${stalePath}/owner.json`, "utf8"); }
-    catch (error) {
-      if (error?.code === "ENOENT") {
-        await rm(stalePath, { recursive: true, force: false });
-        return true;
-      }
-      throw error;
-    }
-    const changed = new Error(`T10 serial gate lock ownership appeared during ownerless reclamation (${lockPath})`);
-    try { await rename(stalePath, lockPath); }
-    catch (cleanupError) { Object.defineProperty(changed, "cleanupDiagnostics", { value: errorFrom(cleanupError), enumerable: true }); }
-    throw changed;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("ownership appeared during")) throw error;
-    throw new Error(`T10 serial gate ownerless-lock reclamation failed (${lockPath})`, { cause: errorFrom(error) });
-  }
-};
-
-const reclaimStaleLock = async (lockPath) => {
-  let owner;
-  try { owner = JSON.parse(await readFile(`${lockPath}/owner.json`, "utf8")); }
-  catch (error) {
-    if (error?.code === "ENOENT") return reclaimOwnerlessLock(lockPath);
-    throw new Error(`T10 serial gate cannot validate existing lock owner (${lockPath})`, { cause: errorFrom(error) });
-  }
-  if (await ownerStillActive(owner, lockPath)) return false;
-
-  const stalePath = `${lockPath}.stale-${randomUUID()}`;
-  try { await rename(lockPath, stalePath); }
-  catch (error) {
-    if (error?.code === "ENOENT") return true;
-    throw error;
-  }
-  try {
-    const movedOwner = JSON.parse(await readFile(`${stalePath}/owner.json`, "utf8"));
-    if (movedOwner.token !== owner.token || await ownerStillActive(movedOwner, lockPath)) {
-      const changed = new Error(`T10 serial gate lock ownership changed during stale-owner reclamation (${lockPath})`);
-      try { await rename(stalePath, lockPath); }
-      catch (cleanupError) { Object.defineProperty(changed, "cleanupDiagnostics", { value: errorFrom(cleanupError), enumerable: true }); }
-      throw changed;
-    }
-    await rm(stalePath, { recursive: true, force: false });
-    return true;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("ownership changed during")) throw error;
-    throw new Error(`T10 serial gate stale-lock reclamation failed (${lockPath})`, { cause: errorFrom(error) });
-  }
-};
-
 async function acquireLock(lockPath, cwd, writeOwner = writeFile, renameLock = rename, removePending = rm) {
   const token = randomUUID();
   const pendingLockPath = await mkdtemp(`${lockPath}.pending-`);
   const removePreparedLock = async (primary) => {
     try { await removePending(pendingLockPath, { recursive: true, force: false }); }
     catch (cleanupError) {
-      Object.defineProperty(primary, "cleanupDiagnostics", { value: new Error(`T10 serial gate lock preparation cleanup failed: ${String(cleanupError).slice(0, 2_000)}`), enumerable: true, configurable: true });
+      const diagnostic = new Error(`T10 serial gate lock preparation cleanup failed: ${String(cleanupError).slice(0, 2_000)}`);
+      const existing = primary.cleanupDiagnostics;
+      Object.defineProperty(primary, "cleanupDiagnostics", { value: existing ? new Error(`${existing.message}; ${diagnostic.message}`) : diagnostic, enumerable: true, configurable: true });
     }
   };
   try {
@@ -153,25 +67,30 @@ async function acquireLock(lockPath, cwd, writeOwner = writeFile, renameLock = r
     await removePreparedLock(primary);
     throw primary;
   }
+  // mkdir is the exclusive acquisition point: unlike rename, it cannot replace
+  // an empty existing lock. Never reclaim automatically; a stale observation
+  // cannot safely authorize removing a path another contender may now own.
+  try {
+    await mkdir(lockPath);
+  } catch (error) {
+    const primary = error?.code === "EEXIST"
+      ? new Error(`T10 serial gate already running or existing lock requires manual recovery (${lockPath}); verify all gate owners and stage process groups have exited before removing it.`, { cause: errorFrom(error) })
+      : errorFrom(error);
+    await removePreparedLock(primary);
+    throw primary;
+  }
   try {
     await renameLock(pendingLockPath, lockPath);
   } catch (error) {
-    const collision = error?.code === "EEXIST" || error?.code === "ENOTEMPTY";
-    if (!collision || !await reclaimStaleLock(lockPath)) {
-      const primary = collision
-        ? new Error(`T10 serial gate already running for this checkout (${lockPath})`, { cause: errorFrom(error) })
-        : errorFrom(error);
-      await removePreparedLock(primary);
-      throw primary;
+    const primary = errorFrom(error);
+    // Only remove our empty reservation, never recursively delete an unexpected
+    // owner. Other gate invocations reject this path even before metadata exists.
+    try { await rmdir(lockPath); }
+    catch (cleanupError) {
+      Object.defineProperty(primary, "cleanupDiagnostics", { value: new Error(`T10 serial gate reservation cleanup failed: ${String(cleanupError).slice(0, 2_000)}`), enumerable: true, configurable: true });
     }
-    try { await renameLock(pendingLockPath, lockPath); }
-    catch (retryError) {
-      const primary = retryError?.code === "EEXIST" || retryError?.code === "ENOTEMPTY"
-        ? new Error(`T10 serial gate already running for this checkout (${lockPath})`, { cause: errorFrom(retryError) })
-        : errorFrom(retryError);
-      await removePreparedLock(primary);
-      throw primary;
-    }
+    await removePreparedLock(primary);
+    throw primary;
   }
   const updateActiveStage = async (activeStage) => {
     const owner = JSON.parse(await readFile(`${lockPath}/owner.json`, "utf8"));

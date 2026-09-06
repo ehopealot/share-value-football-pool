@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -163,11 +163,38 @@ describe("T10 serial gate", () => {
     }
   });
 
-  it("reclaims an ownerless lock left by an interrupted legacy acquisition", async () => {
+  it.each([
+    ["ownerless", undefined],
+    ["stale", JSON.stringify({ token: "stale", pid: 2_147_483_647, processStartIdentity: "0" })],
+    ["malformed", "not JSON"],
+  ])("rejects all concurrent contenders for an existing %s lock without mutation or leaks", async (_kind, owner) => {
+    const root = await temporary("share-value-pool-serial-gate-contenders-");
+    const lockPath = join(root, "gate.lock");
+    const executeStage = vi.fn(async () => {});
+    try {
+      await mkdir(lockPath);
+      if (owner !== undefined) await writeFile(join(lockPath, "owner.json"), owner);
+      const results = await Promise.allSettled(Array.from({ length: 3 }, () => runSerialGate({
+        cwd: root, lockPath, stages: noOpStages, executeStage,
+      })));
+      expect(results.map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);
+      expect(executeStage).not.toHaveBeenCalled();
+      expect(await readdir(root)).toEqual(["gate.lock"]);
+      if (owner === undefined) expect(await readdir(lockPath)).toEqual([]);
+      else expect(await readFile(join(lockPath, "owner.json"), "utf8")).toBe(owner);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an ownerless lock left by an interrupted acquisition until manual recovery", async () => {
     const root = await temporary("share-value-pool-serial-gate-ownerless-");
     const lockPath = join(root, "gate.lock");
     try {
       await mkdir(lockPath);
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/manual recovery/);
+      expect(await readdir(lockPath)).toEqual([]);
+      await rm(lockPath, { recursive: true });
       await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
       await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
@@ -175,7 +202,7 @@ describe("T10 serial gate", () => {
     }
   });
 
-  it("reclaims a lock after its exact owner process is killed", async () => {
+  it("requires manual recovery after the exact owner process is killed", async () => {
     const root = await temporary("share-value-pool-serial-gate-stale-owner-");
     const lockPath = join(root, "gate.lock");
     const enteredPath = join(root, "entered");
@@ -188,6 +215,8 @@ describe("T10 serial gate", () => {
       await expect.poll(async () => { try { await access(enteredPath); return true; } catch { return false; } }).toBe(true);
       holder.kill("SIGKILL");
       expect(await exited).toBeNull();
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/manual recovery/);
+      await rm(lockPath, { recursive: true });
       await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
       await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
@@ -227,6 +256,8 @@ describe("T10 serial gate", () => {
       process.kill(-stagePgid!, "SIGTERM");
       await expect(waitForProcessGroupExit(stagePgid!, 30, 50, { cleanupTimeoutMs: 5_000 })).resolves.toBe(true);
       groupVerifiedAbsent = true;
+      await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).rejects.toThrow(/manual recovery/);
+      await rm(lockPath, { recursive: true });
       await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
     } finally {
       holder.kill("SIGKILL");
@@ -250,6 +281,42 @@ describe("T10 serial gate", () => {
       })).rejects.toThrow("injected owner write failure");
       await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
       await expect(runSerialGate({ cwd: root, lockPath, stages: noOpStages, executeStage: async () => {} })).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps acquisition exclusive while owner metadata is being published", async () => {
+    const root = await temporary("share-value-pool-serial-gate-publication-");
+    const lockPath = join(root, "gate.lock");
+    const executeContender = vi.fn(async () => {});
+    try {
+      await runSerialGate({
+        cwd: root, lockPath, stages: noOpStages, executeStage: async () => {},
+        renameLock: async (from, to) => {
+          await expect(runSerialGate({
+            cwd: root, lockPath, stages: noOpStages, executeStage: executeContender,
+          })).rejects.toThrow(/already running/);
+          await rename(from, to);
+        },
+      });
+      expect(executeContender).not.toHaveBeenCalled();
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes both the reservation and prepared metadata after publication fails", async () => {
+    const root = await temporary("share-value-pool-serial-gate-publication-failure-");
+    const lockPath = join(root, "gate.lock");
+    const primary = new Error("injected publication failure");
+    try {
+      await expect(runSerialGate({
+        cwd: root, lockPath, stages: noOpStages, executeStage: async () => {},
+        renameLock: async () => { throw primary; },
+      })).rejects.toBe(primary);
+      expect(await readdir(root)).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

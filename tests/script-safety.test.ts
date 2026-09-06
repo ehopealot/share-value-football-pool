@@ -17,6 +17,15 @@ const runFinishReview = (finishModule as { runFinishReview: (options: { root: st
 const temporaryRoots: string[] = [];
 afterEach(async () => { await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
+const finishReviewEnvironment = async (root: string): Promise<NodeJS.ProcessEnv> => {
+  const home = join(root, "home");
+  const detectorDirectory = join(home, ".pi/agent/skills/impeccable/scripts");
+  await mkdir(detectorDirectory, { recursive: true });
+  // runFinishReview resolves this path, but these tests inject the command runner.
+  await writeFile(join(detectorDirectory, "detect.mjs"), "");
+  return { ...process.env, HOME: home, FINISH_REVIEW_RESUME: "0", FINISH_REVIEW_PHASE_C_COMPLETE: "0" };
+};
+
 const waitForFile = async (path: string) => {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
@@ -79,7 +88,7 @@ describe("script safety boundaries", () => {
     await writeFile(join(artifacts, "detector.json"), "[{\"id\":\"stale\"}]\n");
     await writeFile(join(artifacts, "detector.exit"), "0\n");
     const run = vi.fn(async (_command: string, _args: string[], options: Record<string, unknown>) => ({ status: 0, stdout: options.captureStdout ? "" : "", stderr: "" }));
-    await expect(runFinishReview({ root, environment: process.env, run })).rejects.toThrow(/no JSON output/);
+    await expect(runFinishReview({ root, environment: await finishReviewEnvironment(root), run })).rejects.toThrow(/no JSON output/);
     await expect(readFile(join(artifacts, "detector.exit"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(join(artifacts, "detector.json"), "utf8")).toContain("stale");
   });
@@ -88,7 +97,7 @@ describe("script safety boundaries", () => {
     const root = await mkdtemp(join(tmpdir(), "share-value-pool-finish-detector-")); temporaryRoots.push(root);
     const detectorOutput = "[{\"id\":\"fresh\"}]\n";
     const sensitiveNames = [...cloudflareCredentialNames, ...workerSecretNames];
-    const environment = { ...process.env, FINISH_REVIEW_ROOT: "/mismatched-review-root", CLOUDFLARE_INCLUDE_PROCESS_ENV: "true", ...Object.fromEntries(sensitiveNames.map((name) => [name, `secret-${name}`])) };
+    const environment = { ...await finishReviewEnvironment(root), FINISH_REVIEW_ROOT: "/mismatched-review-root", CLOUDFLARE_INCLUDE_PROCESS_ENV: "true", ...Object.fromEntries(sensitiveNames.map((name) => [name, `secret-${name}`])) };
     const run = vi.fn(async (_command: string, _args: string[], options: Record<string, unknown>) => ({ status: 0, stdout: options.captureStdout ? detectorOutput : "", stderr: "" }));
     await runFinishReview({ root, environment, run });
     for (const call of run.mock.calls) {
