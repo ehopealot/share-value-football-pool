@@ -6,8 +6,8 @@ const css = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), 
 
 describe("mobile wager tables", () => {
   it("uses compact phone-specific dimensions for My Bets and Activity", () => {
-    expect(css).toMatch(/@media \(max-width: 600px\) \{[\s\S]*?\.activity-table \{ min-width: 30rem; font-size: 0\.78rem; \}/);
-    expect(css).toContain(".my-wagers-page .activity-table { min-width: 32rem; }");
+    expect(css).toMatch(/@media \(max-width: 600px\) \{[\s\S]*?\.activity-table \{ min-width: 27rem; font-size: 0\.78rem; \}/);
+    expect(css).toContain(".my-wagers-page .activity-table { min-width: 28rem; }");
     expect(css).toContain(".activity-start-column { width: 3.25rem; }");
     expect(css).toContain(".activity-staked-column { width: 12%; }");
     expect(css).toContain(".my-wagers-page .activity-staked-column { width: 11%; }");
@@ -16,7 +16,8 @@ describe("mobile wager tables", () => {
     expect(css).toContain(".my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-push, .my-wagers-page .activity-leg-neutral { white-space: normal; }");
     expect(css).toContain(".wager-date-row { display: table-row; }");
     expect(css).toContain(".wager-date-row th { padding: 0 0.25rem;");
-    expect(css).toContain("font-size: 0.66rem; line-height: 1.15;");
+    expect(css).toContain("font-size: 0.78rem; line-height: 1.1;");
+    expect(css).toContain(".activity-wager-column { width: 46%; }");
     expect(css).toContain(".wager-start-time { display: none; }");
     expect(css).toContain(".wager-start-time-mobile { display: block; white-space: nowrap; }");
   });
