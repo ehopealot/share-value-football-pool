@@ -3,7 +3,6 @@ import {
   canonicalParlayQuoteProjection,
   parlayWagerQuoteSnapshot,
   placeParlayWager,
-  quoteParlaySemantic,
   teaserWagerQuoteSnapshot
 } from "../../src/contracts/commands";
 import {
@@ -88,11 +87,12 @@ const snapshot = {
 
 describe("parlay quote contracts", () => {
   it("requires immutable PARLAY_2026_V1 semantic requests with two through six valid selections", () => {
-    expect(quoteParlaySemantic.parse(semantic)).toEqual(semantic);
-    expect(() => quoteParlaySemantic.parse({ ...semantic, rulesetVersion: "SHARE_POOL_2026_V1" })).toThrow();
-    expect(() => quoteParlaySemantic.parse({ ...semantic, legs: [semantic.legs[0]] })).toThrow();
-    expect(() => quoteParlaySemantic.parse({ ...semantic, legs: Array.from({ length: 7 }, (_, index) => ({ ...semantic.legs[0], eventId: `event-${index}`, offerId: `event-${index}:moneyline:home` })) })).toThrow();
-    expect(() => quoteParlaySemantic.parse({ ...semantic, legs: [{ ...semantic.legs[0], market: "spread", offerId: "event-1:spread:home" }, semantic.legs[0]] })).toThrow();
+    const request = { ...semantic, quoteKey: "parlay-quote", commandId: "parlay-quote" };
+    expect(parlayWagerQuoteRequest.parse(request)).toEqual(request);
+    expect(() => parlayWagerQuoteRequest.parse({ ...request, rulesetVersion: "SHARE_POOL_2026_V1" })).toThrow();
+    expect(() => parlayWagerQuoteRequest.parse({ ...request, legs: [semantic.legs[0]] })).toThrow();
+    expect(() => parlayWagerQuoteRequest.parse({ ...request, legs: Array.from({ length: 7 }, (_, index) => ({ ...semantic.legs[0], eventId: `event-${index}`, offerId: `event-${index}:moneyline:home` })) })).toThrow();
+    expect(() => parlayWagerQuoteRequest.parse({ ...request, legs: [{ ...semantic.legs[0], market: "spread", offerId: "event-1:spread:home" }, semantic.legs[0]] })).toThrow();
   });
 
   it("keeps every accepted leg complete while preserving the moneyline proof/strike distinction", () => {

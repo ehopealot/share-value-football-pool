@@ -82,20 +82,6 @@ export class PoolRegistry {
     return row ? toRecord(row) : undefined;
   }
 
-  async repair(slug: string, input?: CreatePoolInput): Promise<RegistryRecord> {
-    const record = await this.getBySlug(slug);
-    if (!record) throw new Error("Pool registry record was not found.");
-    if (input) {
-      const completeInput = requireInitialization(input);
-      if (!this.commandAuthenticatorKey || normalizeSlug(completeInput.slug) !== record.slug || completeInput.creatorId !== record.creatorId || completeInput.idempotencyKey !== record.commandId) throw new Error("IDEMPOTENCY_CONFLICT");
-      const response = await this.db.prepare("SELECT initialization_fingerprint FROM pool_registry_command_response WHERE command_id = ?").bind(record.commandId).first<Pick<ResponseRow, "initialization_fingerprint">>();
-      if (!response || response.initialization_fingerprint !== initializationFingerprint(completeInput, this.commandAuthenticatorKey)) throw new Error("IDEMPOTENCY_CONFLICT");
-      input = completeInput;
-    }
-    await this.db.prepare("UPDATE pool_registry SET status = 'initializing', last_error = NULL WHERE pool_id = ?").bind(record.poolId).run();
-    return this.finish({ ...record, status: "initializing" }, input);
-  }
-
   private async finish(record: RegistryRecord, input?: CreatePoolInput): Promise<RegistryRecord> {
     try {
       const response = await this.commands.initializePool(initialization(record, input));

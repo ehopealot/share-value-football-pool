@@ -14,7 +14,7 @@ describe("explicit Turnstile lifecycle", () => {
   });
   it("renders into the actual target and removes a completed widget before another acquisition", async () => {
     const callbacks: Array<{ callback: (token: string) => void }> = [];
-    const render = vi.fn((container: HTMLElement, options: { callback: (token: string) => void }) => { callbacks.push(options); return `widget-${callbacks.length}`; });
+    const render = vi.fn((_container: HTMLElement, options: { callback: (token: string) => void }) => { callbacks.push(options); return `widget-${callbacks.length}`; });
     const execute = vi.fn(); const remove = vi.fn(); const replaceChildren = vi.fn();
     const target = { id: "turnstile-form", setAttribute: vi.fn(), replaceChildren } as unknown as HTMLElement;
     const client = { ready: (callback: () => void) => callback(), render, execute, remove };

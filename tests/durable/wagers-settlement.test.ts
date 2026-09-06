@@ -1,7 +1,6 @@
 import { applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { PoolCommand } from "../../src/durable/pool-commands";
 import { runSettlementAlarm } from "../../src/durable/alarm";
 import { settleWagers } from "../../src/durable/settlement";
 import type { FinalResultVersion, ResultSource } from "../../src/odds/result-source";

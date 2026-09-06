@@ -9,12 +9,6 @@ type BoardOffer = { eventId: string; market: MarketName; homeTeam?: string; away
 const key = (slug: string) => `share-pool:tray:${slug}`;
 const identity = (item: Pick<TrayItem, "eventId" | "market" | "selection">) => `${item.eventId}:${item.market}:${item.selection}`;
 
-/** Checking adds by identity; unchecking removes regardless of risk or wager state. */
-export function toggleTrayItem(items: TrayItem[], item: TrayItem): TrayItem[] {
-  const id = identity(item);
-  return items.some((candidate) => identity(candidate) === id) ? items.filter((candidate) => identity(candidate) !== id) : [...items, item];
-}
-
 /** Selections are exclusive per game and market column: checking one side replaces its sibling. */
 export function toggleMarketExclusive(items: TrayItem[], item: TrayItem): TrayItem[] {
   const id = identity(item);

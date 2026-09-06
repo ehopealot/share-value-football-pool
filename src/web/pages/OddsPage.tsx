@@ -18,8 +18,6 @@ import { PageGeneration } from "../page-generation";
 import { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export type BoardPick = { offer: any; outcome: any };
-/** Review controls follow the parsed fail-closed board state, never retained editor data. */
-export const boardEnablesWagerReview = (board: { offers?: unknown[]; feed?: { status?: string } } | undefined): boolean => board?.feed?.status === "current" && !!board.offers?.length;
 
 export type MarketCell = { offer: any; outcome: any; label: string; selection: string; name: string; odds: string };
 export type GameMarkets = { spread: { away?: MarketCell; home?: MarketCell }; total: { over?: MarketCell; under?: MarketCell }; moneyline: { away?: MarketCell; home?: MarketCell } };

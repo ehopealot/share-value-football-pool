@@ -11,7 +11,6 @@ import { createAuthAbuseGuard, isLoopbackHostname, verifyTurnstile } from "../..
 import { createPoolRequest, joinPoolRequest } from "../../src/contracts/http";
 import worker, { handleInternalSettlement, type Env } from "../../src/index";
 import { canonicalizeWagerQuote, revalidateWagerOffers } from "../../src/worker/offer-quotes";
-import type { PoolCommand } from "../../src/durable/pool-commands";
 import { CANONICAL_BOOK_POLICY_VERSION } from "../../src/odds/types";
 
 /**
@@ -74,7 +73,7 @@ describe("Better Auth D1 boundary", () => {
     const mailbox = new DevelopmentMailbox();
     const auth = createAuthBoundary({ db, baseURL: "http://localhost:5173", secret: "a-long-test-secret-that-is-never-production", emailSender: mailbox, autoVerifyEmail: true });
 
-    const signup = await auth.api.signUpEmail({ body: { name: "Local Member", email: "local-member@example.test", password: "first-password" } });
+    await auth.api.signUpEmail({ body: { name: "Local Member", email: "local-member@example.test", password: "first-password" } });
 
     expect(mailbox.messages).toEqual([]);
     expect((await db.prepare("SELECT emailVerified FROM user WHERE email = ?").bind("local-member@example.test").first<{ emailVerified: number }>())?.emailVerified).toBe(1);

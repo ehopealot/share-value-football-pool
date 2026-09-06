@@ -613,7 +613,7 @@ describe("later wager and member HTTP API", () => {
       ["over", "total", "over", 45, 47, 39, 41],
       ["under", "total", "under", 45, 43, 51, 49]
     ] as const;
-    for (const [id, market, selection, initial, changed] of cases) {
+    for (const [id, market, selection, initial] of cases) {
       const outcomes = market === "spread" ? [{ name: "Home", price: -110, point: selection === "home" ? initial : -initial }, { name: "Away", price: -110, point: selection === "away" ? initial : -initial }] : [{ name: "Over", price: -110, point: initial }, { name: "Under", price: -110, point: initial }];
       for (const eventId of [id, `${id}-partner`]) {
         await bindings.DB.prepare("INSERT INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, correction_version) VALUES (?, ?, 'nfl', 'Home', 'Away', ?, 'scheduled', '1')").bind(eventId, eventId, startsAt).run();

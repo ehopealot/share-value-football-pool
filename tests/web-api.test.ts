@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { api, ApiError, buildParlayPlacement, commandOutcome, errorMessage, invalidatePoolView, invalidatePoolViewForBoardRead, onPoolBoardRead, onPoolViewInvalidated, parseAuditExportSuccess, parseMessageBoardMutationSuccess, parseMessageBoardPostSuccess, parseOddsBoardSuccess, parseParlayQuoteSuccess, parseReadMessageBoardSuccess, retryWagerPlacement } from "../src/web/api";
 import { FrozenAdminCommand } from "../src/web/admin-command";
-import { boardEnablesWagerReview } from "../src/web/pages/OddsPage";
 
 describe("web API transport, parsing, and recovery", () => {
   it("rejects malformed odds-board feed observations at the browser boundary", () => {
@@ -14,9 +13,7 @@ describe("web API transport, parsing, and recovery", () => {
     for (const status of ["stale", "provider-error", "no-offer"] as const) {
       const unavailable = { offers: [offer], feed: { ...response.feed, status } };
       expect(() => parseOddsBoardSuccess(unavailable)).toThrow();
-      expect(boardEnablesWagerReview(unavailable)).toBe(false);
     }
-    expect(boardEnablesWagerReview({ offers: [offer], feed: { ...response.feed, status: "current" } })).toBe(true);
   });
 
   it("uses strict board transport contracts and encoded member routes", async () => {

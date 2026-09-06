@@ -15,19 +15,11 @@ beforeEach(async () => {
 });
 
 describe("real D1-to-PoolDO creation saga", () => {
-  it("initializes exactly once and repairs an initializing reservation with the same DO command", async () => {
+  it("initializes exactly once and replays the same reservation", async () => {
     const registry = new PoolRegistry(bindings.DB, new DurablePoolCommandClient(bindings.POOL_DO), bindings.POOL_COMMAND_AUTHENTICATOR_KEY);
     const input = { slug: `saga-${crypto.randomUUID()}`, creatorId: "owner", creatorName: "Owner", poolName: "Saga Pool", password: "correct-password", idempotencyKey: "create" };
     const created = await registry.create(input);
     expect(created).toMatchObject({ status: "ready", commandVersion: "1" });
     expect(await registry.create(input)).toEqual(created);
-
-    await bindings.DB.prepare("UPDATE pool_registry SET status='initializing' WHERE pool_id=?").bind(created.poolId).run();
-    const repaired = await registry.repair(created.slug, input);
-    expect(repaired).toMatchObject({ poolId: created.poolId, status: "ready", commandVersion: "1" });
-
-    const incompleteId = crypto.randomUUID();
-    await bindings.DB.prepare("INSERT INTO pool_registry (pool_id, normalized_slug, do_name, creator_id, status, command_id, created_at) VALUES (?, 'missing-material', ?, 'owner', 'initializing', 'missing-command', ?)").bind(incompleteId, incompleteId, new Date().toISOString()).run();
-    expect(await registry.repair("missing-material")).toMatchObject({ status: "failed", lastError: "INITIALIZATION_MATERIAL_UNAVAILABLE" });
   }, 30_000);
 });

@@ -55,7 +55,6 @@
     "@vitejs/plugin-react": "6.1.0",
     "@vitest/coverage-v8": "4.1.11",
     "axe-core": "4.10.3",
-    "fast-check": "4.2.0",
     "playwright": "1.62.1",
     "tsx": "4.20.3",
     "typescript": "5.8.3",
