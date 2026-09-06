@@ -51,6 +51,8 @@ describe("owner ticket presentation", () => {
     const malformed = wager({ wagerId: "a", confirmedAt: "2026-09-02T00:00:00.000Z", legs: [{ eventStartsAt: "not-a-date" }] });
 
     expect(sortWagersByStartTime([hidden, tiedLater, malformed, tied]).map((item) => item.wagerId)).toEqual(["tied", "tied-later", "a", "b"]);
+    expect(displayWagerDateLabel(hidden)).toBe("Upcoming");
+    expect(displayWagerDateLabel(malformed)).toBe("Upcoming");
   });
 
   it("renders parlay confirmation terms and owner settlement details", () => {
