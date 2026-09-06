@@ -19,6 +19,7 @@ describe("mobile wager tables", () => {
     expect(css).toContain(".activity-table thead th, .wager-date-row th { font-size: 0.78rem; }");
     expect(css).not.toContain(".activity-member-ribbon { padding: 0.15rem 0.35rem; line-height: 1.15; }");
     expect(css).toContain("line-height: 1.1;");
+    expect(css).toContain("text-size-adjust: none; -webkit-text-size-adjust: none;");
     expect(css).toContain(".activity-wager-column { width: 46%; }");
     expect(css).toContain(".wager-start-time { display: none; }");
     expect(css).toContain(".wager-start-time-mobile { display: block; white-space: nowrap; }");
