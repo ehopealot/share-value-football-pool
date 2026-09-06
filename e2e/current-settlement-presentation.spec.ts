@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/local-worker";
 
-async function signInOwner(page: import("@playwright/test").Page, baseURL: string, mailbox: () => Promise<Array<{ kind: "verification"; to: string; token: string }>>) {
+async function signInOwner(page: import("@playwright/test").Page, baseURL: string) {
   await page.context().clearCookies();
   await page.goto(`${baseURL}/sign-up`);
   await page.getByLabel("Name").fill("Settlement Owner");
@@ -33,7 +33,7 @@ async function createAndFundPool(page: import("@playwright/test").Page, baseURL:
 
 test("My Wagers shows only the current settlement economics after real regrades and a settled void", async ({ page, browser, worker }) => {
   const slug = "current-settlement-pool";
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await createAndFundPool(page, worker.baseURL, slug);
 
   await page.goto(`${worker.baseURL}/p/${slug}/odds`);

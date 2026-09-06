@@ -41,11 +41,11 @@ test("typing a risk stays responsive on an 80-game odds board", async ({ page, w
     const input = document.querySelector<HTMLInputElement>('input[aria-label^="Risk in whole shares for "]');
     if (!input) throw new Error("risk input missing");
     (window as Window & { delays?: number[] }).delays = [];
-    input.addEventListener("input", () => { const start = performance.now(); requestAnimationFrame(() => requestAnimationFrame(() => (window as Window & { delays: number[] }).delays.push(performance.now() - start))); });
+    input.addEventListener("input", () => { const start = performance.now(); requestAnimationFrame(() => requestAnimationFrame(() => (window as unknown as Window & { delays: number[] }).delays.push(performance.now() - start))); });
   });
   await page.getByLabel(/^Risk in whole shares for /).first().pressSequentially("1234567890");
   await expect.poll(() => page.evaluate(() => (window as Window & { delays?: number[] }).delays?.length ?? 0)).toBe(10);
-  const delays = await page.evaluate(() => (window as Window & { delays: number[] }).delays);
+  const delays = await page.evaluate(() => (window as unknown as Window & { delays: number[] }).delays);
   expect(Math.max(...delays)).toBeLessThan(200);
 });
 

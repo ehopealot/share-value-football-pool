@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/local-worker";
 import { createActivePool } from "./fixtures/local-pool";
 
@@ -16,16 +17,17 @@ async function fundPool(page: import("@playwright/test").Page, slug: string, sha
   }, { poolSlug: slug, amount: shares });
 }
 
-async function navigateWithinSpa(page: import("@playwright/test").Page, pathname: string) {
+async function navigateWithinSpa(page: Page, pathname: string) {
   await page.evaluate((nextPath) => { window.history.pushState({}, "", nextPath); window.dispatchEvent(new PopStateEvent("popstate")); }, pathname);
 }
+
+const waitForFailedPost = (page: Page, pathname: string) => page.waitForEvent("requestfailed", {
+  predicate: (request) => request.method() === "POST" && new URL(request.url()).pathname === pathname
+});
 
 async function signInOwner(
   page: import("@playwright/test").Page,
   baseURL: string,
-  mailbox: () => Promise<
-    Array<{ kind: "verification"; to: string; token: string }>
-  >,
 ) {
   // The fixture uses random loopback ports; discard a cookie from a reused port before real sign-up.
   await page.context().clearCookies();
@@ -71,12 +73,13 @@ test("a pending straight quote cannot leak into a newly selected pool", async ({
   await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
   await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
   expect(await page.evaluate(async (poolSlug) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: `/api/p/${poolSlug}/wagers/straight/quote` }) })).status, source.slug)).toBe(200);
+  const failedQuote = waitForFailedPost(page, `/api/p/${source.slug}/wagers/straight/quote`);
   await page.getByRole("button", { name: "Place bets" }).click();
   await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toBeVisible();
 
   await navigateWithinSpa(page, "/p/route-destination/odds");
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  await page.waitForTimeout(6_000);
+  expect((await failedQuote).failure()?.errorText).toBeTruthy();
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Reviewing straight wagers" })).toHaveCount(0);
 });
@@ -97,11 +100,19 @@ test("a pending straight placement cannot leak into a newly selected pool", asyn
   await page.getByRole("button", { name: "Place bets" }).click();
   await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
   expect(await page.evaluate(async (poolSlug) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: `/api/p/${poolSlug}/wagers/straight/place` }) })).status, source.slug)).toBe(200);
+  const placementPath = `/api/p/${source.slug}/wagers/straight/place`;
+  const failedPlacement = waitForFailedPost(page, placementPath);
+  const completedPlacementReplay = page.waitForResponse((response) => {
+    const request = response.request();
+    return response.ok() && request.method() === "POST" && new URL(request.url()).pathname === placementPath;
+  });
   await page.getByRole("button", { name: "Place 1 wager" }).click();
 
   await navigateWithinSpa(page, "/p/placement-route-destination/odds");
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
-  await page.waitForTimeout(8_000);
+  const [failedRequest, replayResponse] = await Promise.all([failedPlacement, completedPlacementReplay]);
+  expect(failedRequest.failure()?.errorText).toBeTruthy();
+  expect(replayResponse.request().postData()).toBe(failedRequest.postData());
   await expect(page.getByRole("heading", { name: "Odds board" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Review straight wagers" })).toHaveCount(0);
 });
@@ -122,12 +133,13 @@ test("a pending teaser quote cannot leak into a newly selected pool", async ({ p
   await page.getByRole("button", { name: "Build teaser" }).click();
   await page.getByLabel("Risk", { exact: true }).fill("1");
   expect(await page.evaluate(async (poolSlug) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname: `/api/p/${poolSlug}/wagers/teasers/quote` }) })).status, source.slug)).toBe(200);
+  const failedTeaserQuote = waitForFailedPost(page, `/api/p/${source.slug}/wagers/teasers/quote`);
   await page.getByRole("button", { name: "Review teaser wager" }).click();
   await expect(page.getByRole("heading", { name: "Reviewing teaser wager" })).toBeVisible();
 
   await navigateWithinSpa(page, "/p/teaser-route-destination/teaser");
   await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
-  await page.waitForTimeout(6_000);
+  expect((await failedTeaserQuote).failure()?.errorText).toBeTruthy();
   await expect(page.getByRole("heading", { name: "Teaser builder" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Confirm teaser wager" })).toHaveCount(0);
 });
@@ -136,7 +148,7 @@ test("commissioner funds shares and confirms a canonical straight wager through 
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Orders Pool");
   await page.getByLabel("Pool web address").fill("orders-pool");
@@ -252,7 +264,7 @@ test("commissioner confirms an in-page reversal and preserves immutable order hi
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Reversal Pool");
   await page.getByLabel("Pool web address").fill("reversal-pool");
@@ -287,7 +299,7 @@ test("the real browser uses whole-share defaults, filters canonical odds, and bl
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Recovery Pool");
   await page.getByLabel("Pool web address").fill("recovery-pool");
@@ -333,7 +345,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Teaser Pool");
   await page.getByLabel("Pool web address").fill("teaser-pool");
@@ -625,7 +637,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Line Change Pool");
   await page.getByLabel("Pool web address").fill("line-change-pool");
@@ -780,16 +792,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
 
 async function joinSecondMember(
   browser: import("@playwright/test").Browser,
-  worker: {
-    baseURL: string;
-    mailbox: () => Promise<
-      Array<{
-        kind: "verification" | "password-reset";
-        to: string;
-        token: string;
-      }>
-    >;
-  },
+  worker: { baseURL: string },
   slug: string,
   password: string,
 ) {
@@ -821,7 +824,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
   browser,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Stale Order Pool");
   await page.getByLabel("Pool web address").fill("stale-order-pool");
@@ -960,7 +963,7 @@ test("Admin Orders gives distinct no-active and draft-season recovery guidance",
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Season Recovery Pool");
   await page.getByLabel("Pool web address").fill("season-recovery-pool");
@@ -985,7 +988,7 @@ test("season recovery states block order quotes and direct the commissioner to t
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Closed Recovery Pool");
   await page.getByLabel("Pool web address").fill("closed-recovery-pool");
@@ -1080,7 +1083,7 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
   worker,
 }) => {
   const slug = "authz-idempotency-pool";
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Authorization Pool");
   await page.getByLabel("Pool web address").fill(slug);
@@ -1376,7 +1379,7 @@ test("stale and locked quoted offers reject only that new wager with a focused e
   page,
   worker,
 }) => {
-  await signInOwner(page, worker.baseURL, worker.mailbox);
+  await signInOwner(page, worker.baseURL);
   await page.goto(`${worker.baseURL}/pools/new`);
   await page.getByLabel("Pool name").fill("Offer Recovery Pool");
   await page.getByLabel("Pool web address").fill("offer-recovery-pool");
