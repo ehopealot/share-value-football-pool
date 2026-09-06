@@ -257,7 +257,7 @@ export const runParlayTrayTransfer = async ({ gate, slug, items, load = api.odds
 export function OddsPage() {
   const { slug = "" } = useParams(); const nav = useNavigate(); const [board, setBoard] = useState<any>(); const [view, setView] = useState<any>();
   const [league, setLeague] = useState(""); const [selectedWeek, setSelectedWeek] = useState(""); const [teamFilter, setTeamFilter] = useState("");
-  const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [notice, setNotice] = useState(""); const [parlayTransferPending, setParlayTransferPending] = useState(false);
+  const [tray, setTray] = useState<TrayItem[]>([]); const [batch, setBatch] = useState<Batch>(); const [parlayTransferPending, setParlayTransferPending] = useState(false);
   const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const trayRef = useRef<TrayItem[]>([]); const slugRef = useRef(slug); const pageGenerations = useRef(new PageGeneration()); const parlayTransfer = useRef(new ParlayTrayTransferGate()); const parlayTransferGeneration = useRef(0); slugRef.current = slug;
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const query = `?${new URLSearchParams(Object.fromEntries([["league", league]].filter(([, value]) => value)))}`;
@@ -265,7 +265,7 @@ export function OddsPage() {
   useEffect(() => {
     const ticket = pageGenerations.current.start(slug);
     const generation = ++parlayTransferGeneration.current;
-    parlayTransfer.current.cancel(); setParlayTransferPending(false); setBatch(undefined); setView(undefined); setError(""); setNotice("");
+    parlayTransfer.current.cancel(); setParlayTransferPending(false); setBatch(undefined); setView(undefined); setError("");
     const restored = readSelectionTray(slug); trayRef.current = restored; setTray(restored);
     void api.poolView(slug).then((loaded) => { if (pageGenerations.current.current(ticket)) setView(loaded); }).catch((e) => { if (pageGenerations.current.current(ticket)) setError(errorMessage(e)); });
     return () => {
@@ -278,7 +278,6 @@ export function OddsPage() {
   const persist = (next: TrayItem[]) => { trayRef.current = next; writeSelectionTray(slug, next); setTray(next); };
   useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
-  const pending = batch?.tag === "quoting" || batch?.tag === "placing";
   const currentWeek = weekStartOf(new Date()).toISOString();
   // Eastern-week calculation is expensive for a full board; it changes only when its data or week changes, never while a risk field is edited.
   const weekOptions = useMemo(() => {
@@ -315,9 +314,9 @@ export function OddsPage() {
     const ticket = pageGenerations.current.capture(slug); if (!ticket) return;
     const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros }); if (riskError) return setError(riskError);
     if (!view?.activeSeason?.id) return setError("Open an active season before reviewing wagers.");
-    setNotice(""); setError("");
+    setError("");
     setBatch({ tag: "quoting" });
-    // Always quote against a freshly fetched board so a retry after a line change cannot reuse stale authority.
+    // Attempt a refresh, fall back to the displayed board, and rely on the server quote boundary for authority.
     const fresh = await api.odds(slug, query).catch(() => undefined);
     if (!pageGenerations.current.current(ticket)) return;
     if (fresh) setBoard(fresh);
@@ -367,7 +366,6 @@ export function OddsPage() {
     persist(transfer.remaining);
     setError(transfer.error);
     if (transfer.slip.length > 0) return nav(`/p/${slug}/teaser`);
-    setNotice("");
   };
 
   const addToParlay = async () => {
@@ -393,7 +391,7 @@ export function OddsPage() {
 
   if (batch?.tag === "reviewing" || batch?.tag === "placing") {
     const entries = batch.entries;
-    return <Layout signedIn><h1>Review straight wagers</h1><p role="status">{batch.tag === "placing" ? "Placing wagers…" : `${entries.length} straight wager${entries.length === 1 ? "" : "s"} ready to place.`}{batch.quoteFailures.length ? ` ${batch.quoteFailures.length} selection${batch.quoteFailures.length === 1 ? "" : "s"} could not be quoted and remain in your tray.` : ""}</p>
+    return <Layout><h1>Review straight wagers</h1><p role="status">{batch.tag === "placing" ? "Placing wagers…" : `${entries.length} straight wager${entries.length === 1 ? "" : "s"} ready to place.`}{batch.quoteFailures.length ? ` ${batch.quoteFailures.length} selection${batch.quoteFailures.length === 1 ? "" : "s"} could not be quoted and remain in your tray.` : ""}</p>
       <div className="table-scroll" tabIndex={0}><table><caption>Bet confirmation</caption><thead><tr><th>Matchup</th><th>Odds</th><th>Risk</th><th>To win</th></tr></thead><tbody>{entries.map((entry) => { const details = straightReviewDetails(entry); const leg = entry.quote.leg; return <tr key={entry.item.wagerId}><td><SelectedLegDisplay league={leg.league} awayTeam={leg.awayTeam} homeTeam={leg.homeTeam} market={leg.market} selection={leg.selection} selectedDetail={selectedLegDetail(leg)} /></td><td>{details.odds}</td><td>{details.risk}</td><td>{details.toWin}</td></tr>; })}</tbody></table></div>
       <span className="tray-actions"><button className="primary-action" disabled={batch.tag === "placing"} onClick={() => void placeAll(batch)}>{batch.tag === "placing" ? "Placing…" : `Place ${entries.length} wager${entries.length === 1 ? "" : "s"}`}</button>
       <button disabled={batch.tag === "placing"} onClick={backToBoard}>Back to board</button></span>
@@ -403,16 +401,15 @@ export function OddsPage() {
   }
   if (batch?.tag === "results") {
     const total = batch.placed.length + batch.failed.length;
-    return <Layout signedIn><h1>Placement results</h1><p role="status">{batch.placed.length} of {total} wager{total === 1 ? "" : "s"} placed. <Link to={`/p/${slug}/my-wagers`}>My wagers</Link></p>
+    return <Layout><h1>Placement results</h1><p role="status">{batch.placed.length} of {total} wager{total === 1 ? "" : "s"} placed. <Link to={`/p/${slug}/my-wagers`}>My wagers</Link></p>
       {batch.placed.length > 0 && <section aria-label="Placed wagers"><h2>Placed</h2><ul>{batch.placed.map((label) => <li key={label}>{label}</li>)}</ul></section>}
       {batch.failed.length > 0 && <section aria-label="Failed wagers"><h2>Not placed</h2><ul>{batch.failed.map((failure, index) => <li key={`${failure.label}-${index}`} role="alert">{failure.label} — {failure.reason}</li>)}</ul></section>}
       <button className="primary-action" onClick={backToBoard}>Back to odds board</button></Layout>;
   }
-  if (batch?.tag === "quoting") return <Layout signedIn><h1>Reviewing straight wagers</h1><p role="status">Confirming odds for {tray.length} selection{tray.length === 1 ? "" : "s"}…</p></Layout>;
+  if (batch?.tag === "quoting") return <Layout><h1>Reviewing straight wagers</h1><p role="status">Confirming odds for {tray.length} selection{tray.length === 1 ? "" : "s"}…</p></Layout>;
 
-  return <Layout signedIn><h1>Odds board</h1><p className="pool-context">{view && <><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""} · </>}<span role="status">Board status: {board?.feed.status ?? "loading"}</span>{board?.feed.status === "stale" && <> <a href={window.location.href}>Reload odds</a></>}</p>
+  return <Layout><h1>Odds board</h1><p className="pool-context">{view && <><Link to={`/p/${slug}/overview`}>{view.pool.name}</Link>{view.activeSeason ? ` · ${view.activeSeason.label}` : ""} · </>}<span role="status">Board status: {board?.feed.status ?? "loading"}</span>{board?.feed.status === "stale" && <> <a href={window.location.href}>Reload odds</a></>}</p>
     {error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
     <div className="odds-board-filters"><label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
     <label>Filter teams <input type="search" value={teamFilter} placeholder="Search team names" onChange={e => setTeamFilter(e.target.value)} /></label></div>

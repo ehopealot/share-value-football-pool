@@ -48,7 +48,7 @@ export function OverviewPage() {
     }
   };
 
-  if (error) return <Layout signedIn><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to="/">Return home</Link>.</p></Layout>;
+  if (error) return <Layout><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to="/">Return home</Link>.</p></Layout>;
   if (!view) return <Layout><p role="status">Loading pool…</p></Layout>;
 
   const commissioner = view.currentMember.role === "commissioner";
@@ -56,7 +56,7 @@ export function OverviewPage() {
   const balance = view.currentMember.seasonBalances.find((item) => item.seasonId === season?.id) ?? { availableMicros: "0", lockedMicros: "0" };
   const price = season && BigInt(season.floatMicros) !== 0n ? formatCurrentShareValue(season.floatMicros, season.notionalValueMicros) : "$1.000";
 
-  return <Layout signedIn><h1>{view.pool.name}</h1>
+  return <Layout><h1>{view.pool.name}</h1>
     {season && <p className="pool-context">{view.pool.name} · {season.label} ({season.state})</p>}
     {commissioner && <nav className="pool-nav" aria-label="Commissioner navigation"><Link to={`/p/${slug}/admin/season`}>Season</Link><Link to={`/p/${slug}/admin/orders`}>Share orders</Link><Link to={`/p/${slug}/admin/members`}>Members</Link><Link to={`/p/${slug}/admin/corrections`}>Corrections</Link><Link to={`/p/${slug}/admin/settings`}>Settings</Link></nav>}
     <section className="table-ribbon-section"><h2 className="table-ribbon">Current account</h2><table><tbody><tr><th scope="row">Available shares</th><td>{shares(balance.availableMicros)}</td></tr><tr><th scope="row">Locked shares</th><td>{shares(balance.lockedMicros)}</td></tr><tr><th scope="row">Season</th><td>{season ? `${season.label} (${season.state})` : "No active season"}</td></tr>{season && <><tr><th scope="row">Season float</th><td>{shares(season.floatMicros)} shares</td></tr><tr><th scope="row">Notional value</th><td>{shares(season.notionalValueMicros)}</td></tr><tr><th scope="row">Share price</th><td>{price} per share</td></tr></>}</tbody></table></section>

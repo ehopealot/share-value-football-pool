@@ -46,7 +46,7 @@ export function HistoryPage() {
   };
   useEffect(load, [slug, season]);
   useEffect(() => { if (error || loadError) errorRef.current?.focus(); }, [error, loadError]);
-  if (loadError) return <Layout signedIn><h1>Archived season</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
+  if (loadError) return <Layout><h1>Archived season</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!data || !view) return <Layout><p role="status">Loading archived season…</p></Layout>;
   const commissioner = view.currentMember.role === "commissioner";
   const annotate = async () => {
@@ -58,7 +58,7 @@ export function HistoryPage() {
       load();
     } catch (e) { setError(errorMessage(e)); }
   };
-  return <Layout signedIn><h1>Archived season: {data.season.label}</h1><p>Read-only {data.season.state} season. {data.season.closeReason ? `Closed: ${data.season.closeReason}.` : ""}</p>
+  return <Layout><h1>Archived season: {data.season.label}</h1><p>Read-only {data.season.state} season. {data.season.closeReason ? `Closed: ${data.season.closeReason}.` : ""}</p>
     <div className="table-scroll" tabIndex={0}><table><caption>Final season accounting</caption><tbody><tr><th scope="row">Ruleset version</th><td>{data.season.rulesetVersion}</td></tr><tr><th scope="row">Final share float</th><td>{amount(data.season.floatMicros)} shares</td></tr><tr><th scope="row">Final notional value</th><td>{amount(data.season.notionalMicros)}</td></tr><tr><th scope="row">Final share price</th><td>{amount(data.season.priceMicros, 4)}</td></tr></tbody></table></div>
     <ArchivedRulesetGuidance slug={slug} rulesetVersion={data.season.rulesetVersion} />
     <h2>Final accounts</h2>{data.accounts.length ? <div className="table-scroll" tabIndex={0}><table><caption>Every season account</caption><thead><tr><th>Member</th><th>Available</th><th>Locked</th><th>Total shares</th><th>Holding value</th><th>Gain</th></tr></thead><tbody>{data.accounts.map((account) => <tr key={account.memberId}><td>{account.memberDisplayName}</td><td>{amount(account.availableMicros)}</td><td>{amount(account.lockedMicros)}</td><td>{amount(account.totalMicros)}</td><td>{amount(account.holdingValueMicros)}</td><td>{amount(account.gainMicros)}</td></tr>)}</tbody></table></div> : <p className="state-notice">No season accounts were recorded.</p>}

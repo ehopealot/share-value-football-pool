@@ -24,12 +24,12 @@ export function StandingsPage() {
   }, [slug]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
-  if (error) return <Layout signedIn><h1>Standings</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
+  if (error) return <Layout><h1>Standings</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!data || !view) return <Layout><p role="status">Loading standings…</p></Layout>;
 
   const shareValue = view.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.000";
   const noIssuedShares = !view.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
-  return <Layout signedIn><div className="standings-page"><h1>Standings</h1><p className="pool-context">Current share value: <strong>{shareValue}</strong>{noIssuedShares && <> · No shares issued yet; first order price is $1.00 per share.</>}</p>
+  return <Layout><div className="standings-page"><h1>Standings</h1><p className="pool-context">Current share value: <strong>{shareValue}</strong>{noIssuedShares && <> · No shares issued yet; first order price is $1.00 per share.</>}</p>
     {data.standings.length ? <StandingsTable standings={data.standings} /> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;

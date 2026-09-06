@@ -54,7 +54,12 @@ export function CommissionerNotice({ notice }: { notice: string }) {
   return <aside className="commissioner-notice" aria-label="Commissioner notice"><strong>Commissioner notice</strong><span>{notice.toUpperCase()}</span></aside>;
 }
 
-export function Layout({ children }: { children: React.ReactNode; signedIn?: boolean }) {
+type LayoutProps = {
+  children: React.ReactNode;
+  /** @deprecated Layout derives authentication from the server session. */
+  signedIn?: boolean;
+};
+export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate(); const { slug } = useParams();
   const [signedIn, setSignedIn] = useState<boolean | undefined>(() => poolNavigationCache.getSignedIn()); const [refresh, setRefresh] = useState(0); const [poolViewRefresh, setPoolViewRefresh] = useState(0);
   const [view, setView] = useState<ReadPoolView | undefined>(() => slug ? poolNavigationCache.get(slug) : undefined); const viewLoads = useState(() => new PoolViewLoadGeneration())[0]; const sessionLoads = useState(() => new SessionLoadGeneration())[0];

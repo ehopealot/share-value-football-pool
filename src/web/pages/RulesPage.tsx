@@ -5,8 +5,9 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { PARLAY_RULESET_ID } from "../../domain/parlay";
 import { TEASER_LEG_COUNTS, TEASER_PAYOUT_MATRIX, TEASER_POINT_OPTIONS, TEASER_RULESET_ID } from "../../domain/teaser-table";
+import { formatAmericanOdds } from "../odds-format";
 
-const formatTeaserOdds = (odds: number | undefined) => odds === undefined ? "—" : `${odds > 0 ? "+" : ""}${odds}`;
+const formatTeaserOdds = (odds: number | undefined) => odds === undefined ? "—" : formatAmericanOdds(odds);
 
 export function RulesContent({ slug, view, board }: { slug: string; view: ReadPoolView; board: OddsBoardResponse }) {
   const season = view.activeSeason ?? view.latestClosedSeason;
@@ -57,7 +58,7 @@ export function RulesPage() {
     return () => { active = false; };
   }, [slug]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  if (error) return <Layout signedIn><h1>Pool rules</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">Rules, season, and feed status are unavailable. {error}</p><Link to={`/p/${slug}/overview`}>Pool home</Link></Layout>;
-  if (!data) return <Layout signedIn><h1>Pool rules</h1><p role="status">Loading rules, season, and feed status…</p></Layout>;
-  return <Layout signedIn><RulesContent slug={slug} view={data.view} board={data.board} /></Layout>;
+  if (error) return <Layout><h1>Pool rules</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">Rules, season, and feed status are unavailable. {error}</p><Link to={`/p/${slug}/overview`}>Pool home</Link></Layout>;
+  if (!data) return <Layout><h1>Pool rules</h1><p role="status">Loading rules, season, and feed status…</p></Layout>;
+  return <Layout><RulesContent slug={slug} view={data.view} board={data.board} /></Layout>;
 }
