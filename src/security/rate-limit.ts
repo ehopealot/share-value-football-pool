@@ -1,4 +1,4 @@
-/** Small per-isolate abuse guard. The PoolDO remains the authority; this only slows repeated HTTP guesses. */
+/** Per-isolate rolling-window HTTP abuse guard. */
 export class RateLimiter {
   private readonly attempts = new Map<string, number[]>();
   constructor(private readonly limit = 5, private readonly windowMs = 10 * 60 * 1000) {}

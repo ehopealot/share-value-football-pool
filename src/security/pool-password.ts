@@ -6,10 +6,10 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 const encoder = new TextEncoder();
 /**
  * Tests may compile the Worker with `define: { "globalThis.POOL_PASSWORD_SCRYPT_LOG_N": "10" }`
- * (see tests/fixtures/wrangler.vitest.jsonc): production scrypt costs ~3.5s per
- * hash inside workerd, which would dominate pool-fixture-heavy tests. Production
- * builds never define this constant, so the scrypt cost stays at N = 2^15, and
- * the clamp keeps any override memory-hard.
+ * (see tests/fixtures/wrangler.vitest.jsonc): production-cost scrypt would
+ * dominate pool-fixture-heavy tests. Production builds never define this
+ * constant, so the scrypt cost stays at N = 2^15, and the clamp keeps any
+ * override memory-hard.
  */
 const configuredLogN = (globalThis as Record<string, unknown>).POOL_PASSWORD_SCRYPT_LOG_N;
 const logN = typeof configuredLogN === "number" && Number.isInteger(configuredLogN) && configuredLogN >= 10 && configuredLogN <= 15 ? configuredLogN : 15;

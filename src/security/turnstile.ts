@@ -15,11 +15,10 @@ export type AuthAbuseGuardOptions = {
 export const isLoopbackHostname = (hostname: string | undefined) => hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
 
 /**
- * Verifies a browser Turnstile response. A missing secret is rejected unless the
- * caller explicitly enables the documented local-only escape hatch.
+ * Verifies a browser Turnstile response. The explicit loopback-local option
+ * bypasses Siteverify entirely for the local harness.
  */
 export async function verifyTurnstile(input: { secret?: string; token?: string; action?: string; remoteIp?: string; hostname?: string; fetcher?: typeof fetch; allowInsecureLocalAuth?: boolean }): Promise<boolean> {
-  // The missing-token bypass exists solely for the explicitly loopback-bound local harness.
   if (input.allowInsecureLocalAuth === true && isLoopbackHostname(input.hostname)) return true;
   if (!input.secret || !input.token || !input.action || !input.hostname) return false;
   const body = new URLSearchParams({ secret: input.secret, response: input.token });
