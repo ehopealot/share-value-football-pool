@@ -6,11 +6,11 @@ import { validateTeaser } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
 import { OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
-import { placeWager } from "./wager-commands";
+import { placeWager, SideBetLimitError } from "./wager-commands";
 import { runSettlementAlarm } from "./alarm";
 import { correctWager, voidWager } from "./settlement";
 import { enqueueOutbox, drainOutbox, nextOutboxAttempt, type PoolOutboxMessage } from "./outbox";
-import { shapeWagers } from "./views";
+import { shapeActivityWagers, shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
@@ -95,6 +95,7 @@ export class PoolDO {
       if (shouldEnqueueOutbox(parsed.data)) await this.state.storage.setAlarm(Date.now() + outboxDrainGraceMs);
       return Response.json(result);
     } catch (error) {
+      if (error instanceof SideBetLimitError) return Response.json({ code: error.message, ...error.details }, { status: 400 });
       if (error instanceof OrderQuoteStaleError) {
         return Response.json({ code: error.message, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, replacement: { ...error.terms, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, sharesMicros: error.quote.sharesMicros.toString(), valueMicros: error.quote.valueMicros.toString() } }, { status: 400 });
       }
@@ -492,7 +493,7 @@ export class PoolDO {
   }
 
   private activity(sql: SqlStorage, actorId: string) {
-    return { orders: [...sql.exec<Row>("SELECT o.id, o.member_id, m.display_name, o.shares_micros, o.value_micros, o.price_micros, o.reason, o.created_at FROM share_order o JOIN member m ON m.user_id = o.member_id ORDER BY o.created_at DESC, o.rowid DESC")].map((order) => ({ orderId: String(order.id), memberId: String(order.member_id), memberDisplayName: String(order.display_name), sharesMicros: String(order.shares_micros), valueMicros: String(order.value_micros), priceMicros: String(order.price_micros), reason: String(order.reason), createdAt: String(order.created_at) })), ...shapeWagers(sql, actorId, this.authoritativeTime(), false, undefined, true) };
+    return { orders: [...sql.exec<Row>("SELECT o.id, o.member_id, m.display_name, o.shares_micros, o.value_micros, o.price_micros, o.reason, o.created_at FROM share_order o JOIN member m ON m.user_id = o.member_id ORDER BY o.created_at DESC, o.rowid DESC")].map((order) => ({ orderId: String(order.id), memberId: String(order.member_id), memberDisplayName: String(order.display_name), sharesMicros: String(order.shares_micros), valueMicros: String(order.value_micros), priceMicros: String(order.price_micros), reason: String(order.reason), createdAt: String(order.created_at) })), ...shapeActivityWagers(sql, actorId, this.authoritativeTime()) };
   }
 
   private history(sql: SqlStorage, seasonId: string, actorId: string) {

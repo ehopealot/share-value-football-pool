@@ -31,8 +31,9 @@ describe("graded wager presentation", () => {
 
     expect(html).toContain('class="activity-leg-loss"');
     expect(html).toContain('class="activity-leg-win"');
+    expect(html).toContain('class="activity-leg-push"');
     expect(html).toContain('class="activity-leg-neutral"');
-    expect(html.match(/class="activity-leg-neutral"/g)).toHaveLength(3);
+    expect(html.match(/class="activity-leg-neutral"/g)).toHaveLength(2);
   });
 
   it("shows total and locked holdings without an available column", () => {

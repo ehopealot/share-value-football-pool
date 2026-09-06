@@ -14,17 +14,36 @@ const now = () => new Date().toISOString();
 const gcd = (a: bigint, b: bigint): bigint => b === 0n ? a : gcd(b, a % b);
 const lcm = (a: bigint, b: bigint): bigint => a / gcd(a, b) * b;
 
-/** Enforces each member's limit with exact fractional teaser exposure, never rounded shares. */
-function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): void {
+type Exposure = { numeratorMicros: string; denominator: string };
+type SideExposure = { eventId: string; market: string; selection: string; existingExposure: Exposure; proposedExposure: Exposure; resultingExposure: Exposure };
+export class SideBetLimitError extends Error {
+  constructor(readonly details: { maxSideBetMicros: string; sideExposures?: SideExposure[] }) { super("SIDE_BET_LIMIT"); }
+}
+
+/** Computes each submitted leg that exceeds the member's per-side limit with exact fractional exposure. */
+function sideBetLimitDetails(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): SideExposure[] {
   const legCount = BigInt(legs.length);
+  const sideExposures: SideExposure[] = [];
   for (const leg of legs) {
     const prior = [...sql.exec("SELECT w.risk_micros, COUNT(all_legs.id) AS leg_count FROM wager w JOIN wager_leg matched ON matched.wager_id = w.id JOIN wager_leg all_legs ON all_legs.wager_id = w.id WHERE w.season_id = ? AND w.owner_id = ? AND w.status = 'open' AND matched.event_id = ? AND matched.market = ? AND matched.selection = ? GROUP BY w.id", command.seasonId, command.actorId, leg.eventId, leg.market, leg.selection)];
     const denominators = [legCount, ...prior.map((row) => BigInt(String(row.leg_count)))];
     const denominator = denominators.reduce(lcm, 1n);
     const existing = prior.reduce((total, row) => total + parseIntegerText(String(row.risk_micros)) * (denominator / BigInt(String(row.leg_count))), 0n);
     const proposed = parseIntegerText(command.riskMicros) * (denominator / legCount);
-    if (existing + proposed > maxSideBetMicros * denominator) throw new Error("SIDE_BET_LIMIT");
+    if (existing + proposed > maxSideBetMicros * denominator) sideExposures.push({
+      eventId: leg.eventId, market: leg.market, selection: leg.selection,
+      existingExposure: { numeratorMicros: existing.toString(), denominator: denominator.toString() },
+      proposedExposure: { numeratorMicros: proposed.toString(), denominator: denominator.toString() },
+      resultingExposure: { numeratorMicros: (existing + proposed).toString(), denominator: denominator.toString() }
+    });
   }
+  return sideExposures;
+}
+
+/** Enforces each member's limit with exact fractional teaser exposure, never rounded shares. */
+function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxSideBetMicros: bigint): void {
+  const sideExposures = sideBetLimitDetails(sql, command, legs, maxSideBetMicros);
+  if (sideExposures.length) throw new SideBetLimitError({ maxSideBetMicros: maxSideBetMicros.toString(), sideExposures });
 }
 
 /** Locks whole shares and records every accepted provider/offer term before any result is available. */
@@ -36,10 +55,13 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
   if (season.state === "closed") throw new Error("SEASON_CLOSED");
   if (season.state !== "active") throw new Error("SEASON_NOT_ACTIVE");
   const maxSideBetMicros = parseIntegerText(String(season.max_side_bet_micros));
-  if (risk > maxSideBetMicros) throw new Error("SIDE_BET_LIMIT");
+  const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
+  if (risk > maxSideBetMicros) {
+    const sideExposures = sideBetLimitDetails(sql, command, legs, maxSideBetMicros);
+    throw new SideBetLimitError({ maxSideBetMicros: maxSideBetMicros.toString(), ...(sideExposures.length ? { sideExposures } : {}) });
+  }
   const account = first(sql, "SELECT available_micros, locked_micros FROM share_account WHERE season_id = ? AND member_id = ?", command.seasonId, command.actorId);
   if (!account || parseIntegerText(String(account.available_micros)) < risk) throw new Error("INSUFFICIENT_SHARES");
-  const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
   if (legs.some((leg) => !["DraftKings", "FanDuel", "BetMGM", "Caesars"].includes(leg.canonicalBook) || leg.policyVersion !== CANONICAL_BOOK_POLICY_VERSION || leg.canonicalOfferProof.eventId !== leg.eventId || leg.canonicalOfferProof.offerVersion !== leg.offerVersion || leg.canonicalOfferProof.canonicalBook !== leg.canonicalBook || leg.canonicalOfferProof.market !== leg.market || leg.canonicalOfferProof.selection !== leg.selection || (leg.market !== "moneyline" && leg.canonicalOfferProof.odds !== leg.originalOdds) || leg.canonicalOfferProof.line !== leg.originalLine)) throw new Error("INVALID_OFFER_SNAPSHOT");
   if (command.type === "PlaceStraightWager") {
     const validSelection = command.leg.market === "total" ? ["over", "under"].includes(command.leg.selection) : ["home", "away"].includes(command.leg.selection);
