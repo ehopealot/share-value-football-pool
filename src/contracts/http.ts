@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CANONICAL_INTEGER_TEXT_PATTERN } from "../domain/fixed-point";
 import { validateCanonicalMarket } from "../odds/market-semantics";
-import { americanOdds, canonicalIntegerText, positiveCanonicalIntegerText, quoteKey, wagerId, teaserPoints, quoteStraightSemantic, quoteTeaserSemanticBase, teaserSemanticIssues, quoteParlaySemanticBase, parlaySemanticIssues, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, shareOrderQuoteSnapshot, placeStraightWager, placeTeaserWager, placeTeaserWagerShape, placeParlayWager, placeParlayWagerShape, correctedEventResult } from "./commands";
+import { americanOdds, canonicalIntegerText, positiveCanonicalIntegerText, quoteKey, quoteStraightSemantic, quoteTeaserSemanticBase, teaserSemanticIssues, quoteParlaySemanticBase, parlaySemanticIssues, straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, shareOrderQuoteSnapshot, placeStraightWager, placeTeaserWager, placeTeaserWagerShape, placeParlayWager, placeParlayWagerShape, correctedEventResult } from "./commands";
 
 export const idempotencyKey = z.string().min(1).max(128);
 const password = z.string().min(8).max(256);
@@ -63,10 +63,6 @@ export const parlayWagerPlacementRequest = placeParlayWagerShape.omit({ actorId:
   const { mutationKey: _mutationKey, ...placement } = value;
   if (!placeParlayWager.safeParse({ ...placement, actorId: "http", type: "PlaceParlayWager" }).success) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["legs"], message: "invalid parlay placement" });
 });
-/** @deprecated Compatibility aliases; in-repository code should use the placement request names. */
-export const straightWagerRequest = straightWagerPlacementRequest;
-export const teaserWagerRequest = teaserWagerPlacementRequest;
-
 /** Member-only lifecycle snapshot. Readers must parse this exact shape rather than infer state from legacy fields. */
 export const decimalString = z.string().regex(CANONICAL_INTEGER_TEXT_PATTERN);
 export const seasonSummary = z.object({

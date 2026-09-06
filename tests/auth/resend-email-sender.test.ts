@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createResendEmailSender, createResendPoolJoinNotifier, createResendPoolNotifier } from "../../src/auth/email-sender";
+import { createResendEmailSender, createResendPoolNotifier } from "../../src/auth/email-sender";
 
 const captureError = async (operation: Promise<unknown>): Promise<Error> => {
   try {
@@ -70,7 +70,7 @@ describe("Resend email sender", () => {
 
   it("notifies a commissioner when a member joins their pool", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
-    await createResendPoolJoinNotifier({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher }).notifyPoolJoin({ to: "commissioner@example.test", poolName: "Sunday Pool", memberName: "Taylor" });
+    await createResendPoolNotifier({ apiKey: "resend-test-key", from: "Office Pool Reborn <noreply@officepool.football>", fetcher }).notifyPoolJoin({ to: "commissioner@example.test", poolName: "Sunday Pool", memberName: "Taylor" });
     expect(fetcher).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ from: "Office Pool Reborn <noreply@officepool.football>", to: ["commissioner@example.test"], subject: "New member in Sunday Pool", text: "Taylor joined Sunday Pool.", html: "<p><strong>Taylor</strong> joined <strong>Sunday Pool</strong>.</p>" });
   });

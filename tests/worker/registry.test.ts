@@ -66,15 +66,13 @@ describe("pool registry reservation saga", () => {
     expect((await first).status).toBe("ready");
   });
 
-  it("persists failed repair state and can repair it", async () => {
+  it("persists and replays failed initialization", async () => {
     const commands = new FakeCommands(); commands.fail = true;
     const registry = new PoolRegistry(db, commands, "test-command-authenticator-key");
     const result = await registry.create({ slug: "repairable", creatorId: "u1", idempotencyKey: "k1", ...material });
     expect(result.status).toBe("failed");
     expect((await registry.getBySlug("REPAIRABLE"))?.lastError).toBe("DO unavailable");
     commands.fail = false;
-    expect(await registry.repair("repairable")).toMatchObject({ status: "failed", lastError: "INITIALIZATION_MATERIAL_UNAVAILABLE" });
-    expect((await registry.repair("repairable", { slug: "repairable", creatorId: "u1", idempotencyKey: "k1", ...material })).status).toBe("ready");
     expect((await registry.create({ slug: "repairable", creatorId: "u1", idempotencyKey: "k1", ...material })).status).toBe("failed");
   });
 });

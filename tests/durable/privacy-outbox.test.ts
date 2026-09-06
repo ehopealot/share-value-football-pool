@@ -1,6 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { PoolCommand } from "../../src/durable/pool-commands";
 import { drainOutbox, enqueueOutbox, type PoolOutboxMessage } from "../../src/durable/outbox";
 import { poolOutboxMessage } from "../../src/contracts/commands";
 

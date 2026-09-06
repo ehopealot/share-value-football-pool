@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess } from "./owned-process";
+import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess } from "./owned-process";
 import { assertProductionPortAvailable } from "./production-route-probe";
 import { isDirectExecution } from "./direct-entry.mjs";
 import { nonPublishingCloudflareEnvironment } from "./cloudflare-credentials.mjs";

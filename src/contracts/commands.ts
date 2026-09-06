@@ -75,7 +75,6 @@ export const parlaySemanticIssues = (v: { legs: Array<{ eventId: string; market:
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["legs"], message: error instanceof Error ? error.message : "invalid parlay selections" });
   }
 };
-export const quoteParlaySemantic = quoteParlaySemanticBase.superRefine(parlaySemanticIssues);
 export const quoteIdentity = z.object({ actorId: z.string().min(1), quoteKey, fingerprint: z.string().min(1) }).strict();
 const straightWagerQuoteSnapshotBase = z.object({ quoteKey, seasonId: z.string().min(1), ownerMemberId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, acceptedOdds: americanOdds, rulesetVersion: z.string().min(1), leg: straightLeg, commandVersion: canonicalIntegerText }).strict();
 export const straightWagerQuoteSnapshot = straightWagerQuoteSnapshotBase;

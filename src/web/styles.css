@@ -66,7 +66,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .odds-empty { background: var(--table-gray); }
 .odds-option { display: inline-flex; flex-direction: row; align-items: center; gap: 0.35rem; margin: 0; white-space: nowrap; }
 .selection-tray-list { list-style: none; margin: var(--space-1) 0; padding: 0; }
-.selection-tray-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-1) 0; border-bottom: 1px solid var(--line); }
+.selection-tray-list li { display: flex; align-items: center; padding: var(--space-1) 0; border-bottom: 1px solid var(--line); }
 .selection-tray-list li:last-child { border-bottom: 0; }
 .selection-tray-amount { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .main-content:has(.odds-board) { max-width: none; }
@@ -159,9 +159,8 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-wager-lines > span { display: block; white-space: nowrap; }
 .activity-member-section .activity-wager-lines > span { white-space: normal; overflow-wrap: anywhere; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
-.activity-wager-not-started { color: #6e7780; }
-.activity-picked-won, .activity-performance-won { color: #137333; }
-.activity-picked-lost, .activity-performance-lost { color: #b42318; }
+.activity-performance-won { color: #137333; }
+.activity-performance-lost { color: #b42318; }
 .activity-performance-refunded { color: #1a73e8; }
 .activity-leg-loss { color: #b42318; }
 .activity-leg-win { color: #137333; }

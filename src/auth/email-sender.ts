@@ -101,8 +101,3 @@ export function createResendPoolNotifier(options: ResendEmailSenderOptions): Poo
     }
   };
 }
-
-/** @deprecated Use createResendPoolNotifier. */
-export function createResendPoolJoinNotifier(options: ResendEmailSenderOptions): PoolJoinNotifier {
-  return createResendPoolNotifier(options);
-}

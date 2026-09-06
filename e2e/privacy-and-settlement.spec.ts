@@ -32,7 +32,7 @@ async function createPool(page: Page, baseURL: string, slug: string, poolName: s
   await expect(page.getByRole("link", { name: "Standings", exact: true })).toBeVisible();
 }
 
-async function openSeason(page: Page, baseURL: string, slug: string, label: string) {
+async function openSeason(page: Page, label: string) {
   await page.getByRole("link", { name: "Season", exact: true }).click();
   await page.getByLabel("Season label").fill(label);
   await page.getByRole("button", { name: "Create season" }).click();
@@ -154,7 +154,7 @@ test("rules page reports authoritative season and exact stored feed/source obser
   await expect(page.getByText("No active or closed season is available", { exact: false })).toBeVisible();
 
   await page.goto(`${worker.baseURL}/p/${slug}/overview`);
-  await openSeason(page, worker.baseURL, slug, "Active 2026");
+  await openSeason(page, "Active 2026");
   const observation = { lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:02:00.000Z", retrievedAt: "2030-09-01T10:00:00.000Z" };
   expect(await controlStatus(page, "/__local-test/feed-state", { state: "current", ...observation })).toBe(200);
   await page.goto(`${worker.baseURL}/p/${slug}/rules`);
@@ -186,10 +186,10 @@ test("an ordinary member has no administration or hidden-pick privilege at navig
   await worker.resetAuthLimiter();
   await signIn(page, worker.baseURL, "T11 Denial Commissioner", "t11-denial-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11 Denial", "member-views-password");
-  await openSeason(page, worker.baseURL, slug, "2025");
+  await openSeason(page, "2025");
   expect(await controlStatus(page, "/__local-test/season", { poolSlug: slug, state: "closed" })).toBe(200);
   await page.goto(`${worker.baseURL}/p/${slug}/overview`);
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
   const ownerView = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { activeSeason: { id: string }; latestClosedSeason: { id: string }; currentMember: { memberId: string } }, slug);
   const context = await browser.newContext(); const member = await context.newPage();
   const ticketContext = await browser.newContext(); const ticketOwner = await ticketContext.newPage();
@@ -255,7 +255,7 @@ test("canonical Super Bowl confirmation and final result automatically close the
   await worker.resetAuthLimiter();
   await signInAccount(page, worker.baseURL, "T11 Super Commissioner", "t11-super-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11 Super Bowl", "super-bowl-password");
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
 
   const ownerContext = await browser.newContext(); const owner = await ownerContext.newPage();
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
@@ -341,7 +341,7 @@ test("standings display canonical fixed-point values that change after real sett
   await worker.resetAuthLimiter();
   await signInAccount(page, worker.baseURL, ownerName, "t11r3a-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3A Standings", "t11r3a-password");
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
@@ -392,7 +392,7 @@ test("a second ordinary member receives delayed per-leg reveal identical to the 
   await worker.resetAuthLimiter();
   await signInAccount(page, worker.baseURL, commissionerName, "t11r3b-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3B Reveal", "t11r3b-password");
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const ticketOwnerContext = await browser.newContext(); const ticketOwner = await ticketOwnerContext.newPage();
   const viewerContext = await browser.newContext(); const viewer = await viewerContext.newPage();
@@ -488,7 +488,7 @@ test("commissioner corrections require reasons, preserve every result version, a
   await worker.resetAuthLimiter();
   await signInAccount(page, worker.baseURL, "T11R5 Commissioner", "t11r5-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R5 Corrections", "t11r5-password");
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   await reseedUpcomingEvent(page);
   await placeAwaySpreadWager(page, worker.baseURL, slug);
@@ -565,7 +565,7 @@ test("activity stays immutable and presents only the current settlement without 
   await worker.resetAuthLimiter();
   await signInAccount(page, worker.baseURL, commissionerName, "t11r3c-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3C Activity", "t11r3c-password");
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {
@@ -617,7 +617,7 @@ test("fixture close archives the season for members with append-only commissione
   await worker.resetAuthLimiter();
   await signInAccount(page, worker.baseURL, commissionerName, "t11r3d-commissioner@example.test");
   await createPool(page, worker.baseURL, slug, "T11R3D Archive", "t11r3d-password");
-  await openSeason(page, worker.baseURL, slug, "2026");
+  await openSeason(page, "2026");
   await issueShares(page, worker.baseURL, slug, "3");
   const memberContext = await browser.newContext(); const member = await memberContext.newPage();
   try {

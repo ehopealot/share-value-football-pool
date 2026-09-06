@@ -52,19 +52,9 @@ export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedO
   return { amount: (parseIntegerText(wager.riskMicros) / MICROS_PER_UNIT).toString(), ...(wager.acceptedOdds === undefined ? {} : { odds: formatAmericanOdds(wager.acceptedOdds) }) };
 }
 
-/** Only settled wins and losses color the selected text; open and refunded tickets stay neutral. */
-export function activitySelectedOutcomeClass(wager: WagerOutcome): string {
-  return terminalOutcome(wager) === "won" ? "activity-picked-won" : terminalOutcome(wager) === "lost" ? "activity-picked-lost" : "";
-}
-
 /** Keeps settled leg grades visually consistent across Activity and My Bets. */
 export function activityLegGradeClass(grade: string | undefined): string {
   return grade === "win" ? "activity-leg-win" : grade === "loss" ? "activity-leg-loss" : grade === "push" ? "activity-leg-push" : "activity-leg-neutral";
-}
-
-/** The available feed has kickoff, but no live/finished game-state signal. */
-export function activityLegTimingClass(leg: Pick<Leg, "eventStartsAt">, now = Date.now()): string {
-  return Date.parse(leg.eventStartsAt) > now ? "activity-wager-not-started" : "";
 }
 
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";

@@ -56,8 +56,6 @@ export function CommissionerNotice({ notice }: { notice: string }) {
 
 type LayoutProps = {
   children: React.ReactNode;
-  /** @deprecated Layout derives authentication from the server session. */
-  signedIn?: boolean;
 };
 export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate(); const { slug } = useParams();

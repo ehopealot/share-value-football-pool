@@ -1,6 +1,6 @@
 import { offerIsStale } from "../odds/ingestion";
 import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
-import { CANONICAL_BOOK_POLICY_VERSION, type MarketName, type ProviderEvent } from "../odds/types";
+import { CANONICAL_BOOK_POLICY_VERSION, type MarketName } from "../odds/types";
 import type { PoolCommand } from "../durable/pool-commands";
 import { SHARE_POOL_RULESET_ID, TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
 import { adjustTeaserLine } from "../domain/grading";
@@ -16,7 +16,6 @@ export class QuoteLineChangedError extends Error {
   constructor() { super("LINE_CHANGED"); }
 }
 
-export type OfferQuote = { eventId: string; market: MarketName; canonicalBook: string; retrievedAt: string; offerVersion: string; payload: unknown };
 type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" | "PlaceParlayWager" }>;
 type PlacementLeg = Extract<PoolCommand, { type: "PlaceStraightWager" }>['leg'] | Extract<PoolCommand, { type: "PlaceTeaserWager" | "PlaceParlayWager" }>['legs'][number];
 type OfferRow = Record<"league" | "home_team" | "away_team" | "starts_at" | "status" | "canonical_book" | "retrieved_at" | "offer_version" | "payload_json", string>;
@@ -24,24 +23,6 @@ type IngestionRow = { last_success_at: string | null; last_error: string | null 
 export type StoredOutcome = { name: string; price: number; point?: number };
 export type StoredOffer = { policyVersion: typeof CANONICAL_BOOK_POLICY_VERSION; outcomes: StoredOutcome[] };
 export type StoredOfferContext = { market: MarketName; canonicalBook: string; homeTeam: string; awayTeam: string };
-
-/** Worker read boundary: D1 supplies disposable offers, never account authorization or settlement coverage. */
-export class OfferQuotes {
-  constructor(private readonly db: D1Database) {}
-  async current(event: Pick<ProviderEvent, "id" | "commenceTime" | "status" | "homeTeam" | "awayTeam">, market: MarketName, now = new Date()): Promise<OfferQuote | null> {
-    if ((event.status !== undefined && event.status !== "scheduled") || new Date(event.commenceTime) <= now) return null;
-    const [offerResult, ingestionResult] = await this.db.batch([
-      this.db.prepare("SELECT canonical_book, retrieved_at, offer_version, payload_json FROM market_offer WHERE event_id = ? AND market = ?").bind(event.id, market),
-      this.db.prepare("SELECT last_success_at, last_error FROM odds_ingestion WHERE provider = 'odds' LIMIT 1")
-    ]);
-    const row = offerResult.results[0] as Record<string, string> | undefined;
-    const ingestion = ingestionResult.results[0] as IngestionRow | undefined;
-    if (!row || offerIsStale(row.retrieved_at, now) || !ingestionCoversOffer(ingestion, row.retrieved_at)) return null;
-    try {
-      return { eventId: event.id, market, canonicalBook: row.canonical_book, retrievedAt: row.retrieved_at, offerVersion: row.offer_version, payload: decodeStoredOffer(row.payload_json, { market, canonicalBook: row.canonical_book, homeTeam: event.homeTeam, awayTeam: event.awayTeam }) };
-    } catch { return null; }
-  }
-}
 
 /** Builds a quote's accepted terms solely from the current canonical D1 offer. */
 export async function canonicalizeWagerQuote(db: D1Database, proposed: Placement, now = new Date()): Promise<Placement> {

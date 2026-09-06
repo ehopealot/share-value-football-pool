@@ -11,7 +11,7 @@ import { providerEventSnapshot } from "../../src/contracts/provider";
 import { OddsIngestion, finalReconciliationDue, offerIsStale, pollInterval, shouldPollEvent, type IngestionProvider } from "../../src/odds/ingestion";
 import { D1ResultSource } from "../../src/odds/result-source";
 import { settleWagers } from "../../src/durable/settlement";
-import { canonicalizeWagerQuote, OfferQuotes } from "../../src/worker/offer-quotes";
+import { canonicalizeWagerQuote } from "../../src/worker/offer-quotes";
 import { TheOddsApiProvider } from "../../src/odds/the-odds-api-provider";
 import type { ProviderEvent, ProviderPoll, ProviderQuota } from "../../src/odds/types";
 
@@ -358,7 +358,7 @@ describe("odds ingestion", () => {
   it("removes a disappeared market from current D1 offers", async () => {
     await new OddsIngestion(db, new Provider([event()]), { now: () => new Date("2026-09-10T00:00:00.000Z") }).poll();
     await new OddsIngestion(db, new Provider([event({ bookmakers: [] })]), { now: () => new Date("2026-09-10T00:30:00.000Z") }).poll();
-    expect(await new OfferQuotes(db).current(event(), "spread", new Date("2026-09-10T00:30:00.000Z"))).toBeNull();
+    expect(await db.prepare("SELECT event_id FROM market_offer WHERE event_id = ? AND market = 'spread'").bind("event-1").first()).toBeNull();
   });
 
   it("records outages and separates the polling and stale windows", async () => {
@@ -391,15 +391,6 @@ describe("odds ingestion", () => {
     const now = new Date("2026-09-10T00:00:00.000Z");
     expect(offerIsStale(new Date(now.getTime() - 30 * 60 * 1000).toISOString(), now)).toBe(false);
     expect(offerIsStale(new Date(now.getTime() - 30 * 60 * 1000 - 1).toISOString(), now)).toBe(true);
-  });
-
-  it("applies the fixed stale boundary to distant quote reads", async () => {
-    const at = new Date("2026-09-10T00:00:00.000Z");
-    const distant = event({ commenceTime: "2027-09-10T20:00:00.000Z" });
-    await new OddsIngestion(db, new Provider([distant]), { now: () => at }).poll();
-    const quotes = new OfferQuotes(db);
-    await expect(quotes.current(distant, "spread", new Date(at.getTime() + 29 * 60 * 1000))).resolves.not.toBeNull();
-    await expect(quotes.current(distant, "spread", new Date(at.getTime() + 30 * 60 * 1000 + 1))).resolves.toBeNull();
   });
 
   it("runs terminal reconciliation at five minutes and 24 hours when discovery is not due", async () => {
@@ -453,14 +444,11 @@ describe("odds ingestion", () => {
     const short = event({ id: "short-window", commenceTime: "2026-09-09T00:30:00.000Z" });
     const long = event({ id: "long-window", commenceTime: "2026-09-12T00:00:00.000Z" });
     await new OddsIngestion(db, new Provider([short, long]), { now: () => at }).poll();
-    const quotes = new OfferQuotes(db);
-    expect(await quotes.current(long, "spread", new Date("2026-09-09T00:06:00.000Z"))).not.toBeNull();
     const before = await db.prepare("SELECT payload_json, retrieved_at FROM market_offer WHERE event_id='long-window' AND market='spread'").first();
     const malformed: IngestionProvider = { events: async (league) => ({ events: league === "nfl" ? [{ ...short, homeTeam: "" }, long] as ProviderEvent[] : [] }) };
     await expect(new OddsIngestion(db, malformed, { now: () => new Date("2026-09-09T00:06:00.000Z") }).poll()).rejects.toThrow();
     expect(await db.prepare("SELECT payload_json, retrieved_at FROM market_offer WHERE event_id='long-window' AND market='spread'").first()).toEqual(before);
     expect(await db.prepare("SELECT last_polled_at, last_success_at, last_error FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_polled_at: "2026-09-09T00:06:00.000Z", last_success_at: "2026-09-09T00:00:00.000Z", last_error: expect.stringMatching(/^Malformed provider response:/) });
-    expect(await quotes.current(long, "spread", new Date("2026-09-09T00:06:00.000Z"))).toBeNull();
   });
 
   it("precomputes every mixed poll and preserves all last-good bytes on semantic failure", async () => {
@@ -480,7 +468,6 @@ describe("odds ingestion", () => {
     expect((await db.prepare("SELECT * FROM market_offer ORDER BY event_id, market").all()).results).toEqual(beforeOffers);
     expect(await db.prepare("SELECT canonical_book_availability_json, last_success_at FROM odds_ingestion WHERE provider='odds'").first()).toEqual(beforeFeed);
     expect(await db.prepare("SELECT last_polled_at, last_error FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_polled_at: "2026-09-09T06:01:00.000Z", last_error: "Duplicate configured bookmaker: DraftKings" });
-    expect(await new OfferQuotes(db).current(firstNfl, "spread", new Date("2026-09-09T06:01:00.000Z"))).toBeNull();
   });
 
   it("atomically replaces a multi-league poll and preserves only bounded failure health on a mid-batch error", async () => {
@@ -735,7 +722,7 @@ describe("odds ingestion", () => {
     await new OddsIngestion(db, first, { now: () => new Date("2026-09-04T00:00:00.000Z") }).poll();
     const omission = new Provider([event({ id: "kept" })]);
     await new OddsIngestion(db, omission, { now: () => new Date("2026-09-04T06:01:00.000Z") }).poll();
-    expect(await new OfferQuotes(db).current(event({ id: "omitted" }), "spread", new Date("2026-09-04T06:01:00.000Z"))).toBeNull();
+    expect(await db.prepare("SELECT event_id FROM market_offer WHERE event_id = ?").bind("omitted").first()).toBeNull();
     expect(await db.prepare("SELECT status, home_score, away_score, omitted_at FROM sports_event WHERE provider_event_id='omitted'").first()).toMatchObject({ status: "in_progress", omitted_at: "2026-09-04T06:01:00.000Z" });
     omission.calls.length = 0;
     await new OddsIngestion(db, omission, { now: () => new Date("2026-09-04T06:03:00.000Z") }).poll();

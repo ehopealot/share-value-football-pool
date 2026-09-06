@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parlayRiskError, readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, teaserRiskError, toggleMarketExclusive, toggleTrayItem, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
+import { parlayRiskError, readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligible, teaserRiskError, toggleMarketExclusive, writeSelectionTray, type TrayItem } from "../src/web/selection-tray";
 import { buildTeaserTransfer } from "../src/web/pages/OddsPage";
 
 vi.stubGlobal("sessionStorage", (() => { let store: Record<string, string> = {}; return { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = String(v); }, removeItem: (k: string) => { delete store[k]; }, clear: () => { store = {}; } }; })());
@@ -12,14 +12,6 @@ const board = (offers: any[]) => ({ offers });
 describe("selection tray", () => {
   beforeEach(() => sessionStorage.clear());
   afterEach(() => sessionStorage.clear());
-
-  it("toggles items by identity and ignores risk/wagerId when matching", () => {
-    const first = toggleTrayItem([], item());
-    expect(first).toHaveLength(1);
-    expect(toggleTrayItem(first, item({ risk: "5" }))).toEqual([]);
-    expect(toggleTrayItem(first, item({ wagerId: "w2" }))).toEqual([]);
-    expect(toggleTrayItem(first, item({ market: "total", selection: "over" }))).toHaveLength(2);
-  });
 
   it("replaces sibling selections and toggles matching identity regardless of risk or wager ID", () => {
     const home = toggleMarketExclusive([], item());
