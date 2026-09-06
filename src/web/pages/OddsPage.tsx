@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage } from "../api";
+import { api, ApiError, buildStraightPlacement, commandOutcome, errorMessage, sideExposureLimitMessage } from "../api";
 import { vigFreeMoneylinePrice } from "../../odds/market-semantics";
 import { Layout } from "../components/Layout";
 import { SelectedLegDisplay } from "../components/SelectedLegDisplay";
@@ -31,7 +31,7 @@ const samePickIds = (left: string[], right: string[]) => left.length === right.l
 export const oddsBoardTablePropsAreEqual = (previous: OddsBoardTableProps, next: OddsBoardTableProps) => previous.games === next.games && previous.currentWeek === next.currentWeek && previous.selectionDisabled === next.selectionDisabled && previous.onToggle === next.onToggle && samePickIds(previous.selectedPickIds, next.selectedPickIds);
 export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek, selectedPickIds, selectionDisabled = false, onToggle }: OddsBoardTableProps) {
   const selected = new Set(selectedPickIds);
-  return <section className="table-ribbon-section"><h2 className="table-ribbon">Current odds</h2><div className="table-scroll" tabIndex={0}><table className="odds-board"><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
+  return <section className="table-ribbon-section"><h2 className="table-ribbon">Current odds</h2><div className="table-scroll" tabIndex={0}><table aria-label="Current odds" className="odds-board"><thead><tr><th scope="col">Start</th><th scope="col">Matchup</th><th scope="col">Spread</th><th scope="col">Total</th><th scope="col">Moneyline</th></tr></thead><tbody>{games.flatMap((game) => {
     const top: Array<MarketCell | undefined> = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away];
     const bottom: Array<MarketCell | undefined> = [game.markets.spread.home, game.markets.total.under, game.markets.moneyline.home];
     const cell = (option: MarketCell | undefined, index: number) => {
@@ -115,11 +115,11 @@ export function straightQuoteRequest(semantic: { pick: BoardPick; risk: string; 
 
 /** Batch item failures name the reason and keep the item retryable after its safe automatic status replays. */
 export const failureReason = (error: unknown, phase: "quote" | "place", maxSideBetMicros?: string): string =>
-  error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / MICROS_PER_UNIT).toString()} shares.`
+  sideExposureLimitMessage(error) ?? (error instanceof ApiError && error.code === "SIDE_BET_LIMIT" && maxSideBetMicros ? `Max bet: ${(BigInt(maxSideBetMicros) / MICROS_PER_UNIT).toString()} shares.`
     : commandOutcome(error) === "stale" ? "Line changed."
       : commandOutcome(error) === "retryable" && phase === "place" ? "Placement result unknown."
         : commandOutcome(error) === "retryable" ? "Odds unavailable."
-          : errorMessage(error);
+          : errorMessage(error));
 
 type FailedEntry = { label: string; reason: string };
 type ReviewEntry = { item: TrayItem; pick: BoardPick; quote: any; mutationKey: string; label: string };
