@@ -63,7 +63,8 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
       <section className="table-ribbon-section"><h2 className="table-ribbon">Season stats</h2><div className="table-scroll" tabIndex={0}><table><tbody>
         <tr><th scope="row">Season record</th><td>{formatPickRecord(pickRecord(seasonWagers))}</td></tr>
         <tr><th scope="row">Straight</th><td>{recordOf(["straight"])}</td></tr>
-        <tr><th scope="row">Teasers and Parlays</th><td>{recordOf(["teaser", "parlay"])}</td></tr>
+        <tr><th scope="row">Teasers</th><td>{recordOf(["teaser"])}</td></tr>
+        <tr><th scope="row">Parlays</th><td>{recordOf(["parlay"])}</td></tr>
         <tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>
       </tbody></table></div><p className="profile-record-note">Each bet counts as one pick.</p></section>
       <section><h2>Bets</h2>
