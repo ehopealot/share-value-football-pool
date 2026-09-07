@@ -647,6 +647,8 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
   await expect(openBets.locator("tbody tr").filter({ hasText: /Local Away.*Local Home/ })).toHaveCount(2);
+  console.log("DEBUG-OPEN-BETS-ROWS", JSON.stringify(await openBets.locator("tbody tr").allInnerTexts()));
+  console.log("DEBUG-TZ", JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, now: new Date().toISOString() }));
   await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.83/ })).toBeVisible();
 });
 
