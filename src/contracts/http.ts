@@ -19,7 +19,7 @@ export const createPoolRequest = z.object({
 export const joinPoolRequest = z.object({ displayName: z.string().trim().min(1).max(100).optional(), password, idempotencyKey, turnstileToken });
 export const updateMemberNicknameRequest = z.object({ displayName: z.string().trim().min(1).max(100), idempotencyKey });
 const commissionerNotice = z.string().trim().min(1).max(500);
-const commissionerRules = z.string().trim().min(1).max(4000);
+const commissionerRules = z.string().trim().min(1).max(20000);
 export const updatePoolSettingsRequest = z.object({ poolName: z.string().trim().min(1).max(100).optional(), password: password.optional(), signupsOpen: z.boolean().optional(), maxSideBet: z.string().regex(/^[1-9]\d*$/).optional(), commissionerNotice: commissionerNotice.nullable().optional(), commissionerRules: commissionerRules.nullable().optional(), idempotencyKey }).strict().refine((body) => body.poolName !== undefined || body.password !== undefined || body.signupsOpen !== undefined || body.maxSideBet !== undefined || body.commissionerNotice !== undefined || body.commissionerRules !== undefined, "At least one setting is required.");
 export const createSeasonRequest = z.object({ seasonId: z.string().min(1).max(128), label: z.string().trim().min(1).max(100), defaultOrder: z.object({ mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/) }).optional(), idempotencyKey });
 /** `reason` is a deprecated no-op retained for parse compatibility; active OpenSeason and ConfirmSuperBowl routes ignore it. */

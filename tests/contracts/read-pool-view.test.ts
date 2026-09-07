@@ -41,7 +41,7 @@ describe("ReadPoolView", () => {
     for (const body of [
       { commissionerRules: "", idempotencyKey: "blank-rules" },
       { commissionerRules: "   ", idempotencyKey: "whitespace-rules" },
-      { commissionerRules: "x".repeat(4001), idempotencyKey: "overlong-rules" },
+      { commissionerRules: "x".repeat(20001), idempotencyKey: "overlong-rules" },
       { commissionerRules: "Rules", idempotencyKey: "unknown-rules", unexpected: true }
     ]) expect(updatePoolSettingsRequest.safeParse(body).success).toBe(false);
   });
