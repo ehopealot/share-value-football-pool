@@ -65,7 +65,7 @@ describe("commissioner banner notice", () => {
     expect(settings()).toContain('id="commissioner-rules"');
     expect(settings()).toContain('id="commissioner-rules-help"');
     expect(settings()).toContain("These appear on the Rules page when filled in.");
-    expect(settings()).toContain("maxLength={4000}");
+    expect(settings()).toContain("maxLength={20000}");
     expect(settings()).toContain('setCommissionerRules(value.pool.commissionerRules ?? "")');
     expect(settings()).toContain("Save rules");
     expect(settings()).toContain("Clear rules");
