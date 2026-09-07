@@ -245,7 +245,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
           : { type: "PlaceParlayWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, rulesetVersion: data.rulesetVersion, legs: data.legs };
       const replay = await router.send(slug, { type: "ProbePlacementReplay", commandId: crypto.randomUUID(), actorId: user.id, placement: command });
       if (replay.replayed === true) return c.json(replay.response);
-      if (kind === "teasers" && data.legs.length > 6) return jsonError(c, "INVALID_REQUEST");
       return c.json(await router.send(slug, command));
     }
     const semantic = kind === "straight"
@@ -256,7 +255,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const fingerprint = quoteRequestFingerprint(semantic);
     try { return c.json(await router.send(slug, { type: "ReplayWagerQuote", commandId: data.quoteKey, actorId: user.id, identity: { actorId: user.id, quoteKey: data.quoteKey, fingerprint } })); }
     catch (error) { if (!(error instanceof Error) || error.message !== "QUOTE_NOT_FOUND") throw error; }
-    if (kind === "teasers" && data.legs.length > 6) return jsonError(c, "INVALID_REQUEST");
     const common = { commandId: "quote-seed", actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: "0", seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: 100, rulesetVersion: data.rulesetVersion };
     const seed = kind === "straight" ? { ...common, type: "PlaceStraightWager" as const, leg: data.leg }
       : kind === "teasers" ? { ...common, type: "PlaceTeaserWager" as const, teaserPoints: data.teaserPoints, legs: data.legs }

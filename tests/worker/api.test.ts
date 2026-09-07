@@ -716,16 +716,16 @@ describe("later wager and member HTTP API", () => {
     expect(await quote.json()).toEqual({ code: "POOL_UNAVAILABLE" });
   });
 
-  it("replays stored seven-leg teaser bytes before offer reads and rejects fresh seven-leg keys without mutation", async () => {
+  it("replays stored six-leg teaser bytes before offer reads and rejects fresh seven-leg envelopes at parse", async () => {
     const poolId = `legacy-seven-${crypto.randomUUID()}`; const slug = `legacy-seven-${crypto.randomUUID()}`;
     await setupPool(poolId, slug);
     const teaserLeg = (index: number) => ({ eventId: `legacy-${index}`, league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: `legacy-${index}:spread:home`, eventId: `legacy-${index}`, offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: 3, originalOdds: -110, eventStartsAt: "2099-01-01T00:00:00.000Z", homeTeam: "Home", awayTeam: "Away" });
-    const legs = Array.from({ length: 7 }, (_, index) => teaserLeg(index));
+    const legs = Array.from({ length: 6 }, (_, index) => teaserLeg(index));
     const semanticLegs = legs.map((leg) => ({ eventId: leg.eventId, canonicalBook: leg.canonicalBook, market: leg.market, selection: leg.selection, offerId: leg.canonicalOfferProof.offerId, offerVersion: leg.offerVersion }));
     const quoteBody = { quoteKey: "legacy-seven-quote", commandId: "legacy-seven-quote", wagerId: "legacy-seven", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: semanticLegs };
     const fingerprint = JSON.stringify({ wagerId: quoteBody.wagerId, seasonId: quoteBody.seasonId, riskMicros: quoteBody.riskMicros, teaserPoints: quoteBody.teaserPoints, rulesetVersion: quoteBody.rulesetVersion, legs: quoteBody.legs, actorId: "member" });
-    const snapshot = { quoteKey: quoteBody.quoteKey, seasonId: "s1", ownerMemberId: "member", riskMicros: "1000000", acceptedOdds: 700, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs, commandVersion: "5" };
-    const placementBody = { wagerId: "legacy-seven", quoteKey: quoteBody.quoteKey, quotedCommandVersion: "5", mutationKey: "legacy-seven-place", commandId: "legacy-seven-place", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 700, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs };
+    const snapshot = { quoteKey: quoteBody.quoteKey, seasonId: "s1", ownerMemberId: "member", riskMicros: "1000000", acceptedOdds: 595, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs, commandVersion: "5" };
+    const placementBody = { wagerId: "legacy-seven", quoteKey: quoteBody.quoteKey, quotedCommandVersion: "5", mutationKey: "legacy-seven-place", commandId: "legacy-seven-place", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 595, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs };
     const placementCommand = { type: "PlaceTeaserWager", commandId: placementBody.commandId, actorId: "member", wagerId: placementBody.wagerId, quoteKey: placementBody.quoteKey, quotedCommandVersion: placementBody.quotedCommandVersion, seasonId: placementBody.seasonId, riskMicros: placementBody.riskMicros, acceptedOdds: placementBody.acceptedOdds, teaserPoints: placementBody.teaserPoints, rulesetVersion: placementBody.rulesetVersion, legs: placementBody.legs };
     const placementResponse = { wagerId: "legacy-seven", commandVersion: "6" };
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => {
@@ -754,8 +754,16 @@ describe("later wager and member HTTP API", () => {
     expect(replayCommands).toEqual(["ReplayWagerQuote", "ProbePlacementReplay"]);
     const durableSnapshot = () => runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote ORDER BY rowid")], commands: [...state.storage.sql.exec("SELECT * FROM processed_command ORDER BY rowid")], wagers: [...state.storage.sql.exec("SELECT * FROM wager ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")], accounts: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")] }));
     const before = await durableSnapshot();
-    expect((await app.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, { ...quoteBody, quoteKey: "fresh-seven", commandId: "fresh-seven" }))).status).toBe(400);
-    expect((await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, { ...placementBody, quoteKey: "fresh-seven", commandId: "fresh-seven-place", mutationKey: "fresh-seven-place" }))).status).toBe(400);
+    const dispatched = replayCommands.length;
+    const seventhLeg = { ...semanticLegs[0]!, eventId: "legacy-6", offerId: "legacy-6:spread:home" };
+    const sevenLegQuote = await app.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, { ...quoteBody, quoteKey: "fresh-seven", commandId: "fresh-seven", legs: [...semanticLegs, seventhLeg] }));
+    expect(sevenLegQuote.status).toBe(400);
+    expect(await sevenLegQuote.json()).toEqual({ code: "INVALID_REQUEST" });
+    const sevenLegPlace = await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, { ...placementBody, quoteKey: "fresh-seven", commandId: "fresh-seven-place", mutationKey: "fresh-seven-place", legs: [...legs, { ...legs[0]!, eventId: "legacy-6", canonicalOfferProof: { ...legs[0]!.canonicalOfferProof, eventId: "legacy-6", offerId: "legacy-6:spread:home" } }] }));
+    expect(sevenLegPlace.status).toBe(400);
+    expect(await sevenLegPlace.json()).toEqual({ code: "INVALID_REQUEST" });
+    // Seven legs fail contract parsing before any durable dispatch or offer read.
+    expect(replayCommands.length).toBe(dispatched);
     expect(await durableSnapshot()).toBe(before);
   }, 90_000);
 

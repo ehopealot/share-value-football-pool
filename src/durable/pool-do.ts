@@ -254,7 +254,6 @@ export class PoolDO {
       }
       const commandVersion = String(pool.command_version);
       if (command.type === "QuoteTeaserWager") {
-        if (command.projection.legs.length > 6) throw new Error("INVALID_QUOTE");
         try {
           validateTeaser(command.projection.legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine } as TeaserLeg)), command.projection.teaserPoints);
         } catch {
@@ -269,7 +268,6 @@ export class PoolDO {
       return snapshot;
     }
     if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager" || command.type === "PlaceParlayWager") {
-      if (command.type === "PlaceTeaserWager" && command.legs.length > 6) throw new Error("INVALID_WAGER_LEG");
       const quote = first(sql, "SELECT wager_id, kind, terms_json, command_version FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.quoteKey);
       if (!quote) throw new Error("LINE_CHANGED");
       const kind = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";

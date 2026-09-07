@@ -179,37 +179,4 @@ describe("parlay quote contracts", () => {
     ]) expect(() => parlayWagerPlacementRequest.parse({ ...browserPlacement, ...protectedFields })).toThrow();
   });
 
-  it("continues to parse seven-leg teaser envelopes for legacy replay", () => {
-    const semanticLegs = Array.from({ length: 7 }, (_, index) => ({
-      eventId: `legacy-${index}`,
-      canonicalBook: "DraftKings",
-      market: "spread" as const,
-      selection: "home" as const,
-      offerId: `legacy-${index}:spread:home`,
-      offerVersion: "offer-1"
-    }));
-    expect(teaserWagerQuoteRequest.parse({
-      quoteKey: "legacy-quote",
-      commandId: "legacy-quote",
-      wagerId: "legacy-wager",
-      seasonId: "season-1",
-      riskMicros: "1000000",
-      teaserPoints: 6,
-      rulesetVersion: "SHARE_POOL_2026_V1",
-      legs: semanticLegs
-    }).legs).toHaveLength(7);
-
-    const snapshotLegs = semanticLegs.map((leg) => fullLeg({
-      eventId: leg.eventId,
-      canonicalOfferProof: { offerId: leg.offerId, eventId: leg.eventId, offerVersion: leg.offerVersion, canonicalBook: leg.canonicalBook, market: "spread", selection: "home", odds: -110, line: -3 },
-      market: "spread",
-      selection: "home",
-      originalLine: -3,
-      adjustedLine: 3,
-      originalOdds: -110
-    }));
-    const legacySnapshot = { quoteKey: "legacy-quote", seasonId: "season-1", ownerMemberId: "member-1", riskMicros: "1000000", acceptedOdds: 800, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", commandVersion: "12", legs: snapshotLegs };
-    expect(teaserWagerQuoteSnapshot.parse(legacySnapshot).legs).toHaveLength(7);
-    expect(teaserWagerPlacementRequest.parse({ wagerId: "legacy-wager", quoteKey: legacySnapshot.quoteKey, quotedCommandVersion: legacySnapshot.commandVersion, mutationKey: "legacy-place", commandId: "legacy-place", seasonId: legacySnapshot.seasonId, riskMicros: legacySnapshot.riskMicros, acceptedOdds: legacySnapshot.acceptedOdds, teaserPoints: legacySnapshot.teaserPoints, rulesetVersion: legacySnapshot.rulesetVersion, legs: legacySnapshot.legs }).legs).toHaveLength(7);
-  });
 });

@@ -23,18 +23,19 @@ describe("straight and teaser grading", () => {
     expect(adjustTeaserLine({ market: "total", selection: "under", line: 47 }, 6)).toBe(53);
   });
 
-  it("pins the complete immutable teaser payout matrix and shared ruleset identity", () => {
+  it("pins the complete immutable teaser payout matrix and versioned ruleset identity", () => {
     const points = [6, 6.5, 7, 7.5, 10] as const;
-    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6]);
     expect(TEASER_POINT_OPTIONS).toEqual([6, 6.5, 7, 7.5, 10]);
-    expect([2, 3, 4, 5, 6, 7].map((legs) => points.map((adjustment) => teaserOdds(legs, adjustment)))).toEqual([
-      [-120, -130, -140, -160, undefined],
-      [150, 135, 120, 105, -120],
-      [235, 215, 200, 140, undefined],
-      [350, 320, 300, 235, undefined],
-      [550, 500, 475, 325, undefined],
-      [800, 700, 600, 445, undefined]
+    expect(TEASER_LEG_COUNTS.map((legs) => points.map((adjustment) => teaserOdds(legs, adjustment)))).toEqual([
+      [-110, -120, -130, -150, undefined],
+      [165, 150, 135, 105, -110],
+      [265, 235, 215, 140, undefined],
+      [405, 350, 320, 235, undefined],
+      [595, 550, 500, 325, undefined]
     ]);
+    // Seven legs exist only on the retired card and can no longer be placed.
+    expect(teaserOdds(7, 6)).toBeUndefined();
     expect(SHARE_POOL_RULESET_ID).toBe("SHARE_POOL_2026_V1");
     expect(TEASER_RULESET_ID).toBe(SHARE_POOL_RULESET_ID);
   });
@@ -52,12 +53,12 @@ describe("straight and teaser grading", () => {
     expect(() => ((TEASER_PAYOUT_MATRIX as Record<number, Record<number, number>>)[3][10] = 999)).toThrow(TypeError);
 
     expect(TEASER_POINT_OPTIONS).toEqual([6, 6.5, 7, 7.5, 10]);
-    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6, 7]);
-    expect(teaserOdds(3, 10)).toBe(-120);
+    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6]);
+    expect(teaserOdds(3, 10)).toBe(-110);
   });
 
   it("enforces fixed table and leg exclusion rules", () => {
-    expect(teaserOdds(3, 10)).toBe(-120);
+    expect(teaserOdds(3, 10)).toBe(-110);
     expect(teaserOdds(2, 10)).toBeUndefined();
     expect(teaserSelectionConflict([side("home", -3)], side("home", -3))).toBe("duplicate");
     expect(teaserSelectionConflict([side("home", -3)], side("away", 3))).toBe("opposing");
@@ -81,11 +82,13 @@ describe("straight and teaser grading", () => {
   });
 
   it("uses loss precedence, reprices valid winners, and refunds insufficient remainders", () => {
-    expect(gradeTeaser(["win", "push", "win"], 6)).toEqual({ outcome: "win", odds: -120, winningLegs: 2 });
+    expect(gradeTeaser(["win", "push", "win"], 6)).toEqual({ outcome: "win", odds: -110, winningLegs: 2 });
     expect(gradeTeaser(["win", "push", "win"], 10)).toEqual({ outcome: "refund", winningLegs: 2 });
     expect(gradeTeaser(["win", "loss", "void"], 10)).toEqual({ outcome: "loss", winningLegs: 1 });
     expect(gradeTeaser(["loss", "pending"], 6)).toEqual({ outcome: "loss", winningLegs: 0 });
     expect(() => gradeTeaser(["win", "pending"], 6)).toThrow(/pending/i);
     expect(gradeTeaser(["void", "push"], 6)).toEqual({ outcome: "refund", winningLegs: 0 });
+    // A winning seven-leg remainder has no price on the six-leg card and refunds.
+    expect(gradeTeaser(Array.from({ length: 7 }, () => "win" as const), 6)).toEqual({ outcome: "refund", winningLegs: 7 });
   });
 });
