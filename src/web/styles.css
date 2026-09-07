@@ -116,6 +116,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 /* Mobile standings stay more spacious than the Activity / My Bets tables. */
 @media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }
 .corrections-page td { overflow-wrap: anywhere; vertical-align: top; }
+.corrections-page .activity-leg-push { color: var(--ink); }
 .correction-wager-meta, .correction-wager-id, .correction-wager-leg > small { display: block; }
 .correction-wager-summary { min-width: 12rem; }
 .correction-wager-leg + .correction-wager-leg { margin-top: 0.35rem; }

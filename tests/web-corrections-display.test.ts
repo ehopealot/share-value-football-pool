@@ -69,6 +69,13 @@ describe("correction wager identification", () => {
     expect(html).toContain('class="activity-leg-push"');
   });
 
+  it("shows tied/pushed legs in black with only the selection bolded", () => {
+    const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
+    const html = render([wager({ status: "refunded", legs: [{ ...leg, grade: "push" }] })]);
+    expect(html).toContain('<span class="activity-leg-push"><strong>Texas (-7.5)</strong><span> at Alabama</span></span>');
+    expect(css).toContain(".corrections-page .activity-leg-push { color: var(--ink); }");
+  });
+
   it("renders moneylines without inventing a spread and orders multi-leg kickoffs", () => {
     const html = render([wager({ type: "parlay", legs: [
       { ...leg, eventId: "later", eventStartsAt: "2030-09-08T20:00:00.000Z", market: "moneyline", selection: "home", originalLine: undefined },
