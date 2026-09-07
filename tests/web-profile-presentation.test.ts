@@ -51,5 +51,7 @@ describe("profile presentation", () => {
     expect(split.inProcess.map((wager) => wager.status)).toEqual(["open"]);
     expect(split.inProcess[0]?.legs).toHaveLength(2);
     expect(split.settled.map((wager) => wager.status)).toEqual(["won", "lost", "refunded"]);
+    // Unstarted tickets stay hidden but remain countable for the week notice.
+    expect(split.unstarted.map((wager) => wager.type)).toEqual(["straight", "parlay"]);
   });
 });

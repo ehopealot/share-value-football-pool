@@ -39,7 +39,7 @@ export function MemberProfilePage() {
   const weeks = profileWeekOptions(seasonWagers.map((wager) => wager.weekStart), now);
   const currentWeek = weekStartOf(now).toISOString();
   const week = weeks.includes(selectedWeek) ? selectedWeek : weeks.includes(currentWeek) ? currentWeek : weeks[0];
-  const { inProcess, settled } = splitProfileWeekWagers(week ? seasonWagers.filter((wager) => wager.weekStart === week) : [], now);
+  const { inProcess, settled, unstarted } = splitProfileWeekWagers(week ? seasonWagers.filter((wager) => wager.weekStart === week) : [], now);
   const typeRecord = (type: Wager["type"]) => formatPickRecord(pickRecord(seasonWagers.filter((wager) => wager.type === type)));
 
   return <Layout><div className="member-profile-page">
@@ -58,7 +58,7 @@ export function MemberProfilePage() {
         {inProcess.length + settled.length > 0 ? <>
           {inProcess.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, inProcess)} title="In process"/>}
           {settled.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, settled)} title="Settled"/>}
-        </> : <p className="state-notice">No bets this week.</p>}
+        </> : unstarted.length > 0 ? <p className="state-notice">Selections not visible yet.</p> : <p className="state-notice">No bets this week.</p>}
       </> : <p className="state-notice">No bets yet this season.</p>}</section>
     </> : <p className="state-notice">No active season. Member profiles cover the active season.</p>}
     <p><Link to={`/p/${slug}/standings`}>Standings</Link> · <Link to={`/p/${slug}/overview`}>Pool home</Link></p>

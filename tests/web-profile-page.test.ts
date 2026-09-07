@@ -30,10 +30,11 @@ describe("member profile page", () => {
     expect(page).toContain('<tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>');
   });
 
-  it("defaults the week selector to the current week and announces empty weeks", () => {
+  it("defaults the week selector to the current week and announces empty and hidden weeks", () => {
     expect(page).toContain("profileWeekOptions(");
     expect(page).toContain("weeks.includes(selectedWeek) ? selectedWeek : weeks.includes(currentWeek) ? currentWeek : weeks[0]");
     expect(page).toContain("weekNumberLabel(start)");
+    expect(page).toContain("unstarted.length > 0 ? <p className=\"state-notice\">Selections not visible yet.</p>");
     expect(page).toContain("No bets this week.");
   });
 

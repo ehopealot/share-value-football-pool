@@ -6,7 +6,7 @@ Date: 2026-09-06 · Operator request: per-member profile pages linked from the s
 
 1. Every member display name on **Standings**, **Activity**, and the **Message board** links to that member's profile page.
 2. The profile shows season stats, plus the selected week's in-process and settled bets. Unstarted tickets stay hidden (kickoff privacy is unchanged).
-3. A week selector lists every season week (Week 1 through the current Eastern week, plus any week carrying the member's bets), defaulting to the current week. Weeks without displayable bets show "No bets this week."
+3. A week selector lists every season week (Week 1 through the current Eastern week, plus any week carrying the member's bets), defaulting to the current week. Weeks without displayable bets show "No bets this week."; weeks whose only tickets are unstarted show "Selections not visible yet."
 
 ## Non-goals
 
@@ -32,7 +32,7 @@ Each settled ticket counts as one pick regardless of leg count (multis = one pic
 - Week identity reuses the shared Tuesday–Monday Eastern `weekStartOf` domain.
 - A wager is displayed for a week when it is settled (`status !== "open"`) or has at least one leg with `eventStartsAt <= now`. Open tickets with no started legs are omitted for every viewer, including the owner (owners still have My Bets).
 - Displayed wagers render in two sections — "In process" and "Settled" — reusing the Activity member-section table (start times, graded legs, stake, P&L) with section ribbons in place of the member name.
-- Empty week (or a week with only hidden tickets): "No bets this week."
+- Empty week: "No bets this week." A week carrying only unstarted tickets shows "Selections not visible yet." (bet existence is already public on Activity).
 
 ## Links
 
@@ -47,5 +47,5 @@ Table-first, square borders, no new visual vocabulary: stats use the existing `t
 ## Testing
 
 - `tests/web-profile-presentation.test.ts`: behavior tests for records (multis = one pick, refunds), week option generation (all season weeks + bet weeks, descending), week split (unstarted omitted, partially started kept, settled kept), and P&L sums.
-- `tests/web-profile-page.test.ts`: source/behavior coverage for the route, week selector defaulting to the current week, stats table, sections, and the "No bets this week." state.
+- `tests/web-profile-page.test.ts`: source/behavior coverage for the route, week selector defaulting to the current week, stats table, sections, and the week notice states.
 - Update `tests/web-activity-page.test.ts` for the generalized ribbon. CI runs the unit suite and typecheck; e2e stays in CI only.

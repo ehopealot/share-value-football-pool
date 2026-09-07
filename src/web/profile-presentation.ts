@@ -42,15 +42,17 @@ export function profileWeekOptions(betWeeks: Iterable<string>, now: Date): strin
   return [...weeks].sort().reverse();
 }
 
-export type ProfileWeekWagers = { inProcess: Wager[]; settled: Wager[] };
+export type ProfileWeekWagers = { inProcess: Wager[]; settled: Wager[]; unstarted: Wager[] };
 
 /** Unstarted tickets stay off profile pages for every viewer; the owner keeps My Bets. */
 export function splitProfileWeekWagers(wagers: Wager[], now: Date): ProfileWeekWagers {
   const inProcess: Wager[] = [];
   const settled: Wager[] = [];
+  const unstarted: Wager[] = [];
   for (const wager of wagers) {
     if (wager.status !== "open") settled.push(wager);
     else if ((wager.legs ?? []).some((leg) => Date.parse(leg.eventStartsAt) <= now.getTime())) inProcess.push(wager);
+    else unstarted.push(wager);
   }
-  return { inProcess, settled };
+  return { inProcess, settled, unstarted };
 }
