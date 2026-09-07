@@ -115,6 +115,13 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .main-content:has(.standings-page) { max-width: none; }
 /* Mobile standings stay more spacious than the Activity / My Bets tables. */
 @media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }
+.corrections-page td { overflow-wrap: anywhere; vertical-align: top; }
+.corrections-page .activity-leg-push { color: var(--ink); }
+.correction-wager-meta, .correction-wager-id, .correction-wager-leg > small { display: block; }
+.correction-wager-summary { min-width: 12rem; }
+.correction-wager-leg + .correction-wager-leg { margin-top: 0.35rem; }
+.correction-wager-id { margin-top: 0.35rem; }
+@media (max-width: 600px) { .corrections-page table { font-size: 0.875rem; } .corrections-page th, .corrections-page td { padding: 0.35rem; } .corrections-page .table-scroll button { font-size: inherit; padding: 0.35rem; white-space: normal; } }
 .admin-member-email { white-space: nowrap; }
 .admin-members-table .admin-member-action { max-width: 7.5rem; min-height: 2.25rem; padding: 0.35rem 0.5rem; white-space: normal; line-height: 1.2; }
 @media (max-width: 600px) { .admin-members-table { font-size: 0.875rem; } .admin-members-table th, .admin-members-table td { padding: 0.35rem; } .admin-members-table .admin-member-action { min-height: 44px; } }

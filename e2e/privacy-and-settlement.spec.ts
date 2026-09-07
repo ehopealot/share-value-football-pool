@@ -498,7 +498,10 @@ test("commissioner corrections require reasons, preserve every result version, a
   await expect(page.getByRole("heading", { name: "Wager corrections" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Void with reason" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Regrade with reason" })).toBeDisabled();
-  await expect(page.getByRole("row", { name: "straight" })).not.toContainText(/Local Away|Local Home|spread|away/i);
+  const eligibleTable = page.getByRole("table", { name: "Eligible active-season wagers" });
+  // This commissioner owns the wager, so Activity's authorized terms are visible before kickoff.
+  await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("Local Away");
+  await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("Local Home");
   const exportBeforeProbe = await page.evaluate(async (poolSlug) => JSON.stringify(await (await fetch(`/api/p/${poolSlug}/export`)).json()), slug);
   expect(exportBeforeProbe).not.toContain("local-nfl-upcoming");
   for (const [idempotencyKey, eventId] of [["oracle-correct", "local-nfl-upcoming"], ["oracle-wrong", "guessed-event"]]) {
@@ -511,7 +514,7 @@ test("commissioner corrections require reasons, preserve every result version, a
 
   await page.getByLabel("Reason").fill("Refund pending official review");
   await page.getByRole("button", { name: "Void with reason" }).click();
-  await expect(page.getByRole("row", { name: "straight" })).toContainText("refunded");
+  await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("refunded");
   await settleFixtureResult(page, slug, 17, 24);
   await page.reload();
   const authorizedRow = page.getByRole("table", { name: "Eligible active-season wagers" }).locator("tbody tr").filter({ hasText: /nfl|ncaaf/ }).first();
@@ -521,17 +524,18 @@ test("commissioner corrections require reasons, preserve every result version, a
   const renderedAuthorizedResult = (homeScore: number, awayScore: number, correctionVersion: string) => ({ eventId: authorizedEventId, league: authorizedLeague, status: "final" as const, homeScore, awayScore, correctionVersion });
   expect(authorizedEventId).toBe("local-nfl-upcoming");
   expect(authorizedLeague).toBe("nfl");
-  await expect(authorizedRow).not.toContainText(/Local Away|Local Home|spread|away/i);
+  await expect(authorizedRow).toContainText("Local Away");
+  await expect(authorizedRow).toContainText("Local Home");
   await page.getByLabel("Reason").fill("Official review awarded the wager");
   const sourceDerivedCorrections = [renderedAuthorizedResult(17, 24, "official-win-v3"), renderedAuthorizedResult(24, 17, "official-loss-v4")];
   expect(sourceDerivedCorrections.map(({ eventId, league }) => ({ eventId, league }))).toEqual([{ eventId: authorizedEventId, league: authorizedLeague }, { eventId: authorizedEventId, league: authorizedLeague }]);
   await page.getByLabel("Corrected event results").fill(JSON.stringify([sourceDerivedCorrections[0]]));
   await page.getByRole("button", { name: "Regrade with reason" }).click();
-  await expect(page.getByRole("row", { name: "straight" }).first()).toContainText("won");
+  await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("won");
   await page.getByLabel("Reason").fill("Final stat correction reversed the award");
   await page.getByLabel("Corrected event results").fill(JSON.stringify([sourceDerivedCorrections[1]]));
   await page.getByRole("button", { name: "Regrade with reason" }).click();
-  await expect(page.getByRole("row", { name: "straight" }).first()).toContainText("lost");
+  await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("lost");
 
   const history = page.getByRole("region", { name: "Immutable correction history" });
   await expect(history).toContainText("Refund pending official review");
