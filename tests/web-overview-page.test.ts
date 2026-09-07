@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OverviewPage.tsx"), "utf8");
 
 describe("Overview page", () => {
+  it("omits the redundant odds board button while keeping nickname editing and main navigation", () => {
+    expect(source).not.toContain("View odds board");
+    expect(source).toContain('className="pool-nickname"');
+    const layout = readFileSync(resolve(import.meta.dirname, "../src/web/components/Layout.tsx"), "utf8");
+    expect(layout).toContain('to={`/p/${slug}/odds`}>Odds board</NavLink>');
+  });
   it("uses the three-decimal current share-value formatter for the share price", () => {
     expect(source).toContain('import { formatCurrentShareValue } from "../share-value";');
     expect(source).toContain('const price = season && BigInt(season.floatMicros) !== 0n ? formatCurrentShareValue(season.floatMicros, season.notionalValueMicros) : "$1.000";');
