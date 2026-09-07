@@ -7,7 +7,7 @@ import { outcomeForSelection, selectionForOutcome } from "../src/web/selection-m
 import { addTeaserLeg, teaserLegForOutcome, validateTeaser } from "../src/web/teaser-slip";
 import { editTeaserSemantic, recoverTeaserSemantic, retryTeaserSemantic, teaserPlacementAttemptTransition, teaserQuoteRequest, teaserRecoveryTransition, teaserTerminalTransition, teaserUnknownPlacementMessage, teaserUnresolvedPlacementTransition } from "../src/web/pages/TeaserPage";
 import { recoverStaleOrderEditor, retryReversalState } from "../src/web/pages/AdminOrdersPage";
-import { projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
+import { groupOrdersByMember, projectAdminOrders } from "../src/web/pages/admin-orders-lifecycle";
 import { PageGeneration } from "../src/web/page-generation";
 
 describe("web entry and workflow helpers", () => {
@@ -46,8 +46,23 @@ describe("web entry and workflow helpers", () => {
     const active = { id: "season", label: "2026", rulesetVersion: "SHARE_POOL_2026_V1", state: "active" as const, defaultOrderMode: "shares" as const, defaultOrderAmountMicros: "1000000", createdAt: "2030-01-01T00:00:00.000Z", openedAt: "2030-01-01T00:00:00.000Z", closedAt: null, floatMicros: "0", notionalValueMicros: "0" };
     const original = { orderId: "original", memberId: "commissioner", mode: "shares" as const, requestedMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", reversalOf: null, reason: "Issue", createdAt: "2030-01-01T00:00:00.000Z" };
     const reversal = { ...original, orderId: "reversal", sharesMicros: "-1000000", valueMicros: "-1000000", reversalOf: "original", reason: "Correction" };
-    const projection = projectAdminOrders({ ...base, activeSeason: active, nextDraftSeason: null, latestClosedSeason: null, commissioner: { seasonOrders: [{ seasonId: "season", orders: [original, reversal] }] } });
-    expect(projection.canOrder).toBe(true); expect(projection.seasons[0]?.orders).toMatchObject([{ reversalStatus: "Already reversed", reversible: false }, { reversalStatus: "Reversal record", reversible: false, reason: "Correction" }]);
+    const fresh = { ...original, orderId: "fresh" };
+    const projection = projectAdminOrders({ ...base, activeSeason: active, nextDraftSeason: null, latestClosedSeason: null, commissioner: { seasonOrders: [{ seasonId: "season", orders: [fresh, original, reversal] }] } });
+    expect(projection.canOrder).toBe(true); expect(projection.seasons[0]?.orders).toMatchObject([{ reversalStatus: "Active", reversible: true }, { reversalStatus: "Already reversed", reversible: false }, { reversalStatus: "Reversal record", reversible: false, reason: "Correction" }]);
+  });
+  it("groups commissioner orders by member with blended prices and refund-netted totals", () => {
+    const order = (memberId: string, shares: string, value: string, price: string, reversalOf: string | null = null) => ({ orderId: `${memberId}-${shares}-${reversalOf ?? "order"}`, memberId, mode: "shares" as const, requestedMicros: shares, sharesMicros: shares, valueMicros: value, priceMicros: price, reversalOf, reason: "Issue", createdAt: "2030-01-01T00:00:00.000Z" });
+    const projected = (summary: ReturnType<typeof order>, memberDisplayName: string, reversalStatus: "Active" | "Already reversed" | "Reversal record") => ({ ...summary, memberDisplayName, reversible: false, reversalStatus });
+    const groups = groupOrdersByMember([
+      projected(order("alice", "10000000", "10000000", "1000000"), "Alice", "Active"),
+      projected(order("alice", "6000000", "12000000", "2000000"), "Alice", "Active"),
+      projected(order("bob", "4000000", "6000000", "1500000"), "Bob", "Already reversed"),
+      projected(order("bob", "-4000000", "-6000000", "1500000", "bob-4000000-order"), "Bob", "Reversal record")
+    ]);
+    expect(groups).toEqual([
+      { memberId: "alice", memberDisplayName: "Alice", netSharesMicros: "16000000", netValueMicros: "22000000", blendedPriceMicros: "1375000" },
+      { memberId: "bob", memberDisplayName: "Bob", netSharesMicros: "0", netValueMicros: "0", blendedPriceMicros: "0" }
+    ]);
   });
   it("uses punctuation-preserving canonical identity for board clicks and outcome lookup", () => {
     const offer = { market: "spread" as const, homeTeam: "A-B", awayTeam: "AB", outcomes: [{ name: "A-B", price: -105, point: -2 }, { name: "AB", price: -115, point: 2 }] };

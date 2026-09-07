@@ -42,7 +42,7 @@ describe("WCAG AA interface colors", () => {
     expectRuleContrast(".nav-bar a", ".nav-bar");
     expectRuleContrast(".nav-button", ".nav-bar");
     expectRuleContrast("button");
-    expectRuleContrast("button", "button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:not(:disabled)");
+    expectRuleContrast("button", "button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):hover:not(:disabled)");
     expectRuleContrast(".primary-action");
     expectRuleContrast(".secondary-action");
     expectRuleContrast("a", ".site-shell");

@@ -76,10 +76,10 @@ describe("member profile page", () => {
   });
 
   it("renders profile-linked standings names while keeping plain names without a path", () => {
-    const linked = render(createElement(MemoryRouter, {}, createElement(StandingsTable, { standings: [{ userId: "member-1", rank: 1, displayName: "Bruin", availableMicros: "0", lockedMicros: "0", totalMicros: "0", notionalValueMicros: "0", priceMicros: "1000000", gainMicros: "0" }], memberProfilePath: (userId) => `/p/demo-pool/member/${userId}` })));
+    const linked = render(createElement(MemoryRouter, {}, createElement(StandingsTable, { standings: [{ userId: "member-1", rank: 1, displayName: "Bruin", availableMicros: "0", lockedMicros: "0", totalMicros: "0", notionalValueMicros: "0", priceMicros: "1000000", gainMicros: "0", riskedMicros: "0" }], memberProfilePath: (userId) => `/p/demo-pool/member/${userId}` })));
     expect(linked).toContain('href="/p/demo-pool/member/member-1"');
     expect(linked).toContain(">Bruin</a>");
-    const plain = render(createElement(StandingsTable, { standings: [{ userId: "member-1", rank: 1, displayName: "Bruin", availableMicros: "0", lockedMicros: "0", totalMicros: "0", notionalValueMicros: "0", priceMicros: "1000000", gainMicros: "0" }] }));
+    const plain = render(createElement(StandingsTable, { standings: [{ userId: "member-1", rank: 1, displayName: "Bruin", availableMicros: "0", lockedMicros: "0", totalMicros: "0", notionalValueMicros: "0", priceMicros: "1000000", gainMicros: "0", riskedMicros: "0" }] }));
     expect(plain).toContain("<th scope=\"row\">Bruin</th>");
   });
 

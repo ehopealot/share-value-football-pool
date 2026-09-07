@@ -41,6 +41,9 @@ table { width: 100%; border-collapse: collapse; margin: var(--space-3) 0; }
 caption { padding: var(--space-1); background: var(--table-gray); font-weight: 700; text-align: left; }
 th, td { border: 1px solid var(--line); padding: var(--space-2); text-align: left; }
 th { background: var(--table-gray); }
+/* Sortable standings headers present the sort control as plain header text; .standings-sort stays out of the generic blue button hover above. */
+th > button.standings-sort { all: unset; cursor: pointer; font: inherit; }
+th > button.standings-sort:hover { text-decoration: underline; }
 .primary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--orange); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #7d3200; cursor: pointer; }
 input, select { max-width: 100%; padding: 0.35rem; border: 1px solid var(--line); border-radius: 0; font: inherit; background: #fff; }
 label { display: inline-flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) var(--space-2) var(--space-2) 0; }
@@ -91,7 +94,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 /* Secondary buttons: solid blue to contrast the orange primary actions. */
 button { padding: 0.55rem 0.8rem; background: var(--blue); color: #fff; font: inherit; font-weight: 700; border: 1px solid #003f7d; cursor: pointer; }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
-button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:not(:disabled) { background: #2f5f9e; }
+button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):hover:not(:disabled) { background: #2f5f9e; }
 .tray-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; align-items: stretch; }
 .tray-actions button { min-height: 2.4rem; }
 .tray-actions button, .tray-actions .primary-action { display: inline-flex; align-items: center; margin: 0; padding: 0.55rem 0.8rem; font: inherit; font-weight: 700; line-height: 1.45; min-height: 2.4rem; border-width: 1px; border-style: solid; white-space: nowrap; }
@@ -172,6 +175,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-filters label { flex-direction: row; align-items: center; gap: var(--space-1); margin: 0; }
 .activity-active-toggle { min-height: 44px; cursor: pointer; }
 .activity-active-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }
+/* Order-history grouping toggle shares the touch-target sizing of the activity filter toggles. */
+.order-group-toggle { min-height: 44px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: var(--space-1); margin: 0; }
+.order-group-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }
 .activity-leg-loss { color: #b42318; }
 .activity-leg-win { color: #137333; }
 .activity-leg-push { color: #1a73e8; }
