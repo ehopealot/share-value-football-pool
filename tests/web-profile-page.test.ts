@@ -68,6 +68,8 @@ describe("member profile page", () => {
   it("mounts fresh state per route identity so one pool can never render under another", () => {
     expect(page).toContain('return <MemberProfileBody key={`${slug}:${memberId}`} slug={slug} memberId={memberId}/>;');
     expect(board).toContain('return <MessageBoardPageBody key={slug} slug={slug}/>;');
+    expect(activity).toContain('return <ActivityPageBody key={slug} slug={slug}/>;');
+    expect(standings).toContain('return <StandingsPageBody key={slug} slug={slug}/>;');
   });
 
   it("renders profile-linked standings names while keeping plain names without a path", () => {

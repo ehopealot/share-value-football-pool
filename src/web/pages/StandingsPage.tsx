@@ -14,6 +14,11 @@ export function StandingsTable({ standings, memberProfilePath }: { standings: St
 
 export function StandingsPage() {
   const { slug = "" } = useParams();
+  // Keying the body by slug keeps profile links from ever pairing one pool's rows with another pool's route.
+  return <StandingsPageBody key={slug} slug={slug}/>;
+}
+
+function StandingsPageBody({ slug }: { slug: string }) {
   const [data, setData] = useState<import("../../contracts/http").ReadStandings>();
   const [view, setView] = useState<import("../../contracts/http").ReadPoolView>();
   const [error, setError] = useState("");

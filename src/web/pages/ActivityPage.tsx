@@ -48,6 +48,11 @@ export function MemberActivitySection({ member, title }: { member: ReturnType<ty
 
 export function ActivityPage() {
   const { slug = "" } = useParams();
+  // Keying the body by slug keeps profile links from ever pairing one pool's rows with another pool's route.
+  return <ActivityPageBody key={slug} slug={slug}/>;
+}
+
+export function ActivityPageBody({ slug }: { slug: string }) {
   const [data, setData] = useState<import("../../contracts/http").ReadActivity>();
   const [selectedWeek, setSelectedWeek] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);

@@ -84,7 +84,11 @@ export type MemberProfileDirectory = { slug: string; commandVersion: string; hre
 export async function readMemberProfileDirectory(slug: string, poolView: () => Promise<import("../../contracts/http").ReadPoolView>): Promise<MemberProfileDirectory> {
   const view = await poolView();
   const idsByName = new Map<string, string[]>();
-  for (const entry of view.members) idsByName.set(entry.displayName, [...(idsByName.get(entry.displayName) ?? []), entry.memberId]);
+  for (const entry of view.members) {
+    const ids = idsByName.get(entry.displayName) ?? [];
+    ids.push(entry.memberId);
+    idsByName.set(entry.displayName, ids);
+  }
   const hrefs = new Map<string, string>();
   for (const [displayName, ids] of idsByName) if (ids.length === 1) hrefs.set(displayName, `/p/${slug}/member/${ids[0]}`);
   return { slug, commandVersion: view.commandVersion, hrefs };
