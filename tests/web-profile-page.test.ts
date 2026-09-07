@@ -24,9 +24,11 @@ describe("member profile page", () => {
   it("shows season stats where every bet counts as one pick", () => {
     expect(page).toContain('<h2 className="table-ribbon">Season stats</h2>');
     expect(page).toContain('<tr><th scope="row">Season record</th><td>{formatPickRecord(pickRecord(seasonWagers))}</td></tr>');
-    expect(page).toContain('<tr><th scope="row">Straight</th><td>{typeRecord("straight")}</td></tr>');
-    expect(page).toContain('<tr><th scope="row">Teaser</th><td>{typeRecord("teaser")}</td></tr>');
-    expect(page).toContain('<tr><th scope="row">Parlay</th><td>{typeRecord("parlay")}</td></tr>');
+    expect(page).toContain('<tr><th scope="row">Straight</th><td>{recordOf(["straight"])}</td></tr>');
+    expect(page).toContain('<tr><th scope="row">Teasers and Parlays</th><td>{recordOf(["teaser", "parlay"])}</td></tr>');
+    expect(page).not.toContain('<th scope="row">Teaser</th>');
+    expect(page).not.toContain('<th scope="row">Parlay</th>');
+    expect(page).not.toContain("refunded");
     expect(page).toContain('<tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>');
   });
 

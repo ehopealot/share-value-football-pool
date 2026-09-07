@@ -18,8 +18,7 @@ export function pickRecord(wagers: Wager[]): PickRecord {
 }
 
 export function formatPickRecord(record: PickRecord): string {
-  const winsLosses = `${record.wins}-${record.losses}`;
-  return record.refunded > 0 ? `${winsLosses} (${record.refunded} refunded)` : winsLosses;
+  return `${record.wins}-${record.losses}`;
 }
 
 /** Season P&L sums every settled ticket's performance; open tickets contribute zero. */

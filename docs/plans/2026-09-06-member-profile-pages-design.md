@@ -21,10 +21,10 @@ Date: 2026-09-06 · Operator request: per-member profile pages linked from the s
 
 ## Stats (active season)
 
-Each settled ticket counts as one pick regardless of leg count (multis = one pick). Refunds are excluded from W–L and surfaced as "(N refunded)" when present.
+Each settled ticket counts as one pick regardless of leg count (multis = one pick). Refunds are excluded from W–L and never displayed as a count.
 
 - Season record: W–L over all settled wagers.
-- Straight / Teaser / Parlay records: W–L per `type`.
+- Straight record and a combined "Teasers and Parlays" record (W–L across both multi-leg `type`s).
 - Season P&L: exact sum of `performanceMicros` across the member's season wagers (open tickets contribute 0), formatted with the Activity share convention, e.g. `+12.50 shares`.
 
 ## Week view
