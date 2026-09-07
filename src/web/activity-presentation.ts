@@ -28,9 +28,9 @@ export function formatWeeklyPerformance(profitMicros: string): string {
   return `${value > 0n ? "+" : ""}${formatMicros(value, 2)} shares`;
 }
 
-/** Zero is not a meaningful Activity result before or after a wager resolves. */
+/** Member ribbons always show the weekly net, including an explicit signed zero. */
 export function formatActivityPerformance(performanceMicros: string): string {
-  return performanceMicros === "0" ? "" : formatWeeklyPerformance(performanceMicros);
+  return performanceMicros === "0" ? "+0.00 shares" : formatWeeklyPerformance(performanceMicros);
 }
 
 type WagerOutcome = { status: string; outcome?: "won" | "lost" | "refunded" };
@@ -55,6 +55,11 @@ export function formatActivityStake(wager: Pick<Wager, "riskMicros" | "acceptedO
 /** Keeps settled leg grades visually consistent across Activity and My Bets. */
 export function activityLegGradeClass(grade: string | undefined): string {
   return grade === "win" ? "activity-leg-win" : grade === "loss" ? "activity-leg-loss" : grade === "push" ? "activity-leg-push" : "activity-leg-neutral";
+}
+
+/** Active matches the black/neutral legs already shown on Activity, excluding future owner-visible selections. */
+export function hasActiveActivityGame(wager: Wager, now: number): boolean {
+  return (wager.legs ?? []).some((leg) => activityLegGradeClass(leg.grade) === "activity-leg-neutral" && Date.parse(leg.eventStartsAt) <= now);
 }
 
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";

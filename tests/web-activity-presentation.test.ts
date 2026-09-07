@@ -1,13 +1,31 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
+import { hasActiveActivityGame, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
 import { WagerLines } from "../src/web/pages/ActivityPage";
 type Wager = Parameters<typeof groupActivityMembersForWeek>[0][number];
 const leg = (overrides: Record<string, unknown> = {}) => ({ eventId: "game", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalLine: "-7.5", originalOdds: -110, eventStartsAt: "2026-09-06T20:00:00.000Z", awayTeam: "UCLA", homeTeam: "Arizona", ...overrides });
 const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", seasonId: "s", memberId: "ucla", memberDisplayName: "Bruin", type: "straight", status: "won", confirmedAt: "2026-09-01T00:00:00.000Z", weekStart: "2026-09-01T04:00:00.000Z", performanceMicros: "500000000", profitMicros: "500000000", legs: [leg()], ...overrides }) as Wager;
 
 describe("activity presentation", () => {
+  describe("active games", () => {
+    const now = Date.parse("2026-09-06T20:00:00.000Z");
+    it.each([
+      ["started ungraded", [leg({ eventStartsAt: "2026-09-06T19:00:00.000Z" })], true],
+      ["exact kickoff", [leg()], true],
+      ["future owner leg", [leg({ eventStartsAt: "2026-09-06T21:00:00.000Z" })], false],
+      ["win", [leg({ grade: "win" })], false],
+      ["loss", [leg({ grade: "loss" })], false],
+      ["push", [leg({ grade: "push" })], false],
+      ["mixed parlay", [leg({ grade: "loss" }), leg(), leg({ eventStartsAt: "2026-09-07T20:00:00.000Z" })], true],
+      ["graded plus future", [leg({ grade: "win" }), leg({ eventStartsAt: "2026-09-07T20:00:00.000Z" })], false],
+      ["invalid kickoff", [leg({ eventStartsAt: "invalid" })], false],
+      ["no visible legs", [], false],
+      ["redacted ticket", undefined, false]
+    ])("recognizes %s", (_name, legs, expected) => {
+      expect(hasActiveActivityGame(wager({ legs }), now)).toBe(expected);
+    });
+  });
   it("groups the selected kickoff week by member and counts open tickets as zero performance", () => {
     const groups = groupActivityMembersForWeek([
       wager({ wagerId: "late", legs: [leg({ eventStartsAt: "2026-09-08T20:00:00.000Z" })] }),
@@ -26,8 +44,8 @@ describe("activity presentation", () => {
     expect(formatWeeklyPerformance("0")).toBe("0.00 shares");
   });
 
-  it("omits the unit suffix from row P&L while keeping the weekly zero summary blank", () => {
-    expect(formatActivityPerformance("0")).toBe("");
+  it("omits the unit suffix from row P&L while showing a signed weekly zero summary", () => {
+    expect(formatActivityPerformance("0")).toBe("+0.00 shares");
     expect(formatActivityPerformance("500000000")).toBe("+500.00 shares");
     expect(formatActivityWagerPerformance(wager({ status: "refunded", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("0.00");
     expect(formatActivityWagerPerformance(wager({ status: "open", outcome: undefined, riskMicros: "1000000", performanceMicros: "0" }))).toBe("");

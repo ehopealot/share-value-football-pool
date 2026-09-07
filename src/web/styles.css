@@ -162,6 +162,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .activity-performance-won { color: #137333; }
 .activity-performance-lost { color: #b42318; }
 .activity-performance-refunded { color: #1a73e8; }
+.activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.activity-active-toggle { flex-direction: row; align-items: center; min-height: 44px; cursor: pointer; }
+.activity-active-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }
 .activity-leg-loss { color: #b42318; }
 .activity-leg-win { color: #137333; }
 .activity-leg-push { color: #1a73e8; }

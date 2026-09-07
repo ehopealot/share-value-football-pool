@@ -33,10 +33,10 @@ describe("Activity page", () => {
     expect(source).toContain('Selection hidden until game time.');
   });
 
-  it("colors wager P&L by result while leaving the weekly zero summary blank", () => {
+  it("colors wager P&L by result and includes the weekly member summary", () => {
     expect(source).toContain('activityWagerPerformanceClass');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
     expect(source).toContain('const performance = formatActivityPerformance(member.performanceMicros);');
-    expect(source).toContain('{member.memberDisplayName}{performance && <small>{performance}</small>}');
+    expect(source).toContain('{member.memberDisplayName}<small>{performance}</small>');
   });
 });
