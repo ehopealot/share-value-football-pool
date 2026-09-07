@@ -2,19 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
+import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
+import { WagerLine } from "../components/WagerLine";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
-type Leg = NonNullable<Wager["legs"]>[number];
-
-function WagerLine({ leg }: { leg: Leg }) {
-  const line = formatActivityLeg(leg);
-  const gradeClass = activityLegGradeClass(leg.grade);
-  return <span className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
-}
 
 export function WagerLines({ wager }: { wager: Wager }) {
   const legs = sortWagerLegsByStartTime(wager.legs ?? []);
