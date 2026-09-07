@@ -64,6 +64,5 @@ export function OverviewPage() {
     {!season && <p>No active season. {commissioner ? <Link to={`/p/${slug}/admin/season`}>Create a season</Link> : "Wait for the commissioner to open one."}</p>}
     {view.nextDraftSeason && <p role="status">Draft {view.nextDraftSeason.label} is ready to configure and open.</p>}
     {view.latestClosedSeason && <p role="status">Latest closed season: <Link to={`/p/${slug}/history/${view.latestClosedSeason.id}`}>{view.latestClosedSeason.label}</Link></p>}
-    <Link className="primary-action" to={`/p/${slug}/odds`}>View odds board</Link>
   </Layout>;
 }
