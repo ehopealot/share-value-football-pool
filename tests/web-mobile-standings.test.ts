@@ -12,12 +12,14 @@ describe("compact mobile standings", () => {
     expect(css).toContain("@media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }");
   });
 
-  it("reserves the same indicator space in every sortable header", () => {
+  it("underlines the active sort header without a visible direction indicator", () => {
     const html = renderToStaticMarkup(createElement(StandingsTable, { standings: [] }));
-    expect(html.match(/class="standings-sort-indicator" aria-hidden="true"/g)).toHaveLength(7);
-    expect(html).toContain('<span class="standings-sort-indicator" aria-hidden="true">▲</span>');
-    expect(html.match(/class="standings-sort-indicator" aria-hidden="true"><\/span>/g)).toHaveLength(6);
-    expect(html).toContain('aria-sort="ascending"');
-    expect(css).toContain(".standings-sort-indicator { display: inline-block; width: 1em; margin-left: 0.25em; text-align: center; }");
+    expect(html).not.toMatch(/▲|▼|standings-sort-indicator/);
+    expect(html.match(/aria-sort="ascending"/g)).toHaveLength(1);
+    expect(html.match(/aria-sort="none"/g)).toHaveLength(6);
+    expect(html).toContain('>Rank</button>');
+    expect(css).toContain('th[aria-sort="ascending"] > button.standings-sort, th[aria-sort="descending"] > button.standings-sort { text-decoration: underline; }');
+    expect(css).not.toContain("th > button.standings-sort:hover { text-decoration: underline; }");
+    expect(css).not.toContain(".standings-sort-indicator");
   });
 });

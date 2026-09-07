@@ -52,10 +52,10 @@ describe("standings presentation", () => {
     const html = render(createElement(StandingsTable, { standings: [row()] }));
 
     for (const label of ["Locked", "Total", "SVG", "Risked"]) {
-      expect(html).toContain(`${label}<span class="standings-sort-indicator" aria-hidden="true"></span></button>`);
+      expect(html).toContain(`${label}</button>`);
     }
     expect(html).not.toContain("Available");
-    expect(html).not.toContain("Gain<span");
+    expect(html).not.toContain("Gain</button>");
     // Every column header sorts, and the default rank order announces as ascending.
     expect(html.match(/<th>/g) ?? []).toHaveLength(0);
     expect(html).toContain('aria-sort="ascending"');

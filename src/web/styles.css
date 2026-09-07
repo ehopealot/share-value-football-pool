@@ -43,9 +43,8 @@ th, td { border: 1px solid var(--line); padding: var(--space-2); text-align: lef
 th { background: var(--table-gray); }
 /* Sortable standings headers present the sort control as plain header text; .standings-sort stays out of the generic blue button hover above. */
 th > button.standings-sort { all: unset; cursor: pointer; font: inherit; }
-th > button.standings-sort:hover { text-decoration: underline; }
-/* Keep column widths stable when the active sort indicator moves or reverses. */
-.standings-sort-indicator { display: inline-block; width: 1em; margin-left: 0.25em; text-align: center; }
+/* Mark the active column without changing header widths or showing direction. */
+th[aria-sort="ascending"] > button.standings-sort, th[aria-sort="descending"] > button.standings-sort { text-decoration: underline; }
 .primary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--orange); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #7d3200; cursor: pointer; }
 input, select { max-width: 100%; padding: 0.35rem; border: 1px solid var(--line); border-radius: 0; font: inherit; background: #fff; }
 label { display: inline-flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) var(--space-2) var(--space-2) 0; }
