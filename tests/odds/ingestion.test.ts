@@ -704,7 +704,7 @@ describe("odds ingestion", () => {
       }
     } as D1Database;
     const decision = await canonicalizeWagerQuote(interleavedDb, {
-      type: "PlaceTeaserWager", commandId: "snapshot-command", actorId: "member", wagerId: "snapshot-wager", quoteKey: "snapshot-quote", quotedCommandVersion: "0", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [
+      type: "PlaceTeaserWager", commandId: "snapshot-command", actorId: "member", wagerId: "snapshot-wager", quoteKey: "snapshot-quote", quotedCommandVersion: "0", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [
         { eventId: first.id, market: "spread", selection: "home" },
         { eventId: second.id, market: "spread", selection: "home" }
       ]

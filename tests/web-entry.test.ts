@@ -127,7 +127,7 @@ describe("web entry and workflow helpers", () => {
     const teaserLeg = { eventId: "teaser-event-1", league: "nfl" as const, canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v2", canonicalOfferProof: { offerId: "teaser-event-1:spread:home" }, market: "spread" as const, selection: "home" as const, originalLine: -2.5, originalOdds: -105, eventStartsAt: "2030-09-01T12:00:00.000Z", homeTeam: "Home", awayTeam: "Away" };
     const teaserTotalLeg = { ...teaserLeg, eventId: "teaser-event-2", offerVersion: "v3", canonicalOfferProof: { offerId: "teaser-event-2:total:over" }, market: "total" as const, selection: "over" as const, originalLine: 44.5 };
     expect(teaserQuoteRequest({ wagerId: "teaser-1", quoteKey: "teaser-quote", risk: "3", points: 6, legs: [teaserLeg, teaserTotalLeg] }, "season-1")).toEqual({
-      wagerId: "teaser-1", seasonId: "season-1", riskMicros: "3000000", teaserPoints: 6, rulesetVersion: "TEASER_2026_V2",
+      wagerId: "teaser-1", seasonId: "season-1", riskMicros: "3000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1",
       legs: [
         { eventId: "teaser-event-1", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "teaser-event-1:spread:home", offerVersion: "v2" },
         { eventId: "teaser-event-2", canonicalBook: "DraftKings", market: "total", selection: "over", offerId: "teaser-event-2:total:over", offerVersion: "v3" }

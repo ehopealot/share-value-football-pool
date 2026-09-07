@@ -1,17 +1,13 @@
 export const SHARE_POOL_RULESET_ID = "SHARE_POOL_2026_V1" as const;
-/**
- * Teaser pricing is versioned independently of the season and straight-wager rules, exactly like
- * the parlay ruleset, so a future repricing can never silently reprice accepted tickets' kin.
- * The pool is in beta with a single active card: every teaser settles from this table.
- */
-export const TEASER_RULESET_ID = "TEASER_2026_V2" as const;
+/** Compatibility alias for teaser consumers; season and straight-wager rules use SHARE_POOL_RULESET_ID. */
+export const TEASER_RULESET_ID = SHARE_POOL_RULESET_ID;
 export const TEASER_POINT_OPTIONS = Object.freeze([6, 6.5, 7, 7.5, 10] as const);
 export const TEASER_LEG_COUNTS = Object.freeze([2, 3, 4, 5, 6] as const);
 
 export type TeaserPoints = (typeof TEASER_POINT_OPTIONS)[number];
 type TeaserPayoutMatrix = Readonly<Partial<Record<number, Readonly<Partial<Record<TeaserPoints, number>>>>>>;
 
-/** Operator card TEASER_2026_V2: two-leg bases -110/-120/-130/-150, three-leg 10-point -110, capped at six legs. */
+/** Operator card: two-leg bases -110/-120/-130/-150, three-leg 10-point -110, capped at six legs. */
 export const TEASER_PAYOUT_MATRIX: TeaserPayoutMatrix = Object.freeze({
   2: Object.freeze({ 6: -110, 6.5: -120, 7: -130, 7.5: -150 }),
   3: Object.freeze({ 6: 165, 6.5: 150, 7: 135, 7.5: 105, 10: -110 }),

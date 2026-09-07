@@ -10,7 +10,7 @@ describe("archived history presentation", () => {
   it("links the supported persisted ruleset to its matching immutable rules surface", () => {
     const html = render(createElement(ArchivedRulesetGuidance, { slug: "pool", rulesetVersion: "SHARE_POOL_2026_V1" }));
     expect(html).toContain('href="/p/pool/rules#teaser-rules-heading"');
-    expect(html).toContain("TEASER_2026_V2 teaser payout table");
+    expect(html).toContain("current teaser payout table");
     expect(html).not.toContain("Unsupported archived ruleset");
     expect(render(createElement(ArchivedRulesetGuidance, { slug: "pool", rulesetVersion: "TEASER_FUTURE_V9" }))).toContain("Unsupported archived ruleset");
   });

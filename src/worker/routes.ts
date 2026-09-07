@@ -6,7 +6,6 @@ import { freeSeasonEntitlement, type SeasonEntitlementService } from "../service
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
-import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
 import { offerIsStale } from "../odds/ingestion";
@@ -238,9 +237,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const slug = c.req.param("slug"); if (!slug) return jsonError(c, "INVALID_REQUEST");
     const data = parsed.data as any;
-    // Pre-V2 browser bundles still stamp the season ruleset on teaser quotes. That cannot recover
-    // by requoting, so reject it distinctly to stop line-turnover retry loops until a reload.
-    if (kind === "teasers" && data.rulesetVersion === SHARE_POOL_RULESET_ID) return jsonError(c, "TEASER_RULESET_RETIRED", 400);
     if (!quote) {
       const command = kind === "straight"
         ? { type: "PlaceStraightWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, rulesetVersion: data.rulesetVersion, leg: data.leg }

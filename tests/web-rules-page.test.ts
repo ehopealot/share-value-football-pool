@@ -65,8 +65,8 @@ describe("truthful rules and feed presentation", () => {
     for (const price of ["-110", "+165", "+265", "+405", "+595"]) expect(html).toContain(price);
     // No retired seven-leg prices render anywhere.
     expect(html).not.toContain("+860");
-    expect(html).toContain("Teaser payouts: TEASER_2026_V2</h2>");
-    expect(html.indexOf("Teaser payouts: TEASER_2026_V2")).toBeLessThan(html.indexOf("Parlays: PARLAY_2026_V1"));
+    expect(html).toContain("Teaser payouts: SHARE_POOL_2026_V1</h2>");
+    expect(html.indexOf("Teaser payouts: SHARE_POOL_2026_V1")).toBeLessThan(html.indexOf("Parlays: PARLAY_2026_V1"));
     for (const text of ["PARLAY_2026_V1", "2–6 legs", "spreads, totals, and moneylines", "one spread or moneyline", "-133", "settles as soon as any final leg loses", "Wins and refunds wait until all legs are final", "Pushes and voids are removed and surviving legs are repriced"]) expect(html).toContain(text);
   });
 

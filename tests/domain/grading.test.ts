@@ -37,7 +37,7 @@ describe("straight and teaser grading", () => {
     // Seven legs exist only on the retired card and can no longer be placed.
     expect(teaserOdds(7, 6)).toBeUndefined();
     expect(SHARE_POOL_RULESET_ID).toBe("SHARE_POOL_2026_V1");
-    expect(TEASER_RULESET_ID).toBe("TEASER_2026_V2");
+    expect(TEASER_RULESET_ID).toBe(SHARE_POOL_RULESET_ID);
   });
 
   it("keeps exported teaser policy immutable at runtime", () => {

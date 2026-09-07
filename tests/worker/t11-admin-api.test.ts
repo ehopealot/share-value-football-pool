@@ -144,7 +144,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     const member = app({ id: "member", name: "Member" });
     const owner = app({ id: "owner", name: "Owner" }, async () => true);
     const quoteRequest = {
-      quoteKey: "same-game-quote", commandId: "same-game-quote", wagerId: "same-game-wager", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "TEASER_2026_V2",
+      quoteKey: "same-game-quote", commandId: "same-game-quote", wagerId: "same-game-wager", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1",
       legs: [
         { eventId, canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: `${eventId}:spread:home`, offerVersion: "offer-v1" },
         { eventId, canonicalBook: "DraftKings", market: "total", selection: "over", offerId: `${eventId}:total:over`, offerVersion: "offer-v1" }

@@ -160,7 +160,7 @@ describe("deterministic D1 reader snapshots", () => {
       const barrier = readerBarrier(bindings.DB, boundary, () => poll(uniqueIds.map((id) => event(id, "new")), NEW_AT));
       const app = createWorkerApp({ db: barrier.db, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }) });
       const key = `teaser-${boundary}-${crypto.randomUUID()}`;
-      const response = await app.fetch(http(`/api/p/${slug}/wagers/teasers/quote`, { quoteKey: key, commandId: key, wagerId: key, seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: ids.map((id, index) => semanticLeg(id, markets[index], boundary)) }));
+      const response = await app.fetch(http(`/api/p/${slug}/wagers/teasers/quote`, { quoteKey: key, commandId: key, wagerId: key, seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: ids.map((id, index) => semanticLeg(id, markets[index], boundary)) }));
       expect(response.status).toBe(200); const quote = await response.json() as any; const state = expected(boundary);
       expect(barrier.proof()).toEqual({ fired: true, targetBatchStatements: 3, targetReads: 1 });
       expect(new Set(quote.legs.map((leg: any) => leg.retrievedAt))).toEqual(new Set([state.at]));
