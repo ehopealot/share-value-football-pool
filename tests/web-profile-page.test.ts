@@ -52,6 +52,18 @@ describe("member profile page", () => {
     expect(board).toContain("if (ids.length === 1) hrefs.set(displayName, `/p/${slug}/member/${ids[0]}`)");
   });
 
+  it("refreshes board author links with each load and renders them only against a matching snapshot", () => {
+    expect(board).toContain("void readMemberProfileDirectory(slug, () => api.poolView(slug))");
+    expect(board).toContain("memberDirectory.slug === slug && memberDirectory.commandVersion === board.commandVersion");
+    expect(board).toContain("setMemberDirectory(undefined)");
+  });
+
+  it("resets profile state and rejects superseded loads when the route identity changes", () => {
+    expect(page).toContain('setActivity(undefined); setView(undefined); setError(""); setSelectedWeek("");');
+    expect(page).toContain("}, [slug, memberId]);");
+    expect(page).toContain(".catch((reason) => { if (active) setError(errorMessage(reason)); });");
+  });
+
   it("renders profile-linked standings names while keeping plain names without a path", () => {
     const linked = render(createElement(MemoryRouter, {}, createElement(StandingsTable, { standings: [{ userId: "member-1", rank: 1, displayName: "Bruin", availableMicros: "0", lockedMicros: "0", totalMicros: "0", notionalValueMicros: "0", priceMicros: "1000000", gainMicros: "0" }], memberProfilePath: (userId) => `/p/demo-pool/member/${userId}` })));
     expect(linked).toContain('href="/p/demo-pool/member/member-1"');

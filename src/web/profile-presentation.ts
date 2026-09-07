@@ -27,18 +27,26 @@ export function seasonPerformanceMicros(wagers: Wager[]): string {
   return wagers.reduce((total, wager) => total + parseIntegerText(wager.performanceMicros), 0n).toString();
 }
 
-/** A defensive ceiling so a broken clock can never spin week enumeration. */
-const MAX_PROFILE_WEEKS = 40;
+/** A defensive ceiling so an absurd clock can neither spin enumeration nor flood the selector. */
+const MAX_PROFILE_WEEKS = 80;
+const PROFILE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Profile weeks list every season week from Week 1 through the current Eastern
  * week, plus any week carrying one of the member's bets (early tickets on
  * future-week games). Weeks are most-recent-first like the Activity selector.
+ * A clock far past the season anchor keeps the most recent weeks, always
+ * including the current week, instead of silently dropping it.
  */
 export function profileWeekOptions(betWeeks: Iterable<string>, now: Date): string[] {
   const weeks = new Set(betWeeks);
-  const currentWeek = weekStartOf(now).getTime();
-  for (let week = weekStartOf(new Date(SEASON_WEEK1_ANCHOR)), guard = 0; week.getTime() <= currentWeek && guard < MAX_PROFILE_WEEKS; week = nextWeekStart(week), guard += 1) weeks.add(week.toISOString());
+  const currentWeek = weekStartOf(now);
+  const anchor = weekStartOf(new Date(SEASON_WEEK1_ANCHOR));
+  const elapsedWeeks = Math.floor((currentWeek.getTime() - anchor.getTime()) / PROFILE_WEEK_MS);
+  // Snapping the skipped start back onto a true week start absorbs DST drift.
+  const firstWeek = weekStartOf(new Date(anchor.getTime() + Math.max(0, elapsedWeeks - MAX_PROFILE_WEEKS + 1) * PROFILE_WEEK_MS));
+  for (let week = firstWeek, guard = 0; week.getTime() <= currentWeek.getTime() && guard < MAX_PROFILE_WEEKS; week = nextWeekStart(week), guard += 1) weeks.add(week.toISOString());
+  weeks.add(currentWeek.toISOString());
   return [...weeks].sort().reverse();
 }
 

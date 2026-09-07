@@ -31,18 +31,23 @@ Each settled ticket counts as one pick regardless of leg count (multis = one pic
 
 - Week identity reuses the shared Tuesday–Monday Eastern `weekStartOf` domain.
 - A wager is displayed for a week when it is settled (`status !== "open"`) or has at least one leg with `eventStartsAt <= now`. Open tickets with no started legs are omitted for every viewer, including the owner (owners still have My Bets).
-- Displayed wagers render in two sections — "In process" and "Settled" — reusing the Activity member-section table (start times, graded legs, stake, P&L) with section ribbons in place of the member name.
+- Displayed wagers render in two sections — "In process" and "Settled" — reusing the Activity member-section table (start times, graded legs, stake, P&L) with section ribbons in place of the member name. The section sorts its own input by kickoff anchor on mobile, so callers never rely on server ordering.
 - Empty week: "No bets this week." A week carrying only unstarted tickets shows "Selections not visible yet." (bet existence is already public on Activity).
+- Week enumeration covers every season week through the current one; a clock absurdly far past the anchor keeps the most recent bounded window (80 weeks) always including the current week, never silently dropping it.
 
 ## Links
 
 - `StandingsTable` gains an optional `memberProfilePath(userId)` prop; Standings passes it so names link. Default behavior (plain names) is unchanged for non-router render contexts.
 - Activity ribbons: `MemberActivitySection` gains optional `title`/`detail` props; the Activity page passes the member name as a `Link`. Defaults preserve existing markup.
-- Message board: the page builds a display-name → `memberId` map from `poolView.members`; a name links only when exactly one member matches (names are not unique). Threads and replies both link. Failures to load the view degrade to plain names.
+- Message board: the page refreshes a display-name → `memberId` directory from `poolView.members` alongside every board load; a name links only when exactly one member matches (names are not unique) and only while the directory's slug and pool command version match the displayed board snapshot. Failed or superseded refreshes degrade to plain names, never mislinked ones.
 
 ## Styling & accessibility
 
-Table-first, square borders, no new visual vocabulary: stats use the existing `table-ribbon-section`/`table-ribbon` pattern like Overview's "Current account". Ribbon links are white-on-navy. Headings, focus states, and the week `<select>` mirror the Activity page.
+Table-first, square borders, no new visual vocabulary: stats use the existing `table-ribbon-section`/`table-ribbon` pattern like Overview's "Current account". Ribbon links are white-on-navy with the dark-surface focus token. Headings, focus states, and the week `<select>` mirror the Activity page.
+
+## Route lifecycle
+
+Profile loads reset data, error, and selected-week state when the pool slug or member id changes and ignore superseded responses, so React Router component reuse cannot show one pool's data under another.
 
 ## Testing
 

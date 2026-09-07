@@ -24,8 +24,15 @@ export function MemberProfilePage() {
   const errorRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
-    void Promise.all([api.activity(slug), api.poolView(slug)]).then(([nextActivity, nextView]) => { setActivity(nextActivity); setView(nextView); }).catch((reason) => setError(errorMessage(reason)));
-  }, [slug]);
+    // Route reuse across pool or member changes must not show stale data or keep old errors.
+    let active = true;
+    setActivity(undefined); setView(undefined); setError(""); setSelectedWeek("");
+    void Promise.all([api.activity(slug), api.poolView(slug)]).then(([nextActivity, nextView]) => {
+      if (!active) return;
+      setActivity(nextActivity); setView(nextView);
+    }).catch((reason) => { if (active) setError(errorMessage(reason)); });
+    return () => { active = false; };
+  }, [slug, memberId]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
   if (error) return <Layout><h1>Member profile</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;

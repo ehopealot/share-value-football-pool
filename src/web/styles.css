@@ -142,6 +142,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:n
 .table-ribbon-section > table, .table-ribbon-section > .table-scroll > table { margin: 0 0 var(--space-2); }
 .activity-member-ribbon small { display: block; font-size: 0.85rem; }
 .activity-member-ribbon a { color: #fff; }
+.activity-member-ribbon a:focus-visible { outline-color: var(--focus-on-dark); }
 .profile-record-note { margin: 0 0 var(--space-2); font-size: 0.85rem; }
 .activity-member-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
 .activity-start-column { width: 7rem; }

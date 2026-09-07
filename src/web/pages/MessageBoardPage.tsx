@@ -78,13 +78,25 @@ export function MessageBoardThreads({ threads, openReplyPostId, replyText, reply
   </article>)}</section>;
 }
 
+export type MemberProfileDirectory = { slug: string; commandVersion: string; hrefs: Map<string, string> };
+
+/** Display names are not unique: a name resolves to a profile only while it identifies exactly one member. */
+export async function readMemberProfileDirectory(slug: string, poolView: () => Promise<import("../../contracts/http").ReadPoolView>): Promise<MemberProfileDirectory> {
+  const view = await poolView();
+  const idsByName = new Map<string, string[]>();
+  for (const entry of view.members) idsByName.set(entry.displayName, [...(idsByName.get(entry.displayName) ?? []), entry.memberId]);
+  const hrefs = new Map<string, string>();
+  for (const [displayName, ids] of idsByName) if (ids.length === 1) hrefs.set(displayName, `/p/${slug}/member/${ids[0]}`);
+  return { slug, commandVersion: view.commandVersion, hrefs };
+}
+
 export function MessageBoardPage() {
   const { slug = "" } = useParams(); const location = useLocation();
   const [board, setBoard] = useState<ReadMessageBoardResponse>();
   const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState("");
   const [postText, setPostText] = useState(""); const [postAnnouncement, setPostAnnouncement] = useState(false); const [postError, setPostError] = useState("");
   const [openReplyPostId, setOpenReplyPostId] = useState<string>(); const [replyText, setReplyText] = useState(""); const [replyError, setReplyError] = useState("");
-  const [memberProfileHrefs, setMemberProfileHrefs] = useState<Map<string, string>>();
+  const [memberDirectory, setMemberDirectory] = useState<MemberProfileDirectory>();
   const post = useFrozenAdminCommand<BoardMutation>(); const reply = useFrozenAdminCommand<ReplyMutation>();
   const loads = useState(() => new MessageBoardLoadGeneration())[0]; const errorRef = useRef<HTMLParagraphElement>(null); const handledFragment = useRef<string | undefined>(undefined);
   const load = useCallback(async () => {
@@ -94,25 +106,15 @@ export function MessageBoardPage() {
       const next = await readMessageBoardAndInvalidate(slug);
       if (!loads.current(generation)) return;
       setBoard(next); setLoading(false);
+      // Author links follow the displayed board: the directory refreshes with every load and
+      // a superseded or failed refresh simply leaves names unlinked instead of mislinked.
+      void readMemberProfileDirectory(slug, () => api.poolView(slug)).then((directory) => { if (loads.current(generation)) setMemberDirectory(directory); }).catch(() => undefined);
     } catch (error) {
       if (!loads.current(generation)) return;
       setLoadError(errorMessage(error)); setLoading(false);
     }
   }, [slug, loads]);
-  useEffect(() => { setLoading(true); setBoard(undefined); void load(); return () => loads.invalidate(); }, [load, loads]);
-  // Display names are not unique: a name links only while it identifies exactly one member.
-  useEffect(() => {
-    let active = true;
-    void api.poolView(slug).then((view) => {
-      if (!active) return;
-      const idsByName = new Map<string, string[]>();
-      for (const entry of view.members) idsByName.set(entry.displayName, [...(idsByName.get(entry.displayName) ?? []), entry.memberId]);
-      const hrefs = new Map<string, string>();
-      for (const [displayName, ids] of idsByName) if (ids.length === 1) hrefs.set(displayName, `/p/${slug}/member/${ids[0]}`);
-      setMemberProfileHrefs(hrefs);
-    }).catch(() => { if (active) setMemberProfileHrefs(new Map()); });
-    return () => { active = false; };
-  }, [slug]);
+  useEffect(() => { setLoading(true); setBoard(undefined); setMemberDirectory(undefined); void load(); return () => loads.invalidate(); }, [load, loads]);
   useEffect(() => { if (loadError || postError || replyError) errorRef.current?.focus(); }, [loadError, postError, replyError]);
   useEffect(() => {
     if (!board || !shouldScrollMessageBoardFragment(handledFragment.current, slug, location.hash)) return;
@@ -149,7 +151,7 @@ export function MessageBoardPage() {
     <form className="message-board-post-form" onSubmit={submitPost}><label htmlFor="message-board-post">New post</label><textarea id="message-board-post" value={postText} onChange={(event) => { post.retire(); setPostError(""); setPostText(event.target.value); }} maxLength={1000} required disabled={post.pending} />{board.canAnnounce && <label className="message-board-announcement-option"><input type="checkbox" checked={postAnnouncement} disabled={post.pending} onChange={(event) => { post.retire(); setPostError(""); setPostAnnouncement(event.target.checked); }} /> Send as a commissioner announcement and email active members (except you).</label>}<button type="submit" disabled={!postText.trim() || post.pending}>{postAnnouncement ? "Post announcement and email league" : "Post"}</button></form>
     {postError && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{postError}</p>}
     {replyError && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{replyError}</p>}
-    <MessageBoardThreads threads={board.threads} openReplyPostId={openReplyPostId} replyText={replyText} replyPending={reply.pending} memberProfileHref={memberProfileHrefs === undefined ? undefined : (displayName) => memberProfileHrefs.get(displayName)} onToggleReply={(postId) => { setReplyError(""); setOpenReplyPostId((current) => current === postId ? undefined : postId); }} onReplyTextChange={(text) => { reply.retire(); setReplyError(""); setReplyText(text); }} onReplySubmit={submitReply}/>
+    <MessageBoardThreads threads={board.threads} openReplyPostId={openReplyPostId} replyText={replyText} replyPending={reply.pending} memberProfileHref={memberDirectory && memberDirectory.slug === slug && memberDirectory.commandVersion === board.commandVersion ? (displayName) => memberDirectory.hrefs.get(displayName) : undefined} onToggleReply={(postId) => { setReplyError(""); setOpenReplyPostId((current) => current === postId ? undefined : postId); }} onReplyTextChange={(text) => { reply.retire(); setReplyError(""); setReplyText(text); }} onReplySubmit={submitReply}/>
     <p><Link to={`/p/${slug}/overview`}>Pool home</Link></p>
   </div></Layout>;
 }

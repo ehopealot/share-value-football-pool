@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PoolNavigation, PoolNavigationCache, PoolViewLoadGeneration, SessionLoadGeneration } from "../src/web/components/Layout";
 import { api, onPoolBoardRead, onPoolViewInvalidated } from "../src/web/api";
-import { MessageBoardThreads, createMessageBoardPostAndInvalidate, readMessageBoardAndInvalidate, replyToMessageBoardPostAndInvalidate, scrollMessageBoardFragment, shouldScrollMessageBoardFragment } from "../src/web/pages/MessageBoardPage";
+import { MessageBoardThreads, createMessageBoardPostAndInvalidate, readMemberProfileDirectory, readMessageBoardAndInvalidate, replyToMessageBoardPostAndInvalidate, scrollMessageBoardFragment, shouldScrollMessageBoardFragment } from "../src/web/pages/MessageBoardPage";
 
 const root = resolve(import.meta.dirname, "..");
 const pageSource = () => readFileSync(resolve(root, "src/web/pages/MessageBoardPage.tsx"), "utf8");
@@ -161,6 +161,19 @@ describe("Message board presentation and nav state", () => {
     expect(pageSource()).toContain('role="status"');
     expect(pageSource()).toContain('to={`/p/${slug}/overview`}');
     expect(routerSource()).toContain('path="/p/:slug/board"');
+  });
+
+  it("resolves unique display names to versioned member profile links", async () => {
+    const directory = await readMemberProfileDirectory("demo-pool", () => Promise.resolve({ ...view, commandVersion: "9", members: [
+      { memberId: "shark", displayName: "Sunday Shark", role: "member" as const, status: "active" as const },
+      { memberId: "twin-a", displayName: "Twin", role: "member" as const, status: "active" as const },
+      { memberId: "twin-b", displayName: "Twin", role: "member" as const, status: "suspended" as const }
+    ] } as any));
+    expect(directory.slug).toBe("demo-pool");
+    expect(directory.commandVersion).toBe("9");
+    expect(directory.hrefs.get("Sunday Shark")).toBe("/p/demo-pool/member/shark");
+    expect(directory.hrefs.get("Twin")).toBeUndefined();
+    expect(directory.hrefs.size).toBe(1);
   });
 
   it("uses responsive parent-card, reply, textarea, and touch-target styles", () => {

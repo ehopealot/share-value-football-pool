@@ -39,4 +39,8 @@ describe("Activity page", () => {
     expect(source).toContain('const performance = formatActivityPerformance(member.performanceMicros);');
     expect(source).toContain('{title ?? member.memberDisplayName}<small>{performance}</small>');
   });
+
+  it("orders the compact mobile branch by kickoff anchor without relying on caller ordering", () => {
+    expect(source).toContain('const wagers = compact ? sortWagersByAnchorTime(member.wagers) : sortWagersByStartTime(member.wagers);');
+  });
 });

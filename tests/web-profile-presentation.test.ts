@@ -38,6 +38,17 @@ describe("profile presentation", () => {
     expect(profileWeekOptions(["2026-08-18T04:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T04:00:00.000Z"]);
   });
 
+  it("keeps the current week selectable past Week 40 and bounds absurd clocks", () => {
+    // Week 41 (June 2027) must remain present and defaultable for reusable seasons.
+    const week41 = profileWeekOptions([], new Date("2027-06-01T12:00:00.000Z"));
+    expect(week41[0]).toBe("2027-06-01T04:00:00.000Z");
+    expect(week41).toHaveLength(41);
+    // A clock years past the anchor keeps the most recent bounded window, still including the current week.
+    const farFuture = profileWeekOptions([], new Date("2030-01-01T12:00:00.000Z"));
+    expect(farFuture[0]).toBe("2030-01-01T05:00:00.000Z");
+    expect(farFuture).toHaveLength(80);
+  });
+
   it("keeps unstarted tickets off profile pages while showing in-process and settled ones", () => {
     const wagers = [
       wager({ status: "open", type: "straight", legs: [leg("2026-09-10T17:00:00.000Z"), leg("2026-09-11T01:00:00.000Z")] }),
