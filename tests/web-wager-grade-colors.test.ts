@@ -51,12 +51,11 @@ describe("standings presentation", () => {
   it("shows total and locked holdings with risked, without an available column", () => {
     const html = render(createElement(StandingsTable, { standings: [row()] }));
 
-    expect(html).toContain("Locked</button>");
-    expect(html).toContain("Total</button>");
-    expect(html).toContain("SVG</button>");
-    expect(html).toContain("Risked</button>");
+    for (const label of ["Locked", "Total", "SVG", "Risked"]) {
+      expect(html).toContain(`${label}<span class="standings-sort-indicator" aria-hidden="true"></span></button>`);
+    }
     expect(html).not.toContain("Available");
-    expect(html).not.toContain("Gain</button>");
+    expect(html).not.toContain("Gain<span");
     // Every column header sorts, and the default rank order announces as ascending.
     expect(html.match(/<th>/g) ?? []).toHaveLength(0);
     expect(html).toContain('aria-sort="ascending"');
