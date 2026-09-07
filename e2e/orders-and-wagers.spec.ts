@@ -649,6 +649,8 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(openBets.locator("tbody tr").filter({ hasText: /Local Away.*Local Home/ })).toHaveCount(2);
   console.log("DEBUG-OPEN-BETS-ROWS", JSON.stringify(await openBets.locator("tbody tr").allInnerTexts()));
   console.log("DEBUG-WAGERS-API", JSON.stringify(await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/wagers`)).json(), "teaser-pool")));
+  console.log("DEBUG-QUOTE-BODIES", JSON.stringify(teaserQuoteBodies));
+  console.log("DEBUG-PLACE-BODIES", JSON.stringify(teaserPlacementBodies));
   console.log("DEBUG-TZ", JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, now: new Date().toISOString() }));
   await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.83/ })).toBeVisible();
 });
