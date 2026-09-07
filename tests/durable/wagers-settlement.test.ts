@@ -108,6 +108,18 @@ describe("PoolDO wagers and settlement", () => {
     });
   }, 90_000);
 
+  it("grades completed winning legs while a multi-leg ticket stays in process", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-partial-win", actorId: "member", wagerId: "teaser-partial-win", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-win-now"), adjustedLine: 3 }, { ...leg("teaser-later"), adjustedLine: 3 }] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("teaser-win-now", "partial", 24, 17)]));
+    expect(await storage(slug, (state) => ({
+      wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='teaser-partial-win'")][0],
+      legs: [...state.storage.sql.exec("SELECT grade,result_version FROM wager_leg WHERE wager_id='teaser-partial-win' ORDER BY id")]
+    }))).toEqual({ wager: { status: "open" }, legs: [{ grade: "win", result_version: "partial" }, { grade: null, result_version: null }] });
+    const mine = await direct(slug, { type: "ReadMyWagers", commandId: "read-partial-win", actorId: "member" });
+    expect((mine.wagers as any[]).find((wager) => wager.wagerId === "teaser-partial-win")!.legs[0]).toMatchObject({ grade: "win" });
+  }, 90_000);
+
   it("settles a teaser as soon as one final leg loses", async () => {
     const slug = await fundedPool();
     await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-early-loss", actorId: "member", wagerId: "teaser-early-loss", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-loss"), adjustedLine: 3 }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
