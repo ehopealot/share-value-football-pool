@@ -31,6 +31,8 @@ A final losing leg settles the parlay immediately, as superseded by [`2026-09-03
 
 ### Teaser cap and legacy compatibility
 
+> **Superseded 2026-09-07:** while testing (no teaser tickets existed), the operator replaced the teaser prices in place under the unchanged `SHARE_POOL_2026_V1` ID and removed the seven-leg row entirely. There is no legacy seven-leg table, envelope compatibility, or replay carve-out; the commitments below are historical.
+
 - New teaser quotes and fresh placements permit **2–6 legs**; ten-point teasers remain exactly three legs.
 - The legacy seven-leg teaser table remains available for settlement, regrade, and historical views.
 - Parsing stays compatible with a seven-leg legacy quote/placement envelope long enough to find an exact stored replay. Worker replay deliberately requires a successful D1 registry resolution from slug to PoolDO; after that resolution, the stored replay runs before PoolDO view work, mutable offer lookup, or placement revalidation. A registry outage remains a retryable pool-availability failure rather than introducing a second durable directory or naming migration. After replay misses, HTTP and PoolDO paths reject fresh seven-leg quote/placement attempts before any mutation. This preserves a previously successful seven-leg placement whose response was lost while preventing new seven-leg tickets.
