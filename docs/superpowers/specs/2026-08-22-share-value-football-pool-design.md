@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-22
 
-**Status:** Approved by the operator on 2026-08-22; parlay deferral and fresh teaser 2–7-leg rules are superseded by [`2026-09-02-parlays-six-leg-cap-design.md`](../../plans/2026-09-02-parlays-six-leg-cap-design.md). Its seven-leg teaser table remains historical settlement/regrade compatibility only.
+**Status:** Approved by the operator on 2026-08-22; parlay deferral and fresh teaser 2–7-leg rules are superseded by [`2026-09-02-parlays-six-leg-cap-design.md`](../../plans/2026-09-02-parlays-six-leg-cap-design.md). Its seven-leg teaser table was later removed entirely during testing-phase repricing.
 **Product record:** [`PRODUCT.md`](../../../PRODUCT.md)
 
 ## 1. Objective
@@ -158,7 +158,9 @@ Member holdings are `available + locked`. Member notional value is holdings mult
 
 ### 6.3 Fixed Share Pool teaser table
 
-The application publishes one immutable `SHARE_POOL_2026_V1` house table, derived from a long-running BookMaker football teaser table and normalized to one system-wide mixed-league rule. It is canonical for this application, not represented as an industry-universal table.
+The application publishes one house teaser table, normalized to one system-wide mixed-league rule. It is canonical for this application, not represented as an industry-universal table.
+
+> **Superseded 2026-09-07:** while testing (no teaser tickets existed), the operator replaced the original BookMaker-derived prices below with a new -110-based 2–6-leg card under the unchanged `SHARE_POOL_2026_V1` ID; the seven-leg row is gone. The table below is retained as history only.
 
 | Legs | 6 pts | 6.5 pts | 7 pts | 7.5 pts | 10 pts |
 |---:|---:|---:|---:|---:|---:|
@@ -169,7 +171,7 @@ The application publishes one immutable `SHARE_POOL_2026_V1` house table, derive
 | 6 | +550 | +500 | +475 | +325 | — |
 | 7 | +800 | +700 | +600 | +445 | — |
 
-Thus regular teasers allow 2–7 legs and 10-point teasers require exactly 3 legs. The accepted American price and ruleset ID are stored on the ticket. A later system-wide ruleset ships under a new ID and affects only new tickets.
+Thus regular teasers originally allowed 2–7 legs and 10-point teasers require exactly 3 legs; current cards allow 2–6. The accepted American price and ruleset ID are stored on the ticket. A later system-wide ruleset ships under a new ID and affects only new tickets.
 
 ### 6.4 Teaser grading
 

@@ -153,7 +153,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     const quoteResponse = await member.fetch(request(`/api/p/${slug}/wagers/teasers/quote`, quoteRequest));
     expect(quoteResponse.status).toBe(200);
     const quote = await quoteResponse.json() as any;
-    expect(quote).toMatchObject({ acceptedOdds: -120, teaserPoints: 6, legs: [{ eventId, market: "spread", adjustedLine: 3 }, { eventId, market: "total", adjustedLine: 34 }] });
+    expect(quote).toMatchObject({ acceptedOdds: -110, teaserPoints: 6, legs: [{ eventId, market: "spread", adjustedLine: 3 }, { eventId, market: "total", adjustedLine: 34 }] });
     const placement = buildTeaserPlacement(quote, "same-game-wager", "same-game-place");
     const placeResponse = await member.fetch(request(`/api/p/${slug}/wagers/teasers/place`, placement));
     expect(placeResponse.status).toBe(200);
@@ -174,16 +174,16 @@ describe("T11 member read boundaries over the Worker API", () => {
     };
     const automatic = await authenticatedExport(member);
     expect(automatic).toMatchObject({
-      accounts: expect.arrayContaining([{ seasonId: "s1", memberId: "member", availableMicros: "2833333", lockedMicros: "0", rowVersion: expect.any(String) }]),
-      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1833333", profitMicros: "833333", settledOdds: -120, sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
+      accounts: expect.arrayContaining([{ seasonId: "s1", memberId: "member", availableMicros: "2909091", lockedMicros: "0", rowVersion: expect.any(String) }]),
+      settlements: [{ wagerId: "same-game-wager", resultVersion: `[["${eventId}","provider-1"]]`, outcome: "win", returnMicros: "1909091", profitMicros: "909091", settledOdds: -110, sourceResult: [result("provider-1", 24, 17)], reversalOf: null, actorId: "system", reason: null, id: expect.any(String), createdAt: expect.any(String) }],
       wagerCorrections: [], administrationAudit: [],
-      wagers: [expect.objectContaining({ wagerId: "same-game-wager", status: "won", riskMicros: "1000000", acceptedOdds: -120, outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ eventId, market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ eventId, market: "total", grade: "win", resultVersion: "provider-1" })] })]
+      wagers: [expect.objectContaining({ wagerId: "same-game-wager", status: "won", riskMicros: "1000000", acceptedOdds: -110, outcome: "won", returnMicros: "1909091", profitMicros: "909091", legs: [expect.objectContaining({ eventId, market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ eventId, market: "total", grade: "win", resultVersion: "provider-1" })] })]
     });
     expect((automatic.settlements[0].sourceResult as unknown[])).toHaveLength(1);
     const commissionerAutomatic = await authenticatedExport(owner);
     const commissionerWager = commissionerAutomatic.wagers[0] as Record<string, unknown>;
     expect(Object.keys(commissionerWager).sort()).toEqual(["confirmedAt", "legs", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
-    expect(commissionerWager).toMatchObject({ memberId: "member", memberDisplayName: "Member", weekStart: expect.any(String), performanceMicros: "833333" });
+    expect(commissionerWager).toMatchObject({ memberId: "member", memberDisplayName: "Member", weekStart: expect.any(String), performanceMicros: "909091" });
     expect(JSON.stringify(commissionerWager)).not.toMatch(/riskMicros|acceptedOdds|outcome|returnMicros|profitMicros|canonicalOfferProof|ownerMemberId/);
 
     const regrade = await owner.fetch(request(`/api/p/${slug}/admin/corrections/same-game-wager/regrade`, { reason: "Official correction", correctedResults: [result("official-2", 17, 24)], idempotencyKey: "same-game-regrade" }));
@@ -199,7 +199,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect(JSON.stringify(await authenticatedExport(member))).toBe(stable);
     await poll(result("provider-2", 28, 17));
     const corrected = await authenticatedExport(member);
-    expect(corrected.wagers[0]).toMatchObject({ status: "won", outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ grade: "win", resultVersion: "provider-2" }), expect.objectContaining({ grade: "win", resultVersion: "provider-2" })] });
+    expect(corrected.wagers[0]).toMatchObject({ status: "won", outcome: "won", returnMicros: "1909091", profitMicros: "909091", legs: [expect.objectContaining({ grade: "win", resultVersion: "provider-2" }), expect.objectContaining({ grade: "win", resultVersion: "provider-2" })] });
     expect(corrected.settlements.map(({ outcome }) => outcome)).toEqual(["win", "reversal", "loss", "reversal", "win"]);
     expect(corrected.wagerCorrections).toHaveLength(1);
     expect(corrected.administrationAudit).toHaveLength(1);
@@ -213,18 +213,18 @@ describe("T11 member read boundaries over the Worker API", () => {
       audit: [...state.storage.sql.exec("SELECT action, subject_id, reason, command_id FROM administration_audit ORDER BY rowid")],
       outbox: [...state.storage.sql.exec("SELECT event_type, version, delivered_at FROM outbox ORDER BY rowid")]
     }))).toEqual({
-      account: { available_micros: "2833333", locked_micros: "0", row_version: expect.any(String) }, season: { state: "active", float_micros: "2833333", notional_micros: "2000000" },
+      account: { available_micros: "2909091", locked_micros: "0", row_version: expect.any(String) }, season: { state: "active", float_micros: "2909091", notional_micros: "2000000" },
       wager: { status: "won", settled_result_version: `[["${eventId}","provider-2"]]` },
       legs: [{ event_id: eventId, league: "nfl", market: "spread", selection: "home", grade: "win", result_version: "provider-2" }, { event_id: eventId, league: "nfl", market: "total", selection: "over", grade: "win", result_version: "provider-2" }],
       ledger: [
         { available_delta: "2000000", locked_delta: "0", float_delta: "2000000", kind: "order", causation_id: expect.any(String) },
         { available_delta: "-1000000", locked_delta: "1000000", float_delta: "0", kind: "wager_lock", causation_id: "same-game-wager" },
-        { available_delta: "1833333", locked_delta: "-1000000", float_delta: "833333", kind: "settlement", causation_id: "same-game-wager" },
-        { available_delta: "-1833333", locked_delta: "1000000", float_delta: "-833333", kind: "settlement_reversal", causation_id: expect.stringMatching(/^reversal:/) },
+        { available_delta: "1909091", locked_delta: "-1000000", float_delta: "909091", kind: "settlement", causation_id: "same-game-wager" },
+        { available_delta: "-1909091", locked_delta: "1000000", float_delta: "-909091", kind: "settlement_reversal", causation_id: expect.stringMatching(/^reversal:/) },
         { available_delta: "0", locked_delta: "-1000000", float_delta: "-1000000", kind: "settlement", causation_id: "same-game-wager" },
         { available_delta: "0", locked_delta: "1000000", float_delta: "1000000", kind: "settlement_reversal", causation_id: expect.stringMatching(/^reversal:/) },
-        { available_delta: "1833333", locked_delta: "-1000000", float_delta: "833333", kind: "settlement", causation_id: "same-game-wager" }
-      ], settlements: [{ outcome: "win", return_micros: "1833333", profit_micros: "833333", actor_id: "system", reason: null }, { outcome: "reversal", return_micros: "-1833333", profit_micros: "-833333", actor_id: "owner", reason: "Official correction" }, { outcome: "loss", return_micros: "0", profit_micros: "0", actor_id: "owner", reason: "Official correction" }, { outcome: "reversal", return_micros: "0", profit_micros: "0", actor_id: "system", reason: null }, { outcome: "win", return_micros: "1833333", profit_micros: "833333", actor_id: "system", reason: null }],
+        { available_delta: "1909091", locked_delta: "-1000000", float_delta: "909091", kind: "settlement", causation_id: "same-game-wager" }
+      ], settlements: [{ outcome: "win", return_micros: "1909091", profit_micros: "909091", actor_id: "system", reason: null }, { outcome: "reversal", return_micros: "-1909091", profit_micros: "-909091", actor_id: "owner", reason: "Official correction" }, { outcome: "loss", return_micros: "0", profit_micros: "0", actor_id: "owner", reason: "Official correction" }, { outcome: "reversal", return_micros: "0", profit_micros: "0", actor_id: "system", reason: null }, { outcome: "win", return_micros: "1909091", profit_micros: "909091", actor_id: "system", reason: null }],
       audit: [{ action: "regrade_wager", subject_id: "same-game-wager", reason: "Official correction", command_id: "same-game-regrade" }],
       outbox: [
         ...["1", "2", "3", "4", "5"].map((version) => ({ event_type: "CommandApplied", version, delivered_at: null })),
