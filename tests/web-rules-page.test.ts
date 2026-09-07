@@ -6,7 +6,7 @@ import { TEASER_LEG_COUNTS, TEASER_PAYOUT_MATRIX, TEASER_POINT_OPTIONS } from ".
 import { RulesContent } from "../src/web/pages/RulesPage";
 
 const season = (state: "active" | "closed", label: string, rulesetVersion = "SHARE_POOL_2026_V1") => ({ id: `${state}-season`, label, state, rulesetVersion, createdAt: "2026-01-01T00:00:00.000Z", openedAt: "2026-01-02T00:00:00.000Z", closedAt: state === "closed" ? "2027-02-15T00:00:00.000Z" : null, ...(state === "closed" ? { closeReason: "complete" } : {}), defaultOrderMode: null, defaultOrderAmountMicros: null, floatMicros: "0", notionalValueMicros: "0" });
-const view = (active: boolean, closed: boolean) => ({ activeSeason: active ? season("active", "Active 2026") : null, latestClosedSeason: closed ? season("closed", "Closed 2025") : null });
+const view = (active: boolean, closed: boolean, commissionerRules: string | null = null) => ({ pool: { poolId: "p", slug: "pool", name: "Pool", commissionerId: "commissioner", signupsOpen: true, maxSideBetMicros: "800000000", commissionerNotice: null, commissionerRules }, activeSeason: active ? season("active", "Active 2026") : null, latestClosedSeason: closed ? season("closed", "Closed 2025") : null });
 const board = (status: "current" | "stale" | "provider-error" | "no-offer") => ({
   offers: status === "current" ? [
     { eventId: "event-1", league: "nfl", homeTeam: "Home", awayTeam: "Away", startsAt: "2030-09-01T12:00:00.000Z", market: "spread", canonicalBook: "DraftKings", retrievedAt: "2030-09-01T10:00:00.000Z", offerVersion: "v1", policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: -3 }] },
@@ -36,6 +36,15 @@ describe("truthful rules and feed presentation", () => {
     expect(render(view(false, false), board("no-offer"))).toContain("No active or closed season is available");
   });
 
+  it("shows commissioner rules only when the commissioner fills them in", () => {
+    expect(render(view(true, false), board("current"))).not.toContain("Commissioner rules");
+    const html = render(view(true, false, "Weekly picks are due by Sunday noon.\nTies carry over."), board("current"));
+    expect(html).toContain('<h2 class="table-ribbon" id="commissioner-rules-heading">Commissioner rules</h2>');
+    expect(html).toContain("Weekly picks are due by Sunday noon.");
+    expect(html).toContain("Ties carry over.");
+    expect(html.indexOf("Commissioner rules</h2>")).toBeLessThan(html.indexOf("Teaser payouts"));
+  });
+
   it("publishes the complete fixed teaser and parlay policies", () => {
     const html = render(view(true, false), board("current"));
     for (const legs of TEASER_LEG_COUNTS) {
@@ -55,7 +64,7 @@ describe("truthful rules and feed presentation", () => {
   });
 
   it("renders the persisted selected-season ruleset and refuses an unknown table", () => {
-    const unknownView = { activeSeason: season("active", "Future", "FUTURE_RULES_V9"), latestClosedSeason: season("closed", "Old") };
+    const unknownView = { ...view(true, true), activeSeason: season("active", "Future", "FUTURE_RULES_V9") };
     const html = render(unknownView, board("current"));
     expect(html).toContain("FUTURE_RULES_V9");
     expect(html).toContain("Unsupported ruleset");

@@ -58,6 +58,36 @@ describe("commissioner banner notice", () => {
     expect(settings()).toContain("Password changes require a recent sign-in.");
     expect(settings()).not.toContain("Password rotation requires recent authentication.");
     expect(settings()).not.toContain("Teaser risk is split evenly across its sides for this limit.");
+  });
+
+  it("exposes bounded commissioner rules controls that publish only when filled in", () => {
+    expect(settings()).toContain('aria-labelledby="commissioner-rules-settings-heading"');
+    expect(settings()).toContain('id="commissioner-rules"');
+    expect(settings()).toContain('id="commissioner-rules-help"');
+    expect(settings()).toContain("These appear on the Rules page when filled in.");
+    expect(settings()).toContain("maxLength={4000}");
+    expect(settings()).toContain('setCommissionerRules(value.pool.commissionerRules ?? "")');
+    expect(settings()).toContain("Save rules");
+    expect(settings()).toContain("Clear rules");
+    expect(settings()).toContain('view.pool.commissionerRules !== null');
+    expect(css()).toContain('.commissioner-rules-input { display: block; width: min(100%, 65ch); min-height: 10rem;');
+    expect(css()).toMatch(/\.commissioner-rules-text\s*\{[^}]*white-space:\s*pre-wrap/s);
+  });
+
+  it("rehydrates only the saved section so unrelated settings drafts survive a save", () => {
+    expect(settings()).toContain('const load = (sections: readonly SettingsSection[] = allSettingsSections)');
+    expect(settings()).toContain('for (const section of sections) hydrate[section](value);');
+    expect(settings()).toContain('const save = async (identity: string, createBody: () => Record<string, unknown>, sections: readonly SettingsSection[] = []) => {');
+    expect(settings()).toContain('save(`notice:${commissionerNotice}`, () => ({ commissionerNotice }), ["notice"])');
+    expect(settings()).toContain('save(`rules:${commissionerRules}`, () => ({ commissionerRules }), ["rules"])');
+    expect(settings()).toContain('save("clear-rules", () => ({ commissionerRules: null }), ["rules"])');
+    expect(settings()).toContain('save("rename", () => ({ poolName: name }), ["name"])');
+    // Password rotation and signup toggles own no long-lived draft, so they only refresh the view.
+    expect(settings()).toContain('save("rotate-password", () => ({ password }))');
+    expect(settings()).toContain('save(`signups:${nextSignups}`, () => ({ signupsOpen: nextSignups }))');
+  });
+
+  it("lays out settings sections and their notice fields", () => {
     expect(css()).toMatch(/\.pool-settings\s*\{[^}]*display:\s*grid[^}]*gap:/s);
     expect(css()).toMatch(/\.pool-settings-notice-field\s*\{[^}]*flex:\s*1 1 min\(100%, 65ch\)/s);
   });

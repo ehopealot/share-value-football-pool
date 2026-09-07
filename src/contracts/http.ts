@@ -19,7 +19,8 @@ export const createPoolRequest = z.object({
 export const joinPoolRequest = z.object({ displayName: z.string().trim().min(1).max(100).optional(), password, idempotencyKey, turnstileToken });
 export const updateMemberNicknameRequest = z.object({ displayName: z.string().trim().min(1).max(100), idempotencyKey });
 const commissionerNotice = z.string().trim().min(1).max(500);
-export const updatePoolSettingsRequest = z.object({ poolName: z.string().trim().min(1).max(100).optional(), password: password.optional(), signupsOpen: z.boolean().optional(), maxSideBet: z.string().regex(/^[1-9]\d*$/).optional(), commissionerNotice: commissionerNotice.nullable().optional(), idempotencyKey }).strict().refine((body) => body.poolName !== undefined || body.password !== undefined || body.signupsOpen !== undefined || body.maxSideBet !== undefined || body.commissionerNotice !== undefined, "At least one setting is required.");
+const commissionerRules = z.string().trim().min(1).max(4000);
+export const updatePoolSettingsRequest = z.object({ poolName: z.string().trim().min(1).max(100).optional(), password: password.optional(), signupsOpen: z.boolean().optional(), maxSideBet: z.string().regex(/^[1-9]\d*$/).optional(), commissionerNotice: commissionerNotice.nullable().optional(), commissionerRules: commissionerRules.nullable().optional(), idempotencyKey }).strict().refine((body) => body.poolName !== undefined || body.password !== undefined || body.signupsOpen !== undefined || body.maxSideBet !== undefined || body.commissionerNotice !== undefined || body.commissionerRules !== undefined, "At least one setting is required.");
 export const createSeasonRequest = z.object({ seasonId: z.string().min(1).max(128), label: z.string().trim().min(1).max(100), defaultOrder: z.object({ mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/) }).optional(), idempotencyKey });
 /** `reason` is a deprecated no-op retained for parse compatibility; active OpenSeason and ConfirmSuperBowl routes ignore it. */
 export const seasonCommandRequest = z.object({ idempotencyKey, reason: z.string().trim().min(1).max(500).optional() });
@@ -79,7 +80,7 @@ export const seasonOrders = z.object({ seasonId: z.string().min(1), orders: z.ar
 export const memberDirectoryEntry = z.object({ memberId: z.string().min(1), displayName: z.string().min(1), role: z.enum(["commissioner", "member"]), status: z.enum(["active", "suspended"]) }).strict();
 export const ReadPoolView = z.object({
   commandVersion: decimalString,
-  pool: z.object({ poolId: z.string().min(1), slug: z.string().min(1), name: z.string().min(1), commissionerId: z.string().min(1), signupsOpen: z.boolean(), maxSideBetMicros: positiveCanonicalIntegerText, commissionerNotice: commissionerNotice.nullable() }).strict(),
+  pool: z.object({ poolId: z.string().min(1), slug: z.string().min(1), name: z.string().min(1), commissionerId: z.string().min(1), signupsOpen: z.boolean(), maxSideBetMicros: positiveCanonicalIntegerText, commissionerNotice: commissionerNotice.nullable(), commissionerRules: commissionerRules.nullable() }).strict(),
   activeSeason: seasonSummary.nullable(), nextDraftSeason: seasonSummary.nullable(), latestClosedSeason: closedSeasonSummary.nullable(),
   currentMember: z.object({ memberId: z.string().min(1), role: z.enum(["commissioner", "member"]), seasonBalances: z.array(seasonBalance), hasUnreadBoard: z.boolean() }).strict(),
   members: z.array(memberDirectoryEntry), commissioner: z.object({ seasonOrders: z.array(seasonOrders) }).strict().nullable()

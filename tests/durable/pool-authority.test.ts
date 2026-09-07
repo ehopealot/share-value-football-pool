@@ -183,6 +183,31 @@ describe("PoolDO authority", () => {
     expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-cleared", actorId: "member" })).body).toMatchObject({ pool: { commissionerNotice: null } });
   }, 90_000);
 
+  it("authorizes, replays, replaces, and clears commissioner rules without touching wagering state", async () => {
+    const slug = `rules-authority-${crypto.randomUUID()}`;
+    await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Rules authority", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
+    await send(slug, { type: "JoinPool", commandId: "join", actorId: "member", displayName: "Member", password: "correct-password" });
+    const baseline = await send(slug, { type: "ReadPoolView", commandId: "baseline", actorId: "owner" });
+
+    const set = { type: "UpdatePoolSettings" as const, commandId: "set-rules", actorId: "owner", commissionerRules: "Weekly picks are due by Sunday noon." };
+    const first = await send(slug, set);
+    // Rules-only updates are informational: the pool command version never moves.
+    expect(first.body).toMatchObject({ commandVersion: (baseline.body as any).commandVersion });
+    expect((await send(slug, set)).body).toEqual(first.body);
+    expect((await send(slug, { ...set, commissionerRules: "Changed with the same key." })).body).toEqual({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "member-rules", actorId: "member", commissionerRules: "Forged" })).body).toEqual({ code: "FORBIDDEN" });
+    for (const [commissionerRules, commandId] of [["", "blank-rules"], ["   ", "whitespace-rules"], ["x".repeat(4001), "overlong-rules"]] as const) {
+      expect((await send(slug, { type: "UpdatePoolSettings", commandId, actorId: "owner", commissionerRules })).body).toEqual({ code: "INVALID_COMMAND" });
+    }
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "unknown-rules", actorId: "owner", commissionerRules: "Rules", unexpected: true } as PoolCommand)).body).toEqual({ code: "INVALID_COMMAND" });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-set", actorId: "member" })).body).toMatchObject({ pool: { commissionerRules: "Weekly picks are due by Sunday noon.", commissionerNotice: null } });
+
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "replace-rules", actorId: "owner", commissionerRules: "Picks now lock at kickoff." })).body).toMatchObject({ commandVersion: expect.any(String) });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-replaced", actorId: "member" })).body).toMatchObject({ pool: { commissionerRules: "Picks now lock at kickoff." } });
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "clear-rules", actorId: "owner", commissionerRules: null })).body).toMatchObject({ commandVersion: expect.any(String) });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "member-read-cleared", actorId: "member" })).body).toMatchObject({ pool: { commissionerRules: null } });
+  }, 90_000);
+
   it("enforces membership, season, idempotency, and suspension authorization rules", async () => {
     const slug = `pool-${crypto.randomUUID()}`;
     const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Friday Pool", creatorId: "owner", creatorName: "Owner", password: "correct-password" };
