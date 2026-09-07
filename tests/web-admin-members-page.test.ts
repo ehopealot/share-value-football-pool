@@ -66,8 +66,12 @@ describe("member administration", () => {
     expect(AdminMembersPage().key).toBe("pool");
   });
 
-  it("shows email beneath the member name only on the commissioner screen", () => {
-    expect(renderToStaticMarkup(renderPage())).toContain('Alice<small class="admin-member-email">alice@example.test</small>');
+  it("shows email in its own column with headers only on the commissioner screen", () => {
+    const table = renderToStaticMarkup(renderPage());
+    expect(table).toContain('<th scope="row">Alice</th><td class="admin-member-email">alice@example.test</td>');
+    for (const label of ["Name", "Email", "Role", "Status"]) expect(table).toContain(`<th scope="col">${label}</th>`);
+    expect(table).toContain('<th scope="colgroup" colSpan="2">Actions</th>');
+    expect(css).toContain('.admin-member-email { overflow-wrap: anywhere; }');
     hooks.values[0] = { ...fixture, currentMember: { ...fixture.currentMember, role: "member" } };
     const html = renderToStaticMarkup(renderPage());
     expect(html).toContain("Only the commissioner");
