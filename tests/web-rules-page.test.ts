@@ -60,6 +60,10 @@ describe("truthful rules and feed presentation", () => {
     expect(html).toContain("seven-leg row applies only to previously accepted legacy tickets");
     expect(html).toContain("New teaser tickets are capped at six legs");
     for (const price of ["-120", "+150", "+235", "+350", "+550", "+800"]) expect(html).toContain(price);
+    // The operator card prices 6-point teasers relative to a -110 two-leg base.
+    for (const price of ["-110", "+165", "+265", "+405", "+595", "+860"]) expect(html).toContain(price);
+    expect(html).toContain("Teaser payouts: TEASER_2026_V2</h2>");
+    expect(html.indexOf("Teaser payouts: TEASER_2026_V2")).toBeLessThan(html.indexOf("Parlays: PARLAY_2026_V1"));
     for (const text of ["PARLAY_2026_V1", "2–6 legs", "spreads, totals, and moneylines", "one spread or moneyline", "-133", "settles as soon as any final leg loses", "Wins and refunds wait until all legs are final", "Pushes and voids are removed and surviving legs are repriced"]) expect(html).toContain(text);
   });
 
@@ -70,5 +74,14 @@ describe("truthful rules and feed presentation", () => {
     expect(html).toContain("Unsupported ruleset");
     expect(html).not.toContain("Teaser payouts: SHARE_POOL_2026_V1");
     expect(html).not.toContain("Fixed system teaser prices");
+  });
+
+  it("publishes the retired card for previously accepted teaser tickets", () => {
+    const html = render(view(true, false), board("current"));
+    expect(html).toContain('Legacy teaser payouts: SHARE_POOL_2026_V1</h3>');
+    expect(html.indexOf("Teaser payouts: TEASER_2026_V2")).toBeLessThan(html.indexOf("Legacy teaser payouts"));
+    expect(html).toContain("keep these prices for settlement, including push repricing");
+    // A price unique to the retired card proves the legacy matrix renders.
+    expect(html).toContain("+475");
   });
 });

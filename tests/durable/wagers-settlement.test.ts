@@ -110,7 +110,7 @@ describe("PoolDO wagers and settlement", () => {
 
   it("grades completed winning legs while a multi-leg ticket stays in process", async () => {
     const slug = await fundedPool();
-    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-partial-win", actorId: "member", wagerId: "teaser-partial-win", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-win-now"), adjustedLine: 3 }, { ...leg("teaser-later"), adjustedLine: 3 }] });
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-partial-win", actorId: "member", wagerId: "teaser-partial-win", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [{ ...leg("teaser-win-now"), adjustedLine: 3 }, { ...leg("teaser-later"), adjustedLine: 3 }] });
     await storage(slug, (state) => settleWagers(state.storage.sql, [final("teaser-win-now", "partial", 24, 17)]));
     expect(await storage(slug, (state) => ({
       wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='teaser-partial-win'")][0],
@@ -122,7 +122,7 @@ describe("PoolDO wagers and settlement", () => {
 
   it("settles a teaser as soon as one final leg loses", async () => {
     const slug = await fundedPool();
-    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-early-loss", actorId: "member", wagerId: "teaser-early-loss", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-loss"), adjustedLine: 3 }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-early-loss", actorId: "member", wagerId: "teaser-early-loss", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [{ ...leg("teaser-loss"), adjustedLine: 3 }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
     await storage(slug, (state) => settleWagers(state.storage.sql, [final("teaser-loss", "partial", 10, 17)]));
     expect(await storage(slug, (state) => ({
       wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='teaser-early-loss'")][0],
@@ -134,7 +134,7 @@ describe("PoolDO wagers and settlement", () => {
   it("keeps non-losing partial multi-leg results open", async () => {
     const slug = await fundedPool();
     await send(slug, { type: "PlaceParlayWager", commandId: "parlay-partial-win", actorId: "member", wagerId: "parlay-partial-win", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("parlay-win"), parlayLeg("parlay-pending")] });
-    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-partial-push", actorId: "member", wagerId: "teaser-partial-push", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-push"), originalLine: -6, adjustedLine: 0, canonicalOfferProof: { ...leg("teaser-push").canonicalOfferProof, line: -6 } }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-partial-push", actorId: "member", wagerId: "teaser-partial-push", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [{ ...leg("teaser-push"), originalLine: -6, adjustedLine: 0, canonicalOfferProof: { ...leg("teaser-push").canonicalOfferProof, line: -6 } }, { ...leg("teaser-pending"), adjustedLine: 3 }] });
     await storage(slug, (state) => settleWagers(state.storage.sql, [final("parlay-win", "v1", 24, 17), final("teaser-push", "v1", 17, 17)]));
     expect(await storage(slug, (state) => ({ wagers: [...state.storage.sql.exec("SELECT id,status FROM wager WHERE id IN ('parlay-partial-win','teaser-partial-push') ORDER BY id")], account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0], settlements: [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM settlement")][0] }))).toEqual({ wagers: [{ id: "parlay-partial-win", status: "open" }, { id: "teaser-partial-push", status: "open" }], account: { available_micros: "1000000", locked_micros: "2000000" }, settlements: { count: 0 } });
   }, 90_000);
@@ -205,7 +205,7 @@ describe("PoolDO wagers and settlement", () => {
     const teaserSlug = await fundedPool(`side-limit-teaser-${crypto.randomUUID()}`);
     await storage(teaserSlug, (state) => state.storage.sql.exec("UPDATE share_account SET available_micros = '7000000000' WHERE season_id = 's1' AND member_id = 'member'"));
     await send(teaserSlug, { type: "UpdatePoolSettings", commandId: "raise-side-limit", actorId: "owner", maxSideBetMicros: "1600000000" });
-    const teaser: any = { type: "PlaceTeaserWager", commandId: "side-limit-teaser", actorId: "member", wagerId: "side-limit-teaser", seasonId: "s1", riskMicros: "1600000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-side-one"), adjustedLine: 3 }, { ...leg("teaser-side-two"), adjustedLine: 3 }] };
+    const teaser: any = { type: "PlaceTeaserWager", commandId: "side-limit-teaser", actorId: "member", wagerId: "side-limit-teaser", seasonId: "s1", riskMicros: "1600000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [{ ...leg("teaser-side-one"), adjustedLine: 3 }, { ...leg("teaser-side-two"), adjustedLine: 3 }] };
     expect(await send(teaserSlug, teaser)).toMatchObject({ wagerId: "side-limit-teaser" });
     expect(await send(teaserSlug, { ...teaser, commandId: "side-limit-teaser-second", wagerId: "side-limit-teaser-second" })).toMatchObject({ wagerId: "side-limit-teaser-second" });
     expect(await send(teaserSlug, { ...teaser, commandId: "side-limit-ticket-over", wagerId: "side-limit-ticket-over", riskMicros: "1601000000", legs: [{ ...leg("ticket-limit-one"), adjustedLine: 3 }, { ...leg("ticket-limit-two"), adjustedLine: 3 }] })).toEqual({ code: "SIDE_BET_LIMIT", maxSideBetMicros: "1600000000" });
@@ -241,7 +241,7 @@ describe("PoolDO wagers and settlement", () => {
   it("returns every violating side when a straight, teaser, or parlay also exceeds the ticket cap", async () => {
     const cases = [
       { name: "straight", legCount: 1, place: (legs: any[]) => ({ type: "PlaceStraightWager", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: legs[0] }) },
-      { name: "teaser", legCount: 2, place: (legs: any[]) => ({ type: "PlaceTeaserWager", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: legs.map((item) => ({ ...item, adjustedLine: 3 })) }) },
+      { name: "teaser", legCount: 2, place: (legs: any[]) => ({ type: "PlaceTeaserWager", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: legs.map((item) => ({ ...item, adjustedLine: 3 })) }) },
       { name: "parlay", legCount: 2, place: (legs: any[]) => ({ type: "PlaceParlayWager", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs }) }
     ];
     for (const testCase of cases) {
@@ -267,7 +267,7 @@ describe("PoolDO wagers and settlement", () => {
   it("places identical straight, teaser, and parlay quotes after the pool command version advances", async () => {
     const cases = [
       { name: "straight", command: { type: "PlaceStraightWager", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("rebased-straight") } },
-      { name: "teaser", command: { type: "PlaceTeaserWager", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("rebased-teaser-one"), adjustedLine: 3 }, { ...leg("rebased-teaser-two"), adjustedLine: 3 }] } },
+      { name: "teaser", command: { type: "PlaceTeaserWager", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [{ ...leg("rebased-teaser-one"), adjustedLine: 3 }, { ...leg("rebased-teaser-two"), adjustedLine: 3 }] } },
       { name: "parlay", command: { type: "PlaceParlayWager", acceptedOdds: 250, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("rebased-parlay", "spread", -3, "home"), parlayLeg("rebased-parlay", "total", 40, "over")] } }
     ];
     for (const testCase of cases) {
@@ -432,7 +432,7 @@ describe("PoolDO wagers and settlement", () => {
     const voidOffer = leg("teaser-void", startsAt);
     const pushLeg = { ...pushOffer, originalLine: -6, canonicalOfferProof: { ...pushOffer.canonicalOfferProof, line: -6 } };
     const voidLeg = { ...voidOffer, canonicalOfferProof: { ...voidOffer.canonicalOfferProof, line: -3 } };
-    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-place", actorId: "member", wagerId: "teaser-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...pushLeg, adjustedLine: 0 }, { ...voidLeg, adjustedLine: 3 }] });
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-place", actorId: "member", wagerId: "teaser-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [{ ...pushLeg, adjustedLine: 0 }, { ...voidLeg, adjustedLine: 3 }] });
     const kickoff = new Date(startsAt).getTime();
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, { getFinalResults: async () => [{ eventId: "teaser-push", league: "nfl", status: "final", homeScore: 17, awayScore: 17, correctionVersion: "1" }] }, kickoff));
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT status FROM wager WHERE id = 'teaser-wager'")][0])).toEqual({ status: "open" });
@@ -558,7 +558,7 @@ describe("PoolDO wagers and settlement", () => {
     const eventId = "same-game";
     const spread = { ...leg(eventId), adjustedLine: 3 };
     const total = { ...leg(eventId), market: "total" as const, selection: "over" as const, originalLine: 40, adjustedLine: 34, canonicalOfferProof: { ...spread.canonicalOfferProof, offerId: `${eventId}:total:over`, market: "total" as const, selection: "over" as const, line: 40 } };
-    await send(slug, { type: "PlaceTeaserWager", commandId: "same-place", actorId: "member", wagerId: "same-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -120, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [spread, total] });
+    await send(slug, { type: "PlaceTeaserWager", commandId: "same-place", actorId: "member", wagerId: "same-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: [spread, total] });
     const stub = bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug));
     const poll = (result: FinalResultVersion) => runInDurableObject(stub, async (_instance, state) => runSettlementAlarm(state, bindings.DB, { getFinalResults: async () => [result] }, new Date(String((await reconciliation(slug, eventId)).next_attempt_at)).getTime()));
     await poll(final(eventId, "provider-1", 24, 17));
@@ -567,7 +567,7 @@ describe("PoolDO wagers and settlement", () => {
       account: [...state.storage.sql.exec("SELECT available_micros, locked_micros FROM share_account WHERE season_id = 's1' AND member_id = 'member'")][0],
       grades: [...state.storage.sql.exec("SELECT grade, result_version FROM wager_leg WHERE wager_id = 'same-wager' ORDER BY id")],
       source: JSON.parse(String([...state.storage.sql.exec("SELECT source_result_json FROM settlement WHERE wager_id = 'same-wager' AND outcome <> 'reversal' ORDER BY rowid DESC LIMIT 1")][0].source_result_json))
-    }))).toEqual({ wager: { status: "won" }, account: { available_micros: "3833333", locked_micros: "0" }, grades: [{ grade: "win", result_version: "provider-1" }, { grade: "win", result_version: "provider-1" }], source: [final(eventId, "provider-1", 24, 17)] });
+    }))).toEqual({ wager: { status: "won" }, account: { available_micros: "3909091", locked_micros: "0" }, grades: [{ grade: "win", result_version: "provider-1" }, { grade: "win", result_version: "provider-1" }], source: [final(eventId, "provider-1", 24, 17)] });
 
     expect(await send(slug, { type: "RegradeWager", commandId: "same-regrade", actorId: "owner", wagerId: "same-wager", reason: "Official correction", correctedResults: [correctionEvidence(eventId, "official-2", 17, 24)] })).toMatchObject({ commandVersion: expect.any(String) });
     const corrected = await storage(slug, (state) => ({
@@ -585,8 +585,8 @@ describe("PoolDO wagers and settlement", () => {
 
   it("canonically regrades teasers from corrected event evidence", async () => {
     const cases = [
-      { name: "push reduction", scores: [[24, 17, "final"], [21, 17, "final"], [14, 17, "final"]] as const, expectedStatus: "won", expectedAvailable: "3833333", expectedProfit: "833333" },
-      { name: "void reduction", scores: [[24, 17, "final"], [21, 17, "final"], [0, 0, "cancelled"]] as const, expectedStatus: "won", expectedAvailable: "3833333", expectedProfit: "833333" },
+      { name: "push reduction", scores: [[24, 17, "final"], [21, 17, "final"], [14, 17, "final"]] as const, expectedStatus: "won", expectedAvailable: "3909091", expectedProfit: "909091" },
+      { name: "void reduction", scores: [[24, 17, "final"], [21, 17, "final"], [0, 0, "cancelled"]] as const, expectedStatus: "won", expectedAvailable: "3909091", expectedProfit: "909091" },
       { name: "below minimum", scores: [[24, 17, "final"], [14, 17, "final"]] as const, expectedStatus: "refunded", expectedAvailable: "3000000", expectedProfit: "0" },
       { name: "loss precedence", scores: [[24, 17, "final"], [0, 0, "cancelled"], [10, 17, "final"]] as const, expectedStatus: "lost", expectedAvailable: "2000000", expectedProfit: "0" }
     ];
@@ -594,8 +594,8 @@ describe("PoolDO wagers and settlement", () => {
       const slug = await fundedPool();
       const eventIds = testCase.scores.map((_, index) => `${testCase.name}-${index}`);
       const legs = eventIds.map((eventId) => ({ ...leg(eventId), adjustedLine: 3 }));
-      const acceptedOdds = legs.length === 3 ? 150 : -120;
-      await send(slug, { type: "PlaceTeaserWager", commandId: `place-${testCase.name}`, actorId: "member", wagerId: `wager-${testCase.name}`, seasonId: "s1", riskMicros: "1000000", acceptedOdds, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs });
+      const acceptedOdds = legs.length === 3 ? 165 : -110;
+      await send(slug, { type: "PlaceTeaserWager", commandId: `place-${testCase.name}`, actorId: "member", wagerId: `wager-${testCase.name}`, seasonId: "s1", riskMicros: "1000000", acceptedOdds, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs });
       const correctedResults = testCase.scores.map(([home, away, status], index) => correctionEvidence(eventIds[index], `manual-${index}`, home, away, status));
       expect(await send(slug, { type: "RegradeWager", commandId: `correct-${testCase.name}`, actorId: "owner", wagerId: `wager-${testCase.name}`, reason: "Corrected event results", correctedResults }), testCase.name).toMatchObject({ commandVersion: expect.any(String) });
       expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id = ?", `wager-${testCase.name}`)][0], account: [...state.storage.sql.exec("SELECT available_micros FROM share_account WHERE season_id = 's1' AND member_id = 'member'")][0], settlement: [...state.storage.sql.exec("SELECT profit_micros FROM settlement WHERE wager_id = ? AND outcome <> 'reversal' ORDER BY rowid DESC LIMIT 1", `wager-${testCase.name}`)][0] })), testCase.name).toEqual({ wager: { status: testCase.expectedStatus }, account: { available_micros: testCase.expectedAvailable }, settlement: { profit_micros: testCase.expectedProfit } });
@@ -603,7 +603,7 @@ describe("PoolDO wagers and settlement", () => {
 
     const stableSlug = await fundedPool();
     const stableEvents = ["stable-teaser-1", "stable-teaser-2", "stable-teaser-3"];
-    await send(stableSlug, { type: "PlaceTeaserWager", commandId: "stable-teaser-place", actorId: "member", wagerId: "stable-teaser", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 150, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: stableEvents.map((eventId) => ({ ...leg(eventId), adjustedLine: 3 })) });
+    await send(stableSlug, { type: "PlaceTeaserWager", commandId: "stable-teaser-place", actorId: "member", wagerId: "stable-teaser", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 165, teaserPoints: 6, rulesetVersion: "TEASER_2026_V2", legs: stableEvents.map((eventId) => ({ ...leg(eventId), adjustedLine: 3 })) });
     const stableStub = bindings.POOL_DO.get(bindings.POOL_DO.idFromName(stableSlug));
     const providerResults = stableEvents.map((eventId) => final(eventId, "provider-1"));
     const poll = () => runInDurableObject(stableStub, async (_instance, state) => runSettlementAlarm(state, bindings.DB, { getFinalResults: async () => providerResults }, Math.max(...(await Promise.all(stableEvents.map(async (eventId) => new Date(String((await reconciliation(stableSlug, eventId)).next_attempt_at)).getTime()))))));

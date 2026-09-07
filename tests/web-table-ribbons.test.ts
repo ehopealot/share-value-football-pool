@@ -21,7 +21,7 @@ describe("table ribbons", () => {
     expect(odds).toContain('<table aria-label="Current odds" className="odds-board">');
     expect(standings).toContain('className="table-ribbon">Active season holdings</h2>');
     expect(rules).toContain('className="table-ribbon" id="season-rules-heading">Applicable season</h2>');
-    expect(rules).toContain('className="table-ribbon" id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>');
+    expect(rules).toContain('className="table-ribbon" id="teaser-rules-heading">Teaser payouts: {TEASER_RULESET_ID}</h2>');
     expect(rules).toContain('className="table-ribbon">Feed status</h3>');
     expect(overview).toContain('className="table-ribbon">Current account</h2>');
     expect(orders).toContain('className="table-ribbon">Order history</h2>');

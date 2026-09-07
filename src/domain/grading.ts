@@ -1,4 +1,4 @@
-import { teaserOdds, type TeaserPoints } from "./teaser-table";
+import { teaserOdds, teaserOddsForRuleset, type TeaserPoints } from "./teaser-table";
 import type { LegGrade, ScoreResult, TeaserLeg } from "./types";
 
 /** Validates the selection pair for a typed/canonical market; callers must supply a supported market. */
@@ -64,10 +64,10 @@ export function validateTeaser(legs: TeaserLeg[], points: TeaserPoints): void {
   }
 }
 
-export function gradeTeaser(grades: LegGrade[], points: TeaserPoints): { outcome: "win" | "loss" | "refund"; odds?: number; winningLegs: number } {
+export function gradeTeaser(grades: LegGrade[], points: TeaserPoints, rulesetVersion: string): { outcome: "win" | "loss" | "refund"; odds?: number; winningLegs: number } {
   const winningLegs = grades.filter((grade) => grade === "win").length;
   if (grades.includes("loss")) return { outcome: "loss", winningLegs };
   if (grades.includes("pending")) throw new Error("Cannot grade a teaser with a pending leg.");
-  const odds = teaserOdds(winningLegs, points);
+  const odds = teaserOddsForRuleset(rulesetVersion, winningLegs, points);
   return odds === undefined ? { outcome: "refund", winningLegs } : { outcome: "win", odds, winningLegs };
 }
