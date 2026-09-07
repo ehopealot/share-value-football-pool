@@ -58,7 +58,7 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   const exported = async () => page.evaluate(async (poolSlug) => (await (await fetch(`/api/p/${poolSlug}/export`)).json()), slug) as Promise<any>;
   const automatic = await exported();
   expect(automatic.settlements[0].sourceResult).toEqual([{ eventId: "local-nfl-upcoming", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "provider-1", eventName: null, postseason: false }]);
-  expect(automatic.wagers[0]).toMatchObject({ wagerId, type: "teaser", status: "won", riskMicros: "1000000", acceptedOdds: -120, outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ market: "total", grade: "win", resultVersion: "provider-1" })] });
+  expect(automatic.wagers[0]).toMatchObject({ wagerId, type: "teaser", status: "won", riskMicros: "1000000", acceptedOdds: -110, outcome: "won", returnMicros: "1909091", profitMicros: "909091", legs: [expect.objectContaining({ market: "spread", grade: "win", resultVersion: "provider-1" }), expect.objectContaining({ market: "total", grade: "win", resultVersion: "provider-1" })] });
   expect(JSON.stringify(automatic)).not.toMatch(/canonicalOfferProof|ownerMemberId/);
 
   const authorizedRow = page.getByRole("table", { name: "Eligible active-season wagers" }).locator("tbody tr").filter({ hasText: /nfl|ncaaf/ }).first();
@@ -86,7 +86,7 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   expect(await page.evaluate(async (body) => (await fetch("/__local-test/result", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).status, result(28, 17, "provider-2"))).toBe(200);
   expect(await trigger(new Date(alarmAt.getTime() + 25 * 60 * 60_000))).toBe(200);
   const providerCorrection = await exported();
-  expect(providerCorrection.wagers[0]).toMatchObject({ status: "won", outcome: "won", returnMicros: "1833333", profitMicros: "833333", legs: [expect.objectContaining({ grade: "win", resultVersion: "provider-2" }), expect.objectContaining({ grade: "win", resultVersion: "provider-2" })] });
+  expect(providerCorrection.wagers[0]).toMatchObject({ status: "won", outcome: "won", returnMicros: "1909091", profitMicros: "909091", legs: [expect.objectContaining({ grade: "win", resultVersion: "provider-2" }), expect.objectContaining({ grade: "win", resultVersion: "provider-2" })] });
   expect(providerCorrection.settlements.map((entry: any) => entry.outcome)).toEqual(["win", "reversal", "loss", "reversal", "win"]);
   expect(providerCorrection.wagerCorrections).toEqual(manual.wagerCorrections);
   expect(providerCorrection.administrationAudit).toEqual(manual.administrationAudit);

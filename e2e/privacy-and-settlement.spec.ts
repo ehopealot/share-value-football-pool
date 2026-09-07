@@ -644,7 +644,7 @@ test("fixture close archives the season for members with append-only commissione
     await expect(finalAccounting).toContainText("4.00 shares");
     await expect(finalAccounting.getByRole("row", { name: "Ruleset version SHARE_POOL_2026_V1" })).toBeVisible();
     const archivedRules = member.getByRole("link", { name: "matching immutable SHARE_POOL_2026_V1 payout table" });
-    await expect(archivedRules).toHaveAttribute("href", `/p/${slug}/rules#teaser-rules-heading`);
+    await expect(archivedRules).toHaveAttribute("href", `/p/${slug}/rules#legacy-teaser-rules-heading`);
     await expect(member.getByText(/This archived version remains authoritative/)).toBeVisible();
     await expect(member.getByRole("table", { name: "Every season account" })).toContainText(commissionerName);
     await expect(member.getByRole("table", { name: "Final rank by share holdings" })).toContainText("3.00");

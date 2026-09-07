@@ -27,6 +27,7 @@ export function WagerRulesetGuidance({ slug, wager }: { slug: string; wager: { w
   if (wager.type === "teaser") {
     if (wager.rulesetVersion === TEASER_RULESET_ID) return <p>Teaser ticket rules: <Link to={`/p/${slug}/rules#teaser-rules-heading`}>matching immutable {TEASER_RULESET_ID} payout table</Link>.</p>;
     if (wager.rulesetVersion === LEGACY_TEASER_RULESET_ID) return <p>Teaser ticket rules: <Link to={`/p/${slug}/rules#legacy-teaser-rules-heading`}>matching immutable {LEGACY_TEASER_RULESET_ID} payout table</Link>.</p>;
+    return <p role="alert" className="error-summary">Unsupported teaser ruleset: {wager.rulesetVersion}. No matching immutable payout table is available.</p>;
   }
   return null;
 }

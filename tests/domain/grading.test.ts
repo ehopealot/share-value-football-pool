@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adjustTeaserLine, gradeLeg, gradeTeaser, teaserSelectionConflict, validateTeaser } from "../../src/domain/grading";
-import { LEGACY_TEASER_PAYOUT_MATRIX, LEGACY_TEASER_RULESET_ID, SHARE_POOL_RULESET_ID, TEASER_LEG_COUNTS, TEASER_PAYOUT_MATRIX, TEASER_POINT_OPTIONS, TEASER_RULESET_ID, teaserOdds, teaserOddsForRuleset } from "../../src/domain/teaser-table";
+import { isSupportedTeaserRuleset, LEGACY_TEASER_PAYOUT_MATRIX, LEGACY_TEASER_RULESET_ID, SHARE_POOL_RULESET_ID, TEASER_LEG_COUNTS, TEASER_PAYOUT_MATRIX, TEASER_POINT_OPTIONS, TEASER_RULESET_ID, teaserOdds, teaserOddsForRuleset } from "../../src/domain/teaser-table";
 import type { TeaserLeg } from "../../src/domain/types";
 
 const side = (selection: "home" | "away", line: number): Extract<TeaserLeg, { market: "spread" }> => ({ eventId: "game-1", market: "spread", selection, line });
@@ -25,16 +25,17 @@ describe("straight and teaser grading", () => {
 
   it("pins the complete immutable teaser payout matrix and versioned ruleset identity", () => {
     const points = [6, 6.5, 7, 7.5, 10] as const;
-    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6]);
     expect(TEASER_POINT_OPTIONS).toEqual([6, 6.5, 7, 7.5, 10]);
-    expect([2, 3, 4, 5, 6, 7].map((legs) => points.map((adjustment) => teaserOdds(legs, adjustment)))).toEqual([
+    expect(TEASER_LEG_COUNTS.map((legs) => points.map((adjustment) => teaserOdds(legs, adjustment)))).toEqual([
       [-110, -120, -130, -150, undefined],
       [165, 150, 135, 105, -110],
       [265, 235, 215, 140, undefined],
       [405, 350, 320, 235, undefined],
-      [595, 550, 500, 325, undefined],
-      [860, 800, 700, 445, undefined]
+      [595, 550, 500, 325, undefined]
     ]);
+    // Seven legs exist only on the retired card and can no longer be placed.
+    expect(teaserOdds(7, 6)).toBeUndefined();
     expect(SHARE_POOL_RULESET_ID).toBe("SHARE_POOL_2026_V1");
     expect(TEASER_RULESET_ID).toBe("TEASER_2026_V2");
     expect(teaserOddsForRuleset).toBeTypeOf("function");
@@ -53,6 +54,9 @@ describe("straight and teaser grading", () => {
     expect(teaserOddsForRuleset(LEGACY_TEASER_RULESET_ID, 2, 6)).toBe(-120);
     expect(teaserOddsForRuleset(TEASER_RULESET_ID, 2, 6)).toBe(-110);
     expect(teaserOddsForRuleset("TEASER_FUTURE_V9", 2, 6)).toBeUndefined();
+    expect(isSupportedTeaserRuleset(TEASER_RULESET_ID)).toBe(true);
+    expect(isSupportedTeaserRuleset(LEGACY_TEASER_RULESET_ID)).toBe(true);
+    expect(isSupportedTeaserRuleset("TEASER_FUTURE_V9")).toBe(false);
     expect(Object.isFrozen(LEGACY_TEASER_PAYOUT_MATRIX)).toBe(true);
     for (const row of Object.values(LEGACY_TEASER_PAYOUT_MATRIX)) expect(Object.isFrozen(row)).toBe(true);
     expect(() => ((LEGACY_TEASER_PAYOUT_MATRIX as Record<number, Record<number, number>>)[3][10] = 999)).toThrow(TypeError);
@@ -71,7 +75,7 @@ describe("straight and teaser grading", () => {
     expect(() => ((TEASER_PAYOUT_MATRIX as Record<number, Record<number, number>>)[3][10] = 999)).toThrow(TypeError);
 
     expect(TEASER_POINT_OPTIONS).toEqual([6, 6.5, 7, 7.5, 10]);
-    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(TEASER_LEG_COUNTS).toEqual([2, 3, 4, 5, 6]);
     expect(teaserOdds(3, 10)).toBe(-110);
   });
 
@@ -107,7 +111,10 @@ describe("straight and teaser grading", () => {
     expect(gradeTeaser(["loss", "pending"], 6, TEASER_RULESET_ID)).toEqual({ outcome: "loss", winningLegs: 0 });
     expect(() => gradeTeaser(["win", "pending"], 6, TEASER_RULESET_ID)).toThrow(/pending/i);
     expect(gradeTeaser(["void", "push"], 6, TEASER_RULESET_ID)).toEqual({ outcome: "refund", winningLegs: 0 });
-    // An unrecognized stored ruleset fails closed to a refund instead of inventing a price.
+    // An unrecognized stored ruleset fails closed to a refund instead of inventing a price,
+    // even when a losing grade would otherwise settle first.
     expect(gradeTeaser(["win", "win"], 6, "TEASER_FUTURE_V9")).toEqual({ outcome: "refund", winningLegs: 2 });
+    expect(gradeTeaser(["loss", "win"], 6, "TEASER_FUTURE_V9")).toEqual({ outcome: "refund", winningLegs: 1 });
+    expect(gradeTeaser(["loss", "pending"], 6, "TEASER_FUTURE_V9")).toEqual({ outcome: "refund", winningLegs: 0 });
   });
 });
