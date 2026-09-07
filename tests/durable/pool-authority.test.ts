@@ -57,6 +57,42 @@ describe("PoolDO authority", () => {
     })).resolves.toBeUndefined();
   }, 90_000);
 
+  it("rebuilds a deployed 4000-bound commissioner rules CHECK to 20000 without losing pool state", async () => {
+    const slug = `rules-limit-migration-${crypto.randomUUID()}`;
+    await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Rules limit", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
+    const migrated = await runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => {
+      const sql = state.storage.sql;
+      // Recreate the exact deployed shape: the shipped table with its original 4000-bound rules CHECK.
+      const deployed = [...sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='pool'")][0]!.sql;
+      sql.exec("ALTER TABLE pool RENAME TO pool_deployed_original");
+      sql.exec(deployed.replace("BETWEEN 1 AND 20000)", "BETWEEN 1 AND 4000)"));
+      sql.exec("INSERT INTO pool SELECT * FROM pool_deployed_original");
+      sql.exec("DROP TABLE pool_deployed_original");
+      sql.exec("UPDATE pool SET commissioner_rules = 'Legacy rules.', commissioner_notice = 'KEEP ME', password_version = 3, signups_open = 0, max_side_bet_micros = '2500000', active_season_id = 'season-pointer', command_version = '42'");
+      const before = [...sql.exec("SELECT * FROM pool")];
+      new PoolDO(state, {});
+      const after = [...sql.exec("SELECT * FROM pool")];
+      const ddl = [...sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='pool'")][0]!.sql;
+      new PoolDO(state, {});
+      const ddlTwo = [...sql.exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type='table' AND name='pool'")][0]!.sql;
+      const leftover = [...sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='pool_rules_limit_migration'")].length;
+      sql.exec("UPDATE pool SET commissioner_rules = ?", "x".repeat(20000));
+      const stored = [...sql.exec<{ rules: string }>("SELECT commissioner_rules AS rules FROM pool")].map((row) => row.rules.length);
+      let rejectedNewBound = false;
+      try { sql.exec("UPDATE pool SET commissioner_rules = ?", "y".repeat(20001)); } catch { rejectedNewBound = true; }
+      return { before, after, ddl, ddlTwo, leftover, stored, rejectedNewBound };
+    });
+    expect(migrated.after).toEqual(migrated.before);
+    expect(migrated.ddl).toContain("BETWEEN 1 AND 20000");
+    expect(migrated.ddl).not.toContain("BETWEEN 1 AND 4000)");
+    expect(migrated.ddlTwo).toBe(migrated.ddl);
+    expect(migrated.leftover).toBe(0);
+    expect(migrated.stored).toEqual([20000]);
+    expect(migrated.rejectedNewBound).toBe(true);
+    expect((await send(slug, { type: "UpdatePoolSettings", commandId: "long-rules", actorId: "owner", commissionerRules: "z".repeat(20000) })).body).toMatchObject({ commandVersion: expect.any(String) });
+    expect((await send(slug, { type: "ReadPoolView", commandId: "read-rules", actorId: "owner" })).body).toMatchObject({ pool: { commissionerRules: "z".repeat(20000), commissionerNotice: "KEEP ME" } });
+  }, 90_000);
+
   it("repairs historical created_at values deterministically across legacy and current schemas", async () => {
     const slug = `created-at-${crypto.randomUUID()}`;
     const initialize: PoolCommand = { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Created at Pool", creatorId: "owner", creatorName: "Owner", password: "correct-password" };

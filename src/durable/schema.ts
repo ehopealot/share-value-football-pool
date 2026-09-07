@@ -1,8 +1,9 @@
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 
 /** PoolDO-local authority schema. Accounting amounts are canonical integer TEXT, never REAL. */
+export const poolTableDdl = `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500), active_season_id TEXT, command_version TEXT NOT NULL)`;
 export const poolSchema = [
-  `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500), active_season_id TEXT, command_version TEXT NOT NULL)`,
+  poolTableDdl,
   `CREATE TABLE IF NOT EXISTS member (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('commissioner','member')), status TEXT NOT NULL CHECK(status IN ('active','suspended')), joined_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS message_board_entry (id TEXT PRIMARY KEY, parent_post_id TEXT, author_id TEXT NOT NULL, text TEXT NOT NULL CHECK(length(trim(text)) BETWEEN 1 AND 1000), created_at TEXT NOT NULL, activity_at TEXT NOT NULL, is_announcement INTEGER NOT NULL DEFAULT 0 CHECK(is_announcement IN (0, 1)))`,
   `CREATE TABLE IF NOT EXISTS message_board_read (member_id TEXT PRIMARY KEY, last_read_at TEXT NOT NULL)`,
@@ -61,7 +62,20 @@ export const migrateAdditivePoolStorage = (sql: SqlStorage): void => {
   if (!poolColumns.some((column) => column.name === "max_side_bet_micros")) sql.exec("ALTER TABLE pool ADD COLUMN max_side_bet_micros TEXT NOT NULL DEFAULT '800000000'");
   sql.exec("UPDATE pool SET max_side_bet_micros = '800000000' WHERE max_side_bet_micros IS NULL OR max_side_bet_micros = ''");
   if (!poolColumns.some((column) => column.name === "commissioner_notice")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500)");
-  if (!poolColumns.some((column) => column.name === "commissioner_rules")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_rules TEXT CHECK(commissioner_rules IS NULL OR length(trim(commissioner_rules)) BETWEEN 1 AND 20000)");
+  // SQLite cannot relax a column CHECK in place, so a deployed rules column still carrying the
+  // original 4000 bound rebuilds the pool table under the canonical DDL. The copy runs only while
+  // the fresh table is empty, so a crash between copy and drop resumes without duplicating the row.
+  const rulesBound = /commissioner_rules[\s\S]*?BETWEEN 1 AND (\d+)/.exec(String([...sql.exec<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pool'")][0]?.sql ?? ""))?.[1];
+  const legacyRulesTable = [...sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pool_rules_limit_migration'")].length > 0;
+  if (legacyRulesTable || (rulesBound !== undefined && rulesBound !== "20000")) {
+    if (!legacyRulesTable) sql.exec("ALTER TABLE pool RENAME TO pool_rules_limit_migration");
+    sql.exec(poolTableDdl);
+    const rebuiltColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(pool)")];
+    if (!rebuiltColumns.some((column) => column.name === "commissioner_rules")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_rules TEXT CHECK(commissioner_rules IS NULL OR length(trim(commissioner_rules)) BETWEEN 1 AND 20000)");
+    sql.exec("INSERT INTO pool (id, slug, name, commissioner_id, password_hash, password_version, signups_open, max_side_bet_micros, commissioner_notice, commissioner_rules, active_season_id, command_version) SELECT id, slug, name, commissioner_id, password_hash, password_version, signups_open, max_side_bet_micros, commissioner_notice, commissioner_rules, active_season_id, command_version FROM pool_rules_limit_migration WHERE NOT EXISTS (SELECT 1 FROM pool)");
+    sql.exec("DROP TABLE pool_rules_limit_migration");
+  }
+  if (![...sql.exec<{ name: string }>("PRAGMA table_info(pool)")].some((column) => column.name === "commissioner_rules")) sql.exec("ALTER TABLE pool ADD COLUMN commissioner_rules TEXT CHECK(commissioner_rules IS NULL OR length(trim(commissioner_rules)) BETWEEN 1 AND 20000)");
   const boardColumns = [...sql.exec<{ name: string }>("PRAGMA table_info(message_board_entry)")];
   if (!boardColumns.some((column) => column.name === "is_announcement")) sql.exec("ALTER TABLE message_board_entry ADD COLUMN is_announcement INTEGER NOT NULL DEFAULT 0");
   sql.exec("UPDATE message_board_entry SET is_announcement = 0 WHERE is_announcement IS NULL");
