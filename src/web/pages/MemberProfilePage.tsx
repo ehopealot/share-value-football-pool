@@ -54,7 +54,7 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
   // The selector always offers the current week, so selection can only ever be a prior choice.
   const week = weeks.includes(selectedWeek) ? selectedWeek : currentWeek;
   const { inProcess, settled, unstarted } = splitProfileWeekWagers(week ? seasonWagers.filter((wager) => wager.weekStart === week) : [], now);
-  const typeRecord = (type: Wager["type"]) => formatPickRecord(pickRecord(seasonWagers.filter((wager) => wager.type === type)));
+  const recordOf = (types: Wager["type"][]) => formatPickRecord(pickRecord(seasonWagers.filter((wager) => types.includes(wager.type))));
 
   return <Layout><div className="member-profile-page">
     <h1>{member.displayName}</h1>
@@ -62,11 +62,11 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
     {activeSeason ? <>
       <section className="table-ribbon-section"><h2 className="table-ribbon">Season stats</h2><div className="table-scroll" tabIndex={0}><table><tbody>
         <tr><th scope="row">Season record</th><td>{formatPickRecord(pickRecord(seasonWagers))}</td></tr>
-        <tr><th scope="row">Straight</th><td>{typeRecord("straight")}</td></tr>
-        <tr><th scope="row">Teaser</th><td>{typeRecord("teaser")}</td></tr>
-        <tr><th scope="row">Parlay</th><td>{typeRecord("parlay")}</td></tr>
+        <tr><th scope="row">Straight</th><td>{recordOf(["straight"])}</td></tr>
+        <tr><th scope="row">Teasers</th><td>{recordOf(["teaser"])}</td></tr>
+        <tr><th scope="row">Parlays</th><td>{recordOf(["parlay"])}</td></tr>
         <tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>
-      </tbody></table></div><p className="profile-record-note">Each bet counts as one pick. Refunded bets are not counted as wins or losses.</p></section>
+      </tbody></table></div><p className="profile-record-note">Each bet counts as one pick.</p></section>
       <section><h2>Bets</h2>
         <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         {inProcess.length + settled.length > 0 ? <>
