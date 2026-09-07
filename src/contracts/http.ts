@@ -77,7 +77,7 @@ export const closedSeasonSummary = seasonSummary.extend({ state: z.literal("clos
 export const seasonBalance = z.object({ seasonId: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString }).strict();
 export const shareOrderSummary = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), mode: z.enum(["shares", "value"]), requestedMicros: decimalString, sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reversalOf: z.string().min(1).nullable(), reason: z.string(), createdAt: z.string().datetime() }).strict();
 export const seasonOrders = z.object({ seasonId: z.string().min(1), orders: z.array(shareOrderSummary) }).strict();
-export const memberDirectoryEntry = z.object({ memberId: z.string().min(1), displayName: z.string().min(1), role: z.enum(["commissioner", "member"]), status: z.enum(["active", "suspended"]) }).strict();
+export const memberDirectoryEntry = z.object({ memberId: z.string().min(1), displayName: z.string().min(1), email: z.string().email().optional(), role: z.enum(["commissioner", "member"]), status: z.enum(["active", "suspended"]) }).strict();
 export const ReadPoolView = z.object({
   commandVersion: decimalString,
   pool: z.object({ poolId: z.string().min(1), slug: z.string().min(1), name: z.string().min(1), commissionerId: z.string().min(1), signupsOpen: z.boolean(), maxSideBetMicros: positiveCanonicalIntegerText, commissionerNotice: commissionerNotice.nullable(), commissionerRules: commissionerRules.nullable() }).strict(),
