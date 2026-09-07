@@ -58,7 +58,7 @@ export function AdminSettingsPage() {
       <div className="share-order-form pool-settings-notice-controls">
         <div className="pool-settings-notice-field">
           <p id="commissioner-rules-help" className="pool-settings-help">Optional pool-specific rules. These appear on the Rules page when filled in.</p>
-          <textarea id="commissioner-rules" className="commissioner-rules-input" aria-labelledby="commissioner-rules-settings-heading" aria-describedby="commissioner-rules-help" disabled={settings.pending} value={commissionerRules} maxLength={4000} onChange={(e) => { edit(); setCommissionerRules(e.target.value); }} />
+          <textarea id="commissioner-rules" className="commissioner-rules-input" aria-labelledby="commissioner-rules-settings-heading" aria-describedby="commissioner-rules-help" disabled={settings.pending} value={commissionerRules} maxLength={20000} onChange={(e) => { edit(); setCommissionerRules(e.target.value); }} />
         </div>
         <button disabled={!commissionerRules.trim() || settings.pending} onClick={() => void save(`rules:${commissionerRules}`, () => ({ commissionerRules }), ["rules"])}>Save rules</button>
         {view.pool.commissionerRules !== null && <button disabled={settings.pending} onClick={() => void save("clear-rules", () => ({ commissionerRules: null }), ["rules"])}>Clear rules</button>}

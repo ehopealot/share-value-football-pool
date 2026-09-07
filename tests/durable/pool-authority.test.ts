@@ -196,7 +196,7 @@ describe("PoolDO authority", () => {
     expect((await send(slug, set)).body).toEqual(first.body);
     expect((await send(slug, { ...set, commissionerRules: "Changed with the same key." })).body).toEqual({ code: "IDEMPOTENCY_CONFLICT" });
     expect((await send(slug, { type: "UpdatePoolSettings", commandId: "member-rules", actorId: "member", commissionerRules: "Forged" })).body).toEqual({ code: "FORBIDDEN" });
-    for (const [commissionerRules, commandId] of [["", "blank-rules"], ["   ", "whitespace-rules"], ["x".repeat(4001), "overlong-rules"]] as const) {
+    for (const [commissionerRules, commandId] of [["", "blank-rules"], ["   ", "whitespace-rules"], ["x".repeat(20001), "overlong-rules"]] as const) {
       expect((await send(slug, { type: "UpdatePoolSettings", commandId, actorId: "owner", commissionerRules })).body).toEqual({ code: "INVALID_COMMAND" });
     }
     expect((await send(slug, { type: "UpdatePoolSettings", commandId: "unknown-rules", actorId: "owner", commissionerRules: "Rules", unexpected: true } as PoolCommand)).body).toEqual({ code: "INVALID_COMMAND" });
