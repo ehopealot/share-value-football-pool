@@ -52,7 +52,12 @@ export const displayWagerStartTimeOnly = (wager: WagerWithStartTime): string[] =
 };
 
 /** Returns a chronological copy, retaining a deterministic order when kickoff data ties or is unavailable. */
-export const sortWagersByStartTime = <T extends WagerWithStartTime>(wagers: T[]): T[] => [...wagers].sort((left, right) => {
-  const startOrder = (representativeWagerStartTime(left) ?? "9999-12-31T23:59:59.999Z").localeCompare(representativeWagerStartTime(right) ?? "9999-12-31T23:59:59.999Z");
-  return startOrder || left.confirmedAt.localeCompare(right.confirmedAt) || left.wagerId.localeCompare(right.wagerId);
-});
+const byKickoffOrder = (key: (wager: WagerWithStartTime) => string | undefined) => (left: WagerWithStartTime, right: WagerWithStartTime) =>
+  (key(left) ?? "9999-12-31T23:59:59.999Z").localeCompare(key(right) ?? "9999-12-31T23:59:59.999Z") || left.confirmedAt.localeCompare(right.confirmedAt) || left.wagerId.localeCompare(right.wagerId);
+
+const earliestWagerStartTime = (wager: WagerWithStartTime): string | undefined => (wager.legs ?? []).map((leg) => leg.eventStartsAt).filter((start) => Number.isFinite(Date.parse(start))).sort()[0];
+
+export const sortWagersByStartTime = <T extends WagerWithStartTime>(wagers: T[]): T[] => [...wagers].sort(byKickoffOrder(earliestWagerStartTime));
+
+/** Mobile date ribbons group tickets under their soonest active or upcoming leg, or the last leg day once fully graded. */
+export const sortWagersByAnchorTime = <T extends WagerWithStartTime>(wagers: T[]): T[] => [...wagers].sort(byKickoffOrder(representativeWagerStartTime));

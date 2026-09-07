@@ -4,7 +4,8 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
-import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime } from "../wager-presentation";
+import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByStartTime } from "../wager-presentation";
+import { useCompactWagerViewport } from "../mobile-viewport";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 type Leg = NonNullable<Wager["legs"]>[number];
@@ -38,8 +39,10 @@ function WagerRows({ wager }: { wager: Wager }) {
 }
 
 export function MemberActivitySection({ member }: { member: ReturnType<typeof groupActivityMembersForWeek>[number] }) {
+  const compact = useCompactWagerViewport();
+  const wagers = compact ? member.wagers : sortWagersByStartTime(member.wagers);
   const performance = formatActivityPerformance(member.performanceMicros);
-  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}{performance && <small>{performance}</small>}</h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{member.wagers.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(member.wagers[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${date}:date`}><th colSpan={4}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager}/>]; })}</tbody></table></div></section>;
+  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}{performance && <small>{performance}</small>}</h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{wagers.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(wagers[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${date}:date`}><th colSpan={4}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager}/>]; })}</tbody></table></div></section>;
 }
 
 export function ActivityPage() {
