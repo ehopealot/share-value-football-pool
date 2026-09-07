@@ -80,7 +80,31 @@ describe("T11 authoritative member reads", () => {
     const result = await send(slug, { type: "ReadStandings", commandId: "read", actorId: "owner" });
     expect(result.standings.map((row: any) => row.userId)).toEqual(["a", "b", "owner"]);
     expect(result.standings.map((row: any) => row.rank)).toEqual([1, 2, 3]);
-    expect(Object.keys(result.standings[0]).sort()).toEqual(["availableMicros", "displayName", "gainMicros", "lockedMicros", "notionalValueMicros", "priceMicros", "rank", "totalMicros", "userId"]);
+    expect(Object.keys(result.standings[0]).sort()).toEqual(["availableMicros", "displayName", "gainMicros", "lockedMicros", "notionalValueMicros", "priceMicros", "rank", "riskedMicros", "totalMicros", "userId"]);
+  }, 90_000);
+
+  it("sums risked from locked plus completed stakes while refunding drops out of the total", async () => {
+    const slug = `t11-risked-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "a", "Aaa");
+    await join(slug, "b", "Bee");
+    await draftSeason(slug, "s", "S");
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      const wager = (id: string, owner: string, risk: string, status: string) => sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, confirmed_at) VALUES (?, 's', ?, 'straight', ?, 100, ?, 'SHARE_POOL_2026_V1', '2026-01-01T00:00:00.000Z')", id, owner, risk, status);
+      // A stakes open 3, won 5, lost 7, and refunded 11 shares; only the non-refunded 15 count as risked.
+      wager("w-open", "a", "3000000", "open");
+      wager("w-won", "a", "5000000", "won");
+      wager("w-lost", "a", "7000000", "lost");
+      wager("w-refunded", "a", "11000000", "refunded");
+      // B only ever staked a wager that was refunded.
+      wager("w-b-refunded", "b", "9000000", "refunded");
+    });
+    const result = await send(slug, { type: "ReadStandings", commandId: "read-risked", actorId: "owner" });
+    const risked = new Map(result.standings.map((row: any) => [row.userId, row.riskedMicros]));
+    expect(risked.get("a")).toBe("15000000");
+    expect(risked.get("b")).toBe("0");
+    expect(risked.get("owner")).toBe("0");
   }, 90_000);
 
   it("orders zero-basis standings by holdings, then earliest attainment, then display name", async () => {

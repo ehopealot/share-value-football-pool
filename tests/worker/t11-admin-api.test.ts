@@ -60,8 +60,8 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect(await standings.json()).toEqual({
       commandVersion: expect.any(String),
       standings: [
-        { rank: 1, userId: "member", displayName: "Member", availableMicros: "1000000", lockedMicros: "1000000", totalMicros: "2000000", priceMicros: "1000000", notionalValueMicros: "2000000", gainMicros: "0" },
-        { rank: 2, userId: "owner", displayName: "Owner", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }
+        { rank: 1, userId: "member", displayName: "Member", availableMicros: "1000000", lockedMicros: "1000000", totalMicros: "2000000", priceMicros: "1000000", notionalValueMicros: "2000000", gainMicros: "0", riskedMicros: "1000000" },
+        { rank: 2, userId: "owner", displayName: "Owner", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }
       ]
     });
 
@@ -88,8 +88,8 @@ describe("T11 member read boundaries over the Worker API", () => {
         { memberId: "owner", memberDisplayName: "Owner", availableMicros: "0", lockedMicros: "0", totalMicros: "0", holdingValueMicros: "0", gainMicros: "0" }
       ],
       standings: [
-        { rank: 1, userId: "member", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" },
-        { rank: 2, userId: "owner", displayName: "Owner", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }
+        { rank: 1, userId: "member", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" },
+        { rank: 2, userId: "owner", displayName: "Owner", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }
       ],
       orders: [], ledger: [], annotations: [], wagers: [], settlements: [], wagerCorrections: [], eventResults: []
     });

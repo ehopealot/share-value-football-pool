@@ -49,7 +49,7 @@ describe("narrow-screen touch targets", () => {
     expect(remove).toMatch(/(?:^|;)\s*background:\s*transparent\s*(?:;|$)/);
     expect(remove).toMatch(/(?:^|;)\s*text-decoration:\s*underline\s*(?:;|$)/);
     expect(mobileRule(".selection-tray-remove")).toMatch(/(?:^|;)\s*min-height:\s*44px\s*(?:;|$)/);
-    expect(baseRule("button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):hover:not(:disabled)"))
+    expect(baseRule("button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):hover:not(:disabled)"))
       .toMatch(/(?:^|;)\s*background:\s*#2f5f9e\s*(?:;|$)/);
   });
 

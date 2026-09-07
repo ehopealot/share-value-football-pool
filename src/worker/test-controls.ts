@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { z } from "zod";
 import { LOCAL_FIXTURE_EVENTS } from "../odds/fixtures/runtime";
+import { nextWeekStart, weekStartOf } from "../domain/betting-week";
 import { validateCanonicalMarket } from "../odds/market-semantics";
 import { ProjectionConsumer, durableProjectionSnapshotReader } from "../services/projections";
 
@@ -54,7 +55,15 @@ const LOCAL_FIXTURE_MODE_PROVIDER = "local-fixture-mode";
 const LOCAL_FIXTURE_IDS = LOCAL_FIXTURE_EVENTS.map((event) => event.id);
 const LOCAL_FIXTURE_ID_LIST = LOCAL_FIXTURE_IDS.map(() => "?").join(", ");
 
-const fixtureStartsAt = (event: typeof LOCAL_FIXTURE_EVENTS[number], now: Date) => event.status === "final" ? event.commenceTime : new Date(now.getTime() + event.startOffsetMs).toISOString();
+/** Scheduled fixtures start this far before the Tuesday boundary at the latest; the per-index minute keeps seeded offer order stable. */
+const WEEK_BOUNDARY_GUARD_MS = 5 * 60 * 1000;
+const fixtureStartsAt = (event: typeof LOCAL_FIXTURE_EVENTS[number], now: Date, index: number) => {
+  if (event.status === "final") return event.commenceTime;
+  // The board only makes the current Tuesday–Monday week bettable, so clamp renewable
+  // fixtures into that week; a Monday or Tuesday seed can never spill into the next one.
+  const boundaryGuard = nextWeekStart(weekStartOf(now)).getTime() - WEEK_BOUNDARY_GUARD_MS + index * 60_000;
+  return new Date(Math.min(now.getTime() + event.startOffsetMs, boundaryGuard)).toISOString();
+};
 const modeStatement = (db: D1Database, mode: "auto" | "manual", observedAt: string) => db.prepare("INSERT INTO odds_ingestion (provider, cursor, last_polled_at, last_success_at, last_error) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET cursor=excluded.cursor, last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(LOCAL_FIXTURE_MODE_PROVIDER, mode, observedAt, observedAt);
 const currentOddsStatement = (db: D1Database, observedAt: string) => db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', ?, ?, NULL) ON CONFLICT(provider) DO UPDATE SET last_polled_at=excluded.last_polled_at, last_success_at=excluded.last_success_at, last_error=NULL").bind(observedAt, observedAt);
 
@@ -69,8 +78,8 @@ const removeNonFixtureRows = async (db: D1Database) => {
 export async function seedLocalFixtures(db: D1Database, now = new Date()): Promise<void> {
   await removeNonFixtureRows(db);
   const observedAt = now.toISOString();
-  for (const event of LOCAL_FIXTURE_EVENTS) {
-    const startsAt = fixtureStartsAt(event, now);
+  for (const [index, event] of LOCAL_FIXTURE_EVENTS.entries()) {
+    const startsAt = fixtureStartsAt(event, now, index);
     await db.prepare("INSERT OR REPLACE INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, home_score, away_score, correction_version, finalized_at, event_name, postseason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'local-v1', ?, ?, ?)")
       .bind(event.id, event.id, event.sport, event.homeTeam, event.awayTeam, startsAt, event.status, event.homeScore === undefined ? null : String(event.homeScore), event.awayScore === undefined ? null : String(event.awayScore), event.status === "final" ? startsAt : null, event.eventName ?? null, event.postseason ? 1 : 0).run();
     for (const market of event.bookmakers[0].markets) {
@@ -94,7 +103,7 @@ export async function refreshLocalFixtures(db: D1Database, now = new Date()): Pr
   const observedAt = now.toISOString();
   const scheduled = LOCAL_FIXTURE_EVENTS.filter((event) => event.status === "scheduled");
   await db.batch([
-    ...scheduled.map((event) => db.prepare("UPDATE sports_event SET starts_at = ? WHERE provider_event_id = ? AND status = 'scheduled'").bind(fixtureStartsAt(event, now), event.id)),
+    ...scheduled.map((event) => db.prepare("UPDATE sports_event SET starts_at = ? WHERE provider_event_id = ? AND status = 'scheduled'").bind(fixtureStartsAt(event, now, LOCAL_FIXTURE_IDS.indexOf(event.id)), event.id)),
     db.prepare(`UPDATE market_offer SET retrieved_at = ? WHERE event_id IN (${LOCAL_FIXTURE_ID_LIST})`).bind(observedAt, ...LOCAL_FIXTURE_IDS),
     currentOddsStatement(db, observedAt),
     modeStatement(db, "auto", observedAt)

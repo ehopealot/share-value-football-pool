@@ -647,7 +647,7 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
   await expect(openBets.locator("tbody tr").filter({ hasText: /Local Away.*Local Home/ })).toHaveCount(2);
-  await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.83/ })).toBeVisible();
+  await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.91/ })).toBeVisible();
 });
 
 test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh explicit straight re-quote", async ({
@@ -862,8 +862,8 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
   await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByLabel("Amount")).toHaveValue("1");
-  await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
-  const quotedMemberId = await page.getByLabel("Member").inputValue();
+  await page.getByLabel("Member", { exact: true }).selectOption({ label: "Quoted Member" });
+  const quotedMemberId = await page.getByLabel("Member", { exact: true }).inputValue();
   expect(quotedMemberId).toBeTruthy();
   const orderQuoteBodies: Record<string, unknown>[] = [];
   const orderExecutionBodies: Record<string, unknown>[] = [];
@@ -972,7 +972,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     expect(confirmedExecution.idempotencyKey).not.toBe(replacementQuote.idempotencyKey);
     await expect(page).toHaveURL(/\/p\/stale-order-pool\/overview$/);
     await page.getByRole("link", { name: "Share orders" }).click();
-    await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
+    await page.getByLabel("Member", { exact: true }).selectOption({ label: "Quoted Member" });
   }
 });
 

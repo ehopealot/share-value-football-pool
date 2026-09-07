@@ -49,6 +49,21 @@ describe("local fixture lifecycle", () => {
     expect((await bindings.DB.prepare("SELECT MIN(retrieved_at) AS oldest FROM market_offer").first<{ oldest: string }>())?.oldest).toBe(now.toISOString());
   });
 
+  it("clamps renewable fixtures into the current betting week when a Monday seed would cross the Tuesday boundary", async () => {
+    await controls().seed();
+    // Monday 2031-04-07: the raw +24h offsets would land on Tuesday, outside the current Tuesday–Monday betting week.
+    const now = new Date("2031-04-07T12:00:00.000Z");
+
+    await refreshLocalFixtures(bindings.DB, now);
+
+    const scheduled = await bindings.DB.prepare("SELECT provider_event_id, starts_at FROM sports_event WHERE status = 'scheduled' ORDER BY provider_event_id").all<{ provider_event_id: string; starts_at: string }>();
+    // Both clamp just before the 2031-04-08T04:00:00Z boundary; the per-index minute preserves offer order.
+    expect(scheduled.results).toEqual([
+      { provider_event_id: "local-nfl-super-bowl", starts_at: "2031-04-08T03:57:00.000Z" },
+      { provider_event_id: "local-nfl-upcoming", starts_at: "2031-04-08T03:56:00.000Z" }
+    ]);
+  });
+
   it("does not overwrite an explicit local stale-offer state", async () => {
     const fixture = controls();
     await fixture.seed();

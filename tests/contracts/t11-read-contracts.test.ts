@@ -27,8 +27,8 @@ describe("T11 member read contracts", () => {
   });
 
   it("accepts canonical standings and rejects noncanonical accounting", () => {
-    expect(ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }] }).standings).toHaveLength(1);
-    expect(() => ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "01", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0" }] })).toThrow();
+    expect(ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }] }).standings).toHaveLength(1);
+    expect(() => ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "01", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }] })).toThrow();
   });
   it("requires member-visible wager identity and immutable history fields", () => {
     expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).toEqual(wager);
@@ -39,7 +39,7 @@ describe("T11 member read contracts", () => {
       commandVersion: "1",
       season: { seasonId: "s", label: "Closed", rulesetVersion: "SHARE_POOL_2026_V1", state: "closed", openedAt: "2026-01-01T00:00:00.000Z", closedAt: "2026-02-01T00:00:00.000Z", closeReason: "complete", floatMicros: "3", notionalMicros: "5", priceMicros: "1666667" },
       accounts: [{ memberId: "member", memberDisplayName: "Member", availableMicros: "3", lockedMicros: "0", totalMicros: "3", holdingValueMicros: "5", gainMicros: "1" }],
-      standings: [{ rank: 1, userId: "member", displayName: "Member", availableMicros: "3", lockedMicros: "0", totalMicros: "3", priceMicros: "1666667", notionalValueMicros: "5", gainMicros: "1" }],
+      standings: [{ rank: 1, userId: "member", displayName: "Member", availableMicros: "3", lockedMicros: "0", totalMicros: "3", priceMicros: "1666667", notionalValueMicros: "5", gainMicros: "1", riskedMicros: "2" }],
       orders: [{ id: "o", seasonId: "s", memberId: "member", memberDisplayName: "Member", actorId: "commissioner", mode: "shares", requestedMicros: "3", sharesMicros: "3", valueMicros: "4", priceMicros: "1333333", reversalOf: null, reason: "Initial issue", commandId: "order-command", createdAt: "2026-01-01T00:00:00.000Z" }],
       ledger: [{ id: "l", seasonId: "s", memberId: "member", memberDisplayName: "Member", actorId: "commissioner", availableDelta: "3", lockedDelta: "0", floatDelta: "3", notionalDelta: "4", causationId: "o", kind: "share_order", createdAt: "2026-01-01T00:00:00.000Z" }],
       settlements: [], wagerCorrections: [], eventResults: [],
