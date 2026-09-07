@@ -2,7 +2,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadActivity } from "../src/contracts/http";
-import { ActivityPage, MemberActivitySection } from "../src/web/pages/ActivityPage";
+import { ActivityPageBody, MemberActivitySection } from "../src/web/pages/ActivityPage";
 
 // Exercise the page's actual controls and render output with a small hook-state harness.
 const hooks = vi.hoisted(() => ({ cursor: 0, values: [] as unknown[] }));
@@ -44,7 +44,7 @@ function elements(node: ReactNode): ReactElement<Record<string, any>>[] {
   if (!isValidElement<Record<string, any>>(node)) return [];
   return [node, ...elements(node.props.children)];
 }
-function renderPage() { hooks.cursor = 0; return ActivityPage(); }
+function renderPage() { hooks.cursor = 0; return ActivityPageBody({ slug: "pool" }); }
 function toggle(page: ReactNode, checked: boolean) {
   const control = elements(page).find((element) => element.type === "input" && element.props.type === "checkbox");
   expect(control, "Active games only checkbox").toBeDefined();

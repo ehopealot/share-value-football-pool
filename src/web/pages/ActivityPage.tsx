@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
-import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByStartTime } from "../wager-presentation";
+import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
@@ -38,15 +38,21 @@ function WagerRows({ wager }: { wager: Wager }) {
   return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><WagerLine leg={leg}/></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
 }
 
-export function MemberActivitySection({ member }: { member: ReturnType<typeof groupActivityMembersForWeek>[number] }) {
+export function MemberActivitySection({ member, title }: { member: ReturnType<typeof groupActivityMembersForWeek>[number]; title?: React.ReactNode }) {
   const compact = useCompactWagerViewport();
-  const wagers = compact ? member.wagers : sortWagersByStartTime(member.wagers);
+  // The mobile branch groups by kickoff-day anchor, so the section never relies on caller ordering.
+  const wagers = compact ? sortWagersByAnchorTime(member.wagers) : sortWagersByStartTime(member.wagers);
   const performance = formatActivityPerformance(member.performanceMicros);
-  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}<small>{performance}</small></h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{wagers.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(wagers[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${wager.wagerId}:date`}><th colSpan={4}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager}/>]; })}</tbody></table></div></section>;
+  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{title ?? member.memberDisplayName}<small>{performance}</small></h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{wagers.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(wagers[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${wager.wagerId}:date`}><th colSpan={4}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager}/>]; })}</tbody></table></div></section>;
 }
 
 export function ActivityPage() {
   const { slug = "" } = useParams();
+  // Keying the body by slug keeps profile links from ever pairing one pool's rows with another pool's route.
+  return <ActivityPageBody key={slug} slug={slug}/>;
+}
+
+export function ActivityPageBody({ slug }: { slug: string }) {
   const [data, setData] = useState<import("../../contracts/http").ReadActivity>();
   const [selectedWeek, setSelectedWeek] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
@@ -68,7 +74,7 @@ export function ActivityPage() {
         {weeks.length > 0 && <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>}
         <label className="activity-active-toggle"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Active games only</label>
       </div>
-      {members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} />) : <p role="status">There are no bets right now</p>}
+      {members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}
     </section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;

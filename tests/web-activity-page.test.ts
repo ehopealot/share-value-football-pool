@@ -25,6 +25,13 @@ describe("Activity page", () => {
     expect(source).not.toContain('Week of {weekLabel(start)}');
   });
 
+  it("keeps filter labels on one inline baseline so the checkbox aligns with the week select", () => {
+    const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
+    expect(styles).toContain('.activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }');
+    expect(styles).toContain('.activity-filters label { flex-direction: row; align-items: center; gap: var(--space-1); margin: 0; }');
+    expect(styles).toMatch(/\.activity-active-toggle \{[^}]*min-height:\s*44px/);
+  });
+
   it("colors each selected leg from its own grade and preserves hidden tickets", () => {
     expect(source).toContain('formatActivityLeg');
     expect(source).toContain('activityLegGradeClass(leg.grade)');
@@ -37,6 +44,10 @@ describe("Activity page", () => {
     expect(source).toContain('activityWagerPerformanceClass');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
     expect(source).toContain('const performance = formatActivityPerformance(member.performanceMicros);');
-    expect(source).toContain('{member.memberDisplayName}<small>{performance}</small>');
+    expect(source).toContain('{title ?? member.memberDisplayName}<small>{performance}</small>');
+  });
+
+  it("orders the compact mobile branch by kickoff anchor without relying on caller ordering", () => {
+    expect(source).toContain('const wagers = compact ? sortWagersByAnchorTime(member.wagers) : sortWagersByStartTime(member.wagers);');
   });
 });
