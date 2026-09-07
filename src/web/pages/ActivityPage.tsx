@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek } from "../activity-presentation";
+import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
 import { weekNumberLabel } from "../../domain/betting-week";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
@@ -42,13 +42,14 @@ export function MemberActivitySection({ member }: { member: ReturnType<typeof gr
   const compact = useCompactWagerViewport();
   const wagers = compact ? member.wagers : sortWagersByStartTime(member.wagers);
   const performance = formatActivityPerformance(member.performanceMicros);
-  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}{performance && <small>{performance}</small>}</h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{wagers.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(wagers[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${wager.wagerId}:date`}><th colSpan={4}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager}/>]; })}</tbody></table></div></section>;
+  return <section className="activity-member-section"><h3 className="activity-member-ribbon">{member.memberDisplayName}<small>{performance}</small></h3><div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th></tr></thead><tbody>{wagers.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(wagers[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${wager.wagerId}:date`}><th colSpan={4}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager}/>]; })}</tbody></table></div></section>;
 }
 
 export function ActivityPage() {
   const { slug = "" } = useParams();
   const [data, setData] = useState<import("../../contracts/http").ReadActivity>();
   const [selectedWeek, setSelectedWeek] = useState("");
+  const [activeOnly, setActiveOnly] = useState(false);
   const [error, setError] = useState("");
   const errorRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => { void api.activity(slug).then(setData).catch((e) => setError(errorMessage(e))); }, [slug]);
@@ -57,9 +58,18 @@ export function ActivityPage() {
   if (!data) return <Layout><p role="status">Loading activity…</p></Layout>;
   const weeks = [...new Set(data.activity.wagers.map((wager) => wager.weekStart))].sort().reverse();
   const week = weeks.includes(selectedWeek) ? selectedWeek : weeks[0];
-  const members = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
+  const now = Date.now();
+  // Group before filtering so ribbons retain the full week's member P&L.
+  const weeklyMembers = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
+  const members = activeOnly ? weeklyMembers.map((member) => ({ ...member, wagers: member.wagers.filter((wager) => hasActiveActivityGame(wager, now)) })).filter((member) => member.wagers.length > 0) : weeklyMembers;
   return <Layout><div className="activity-page"><h1 className="visually-hidden">Activity</h1>
-    <section><h2>All bets</h2>{weeks.length ? <><label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>{members.map((member) => <MemberActivitySection key={member.memberId} member={member} />)}</> : <p>No bets yet.</p>}</section>
+    <section><h2>All bets</h2>
+      <div className="activity-filters">
+        {weeks.length > 0 && <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>}
+        <label className="activity-active-toggle"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Active games only</label>
+      </div>
+      {members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} />) : <p role="status">There are no bets right now</p>}
+    </section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }
