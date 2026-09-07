@@ -47,7 +47,7 @@ function gradeResults(wager: Row, legs: Row[], source: readonly FinalResultVersi
   // A loss is immediately decisive for either multi-leg ticket. Every other
   // outcome still needs the complete result set for push/void repricing.
   if (grades.includes("pending") && !grades.includes("loss")) return null;
-  const teaserGrade = String(wager.type) === "teaser" ? gradeTeaser(grades, Number(legs[0].teaser_adjustment) as TeaserPoints, String(wager.ruleset_version)) : undefined;
+  const teaserGrade = String(wager.type) === "teaser" ? gradeTeaser(grades, Number(legs[0].teaser_adjustment) as TeaserPoints) : undefined;
   const parlayGrade = String(wager.type) === "parlay"
     ? String(wager.ruleset_version) === PARLAY_RULESET_ID
       ? gradeParlay(grades, legs.map((leg) => ({ eventId: String(leg.event_id), market: String(leg.market) as "spread" | "total" | "moneyline", selection: String(leg.selection) as "home" | "away" | "over" | "under", originalOdds: Number(leg.original_odds) })))

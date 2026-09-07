@@ -6,15 +6,14 @@ import { Layout } from "../components/Layout";
 import { WagerDetails } from "../components/WagerDetails";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { PARLAY_RULESET_ID } from "../../domain/parlay";
-import { LEGACY_TEASER_RULESET_ID, TEASER_RULESET_ID } from "../../domain/teaser-table";
+import { SHARE_POOL_RULESET_ID, TEASER_RULESET_ID } from "../../domain/teaser-table";
 import type { ReadSeasonHistory } from "../../contracts/http";
 
 const amount = (value: string, decimals: 2 | 4 = 2) => formatMicros(parseIntegerText(value), decimals);
 const evidence = (value: unknown) => JSON.stringify(value);
 
 export function ArchivedRulesetGuidance({ slug, rulesetVersion }: { slug: string; rulesetVersion: string }) {
-  if (rulesetVersion === TEASER_RULESET_ID) return <p>Review the <Link to={`/p/${slug}/rules#teaser-rules-heading`}>matching immutable {rulesetVersion} payout table</Link>. This archived version remains authoritative if the Rules page selects another season.</p>;
-  if (rulesetVersion === LEGACY_TEASER_RULESET_ID) return <p>Review the <Link to={`/p/${slug}/rules#legacy-teaser-rules-heading`}>matching immutable {rulesetVersion} payout table</Link>. This archived version remains authoritative if the Rules page selects another season.</p>;
+  if (rulesetVersion === SHARE_POOL_RULESET_ID) return <p>Review the <Link to={`/p/${slug}/rules#teaser-rules-heading`}>immutable {TEASER_RULESET_ID} teaser payout table</Link> governing this archived season’s teaser tickets. It remains authoritative if the Rules page selects another season.</p>;
   return <p role="alert" className="error-summary">Unsupported archived ruleset: {rulesetVersion}. No matching immutable rules table is available; do not use the current Rules page payout table for this season.</p>;
 }
 
@@ -25,8 +24,8 @@ export function WagerRulesetGuidance({ slug, wager }: { slug: string; wager: { w
     return <p role="alert" className="error-summary">Unsupported parlay ruleset: {wager.rulesetVersion}. No matching immutable parlay rules are available.</p>;
   }
   if (wager.type === "teaser") {
-    if (wager.rulesetVersion === TEASER_RULESET_ID) return <p>Teaser ticket rules: <Link to={`/p/${slug}/rules#teaser-rules-heading`}>matching immutable {TEASER_RULESET_ID} payout table</Link>.</p>;
-    if (wager.rulesetVersion === LEGACY_TEASER_RULESET_ID) return <p>Teaser ticket rules: <Link to={`/p/${slug}/rules#legacy-teaser-rules-heading`}>matching immutable {LEGACY_TEASER_RULESET_ID} payout table</Link>.</p>;
+    // Beta archives may carry the pre-versioned season ruleset; both settle from the single card.
+    if (wager.rulesetVersion === TEASER_RULESET_ID || wager.rulesetVersion === SHARE_POOL_RULESET_ID) return <p>Teaser ticket rules: <Link to={`/p/${slug}/rules#teaser-rules-heading`}>immutable {TEASER_RULESET_ID} payout table</Link>.</p>;
     return <p role="alert" className="error-summary">Unsupported teaser ruleset: {wager.rulesetVersion}. No matching immutable payout table is available.</p>;
   }
   return null;

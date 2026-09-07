@@ -57,13 +57,11 @@ export const completeTeaserLeg = canonicalLeg.extend({ market: z.enum(["spread",
 export const straightQuoteRequestLeg = z.object({ eventId: z.string().min(1), canonicalBook: z.string().min(1), market: z.enum(["spread", "total", "moneyline"]), selection: z.enum(["home", "away", "over", "under"]), offerId: z.string().min(1), offerVersion: z.string().min(1) }).strict();
 export const teaserQuoteRequestLeg = straightQuoteRequestLeg.extend({ market: z.enum(["spread", "total"]) }).strict();
 export const quoteStraightSemantic = z.object({ wagerId, seasonId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, rulesetVersion: z.string().min(1), leg: straightQuoteRequestLeg }).strict();
-export const quoteTeaserSemanticBase = z.object({ wagerId, seasonId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, teaserPoints, rulesetVersion: z.string().min(1), legs: z.array(teaserQuoteRequestLeg).min(2).max(7) }).strict();
-export const teaserSemanticIssues = (v: { teaserPoints: z.infer<typeof teaserPoints>; rulesetVersion: string; legs: Array<{ eventId: string; market: "spread" | "total"; selection: "home" | "away" | "over" | "under" }> }, ctx: z.RefinementCtx) => {
+export const quoteTeaserSemanticBase = z.object({ wagerId, seasonId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, teaserPoints, rulesetVersion: z.string().min(1), legs: z.array(teaserQuoteRequestLeg).min(2).max(6) }).strict();
+export const teaserSemanticIssues = (v: { teaserPoints: z.infer<typeof teaserPoints>; legs: Array<{ eventId: string; market: "spread" | "total"; selection: "home" | "away" | "over" | "under" }> }, ctx: z.RefinementCtx) => {
   if (v.teaserPoints === 10 && v.legs.length !== 3) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "10-point teasers require exactly three legs" });
   try {
-    // Leg counts validate against the card the envelope's own ruleset selects, so legacy
-    // seven-leg envelopes stay parseable for stored-command replay.
-    validateTeaser(v.legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: 0 } as TeaserLeg)), v.teaserPoints, v.rulesetVersion);
+    validateTeaser(v.legs.map((leg) => ({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: 0 } as TeaserLeg)), v.teaserPoints);
   } catch (error) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["legs"], message: error instanceof Error ? error.message : "invalid teaser selections" });
   }
@@ -80,7 +78,7 @@ export const parlaySemanticIssues = (v: { legs: Array<{ eventId: string; market:
 export const quoteIdentity = z.object({ actorId: z.string().min(1), quoteKey, fingerprint: z.string().min(1) }).strict();
 const straightWagerQuoteSnapshotBase = z.object({ quoteKey, seasonId: z.string().min(1), ownerMemberId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, acceptedOdds: americanOdds, rulesetVersion: z.string().min(1), leg: straightLeg, commandVersion: canonicalIntegerText }).strict();
 export const straightWagerQuoteSnapshot = straightWagerQuoteSnapshotBase;
-const teaserWagerQuoteSnapshotBase = z.object({ quoteKey, seasonId: z.string().min(1), ownerMemberId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, acceptedOdds: americanOdds, teaserPoints, rulesetVersion: z.string().min(1), legs: z.array(completeTeaserLeg).min(2).max(7), commandVersion: canonicalIntegerText }).strict();
+const teaserWagerQuoteSnapshotBase = z.object({ quoteKey, seasonId: z.string().min(1), ownerMemberId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, acceptedOdds: americanOdds, teaserPoints, rulesetVersion: z.string().min(1), legs: z.array(completeTeaserLeg).min(2).max(6), commandVersion: canonicalIntegerText }).strict();
 const teaserSnapshotIssues = (v: z.infer<typeof teaserWagerQuoteSnapshotBase>, ctx: z.RefinementCtx) => {
   v.legs.forEach((leg, i) => {
     if (!teaserLeg(v.teaserPoints).safeParse(leg).success) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["legs", i], message: "invalid teaser leg" });

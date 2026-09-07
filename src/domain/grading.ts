@@ -1,4 +1,4 @@
-import { isSupportedTeaserRuleset, teaserOddsForRuleset, TEASER_RULESET_ID, type TeaserPoints } from "./teaser-table";
+import { teaserOdds, type TeaserPoints } from "./teaser-table";
 import type { LegGrade, ScoreResult, TeaserLeg } from "./types";
 
 /** Validates the selection pair for a typed/canonical market; callers must supply a supported market. */
@@ -50,8 +50,8 @@ export function teaserSelectionConflict(existing: readonly TeaserSelectionIdenti
   return existing.some((leg) => teaserSelectionKey(leg) === opposite) ? "opposing" : undefined;
 }
 
-export function validateTeaser(legs: TeaserLeg[], points: TeaserPoints, rulesetVersion: string = TEASER_RULESET_ID): void {
-  if (teaserOddsForRuleset(rulesetVersion, legs.length, points) === undefined) throw new Error("The requested leg count is not available for this teaser size.");
+export function validateTeaser(legs: TeaserLeg[], points: TeaserPoints): void {
+  if (teaserOdds(legs.length, points) === undefined) throw new Error("The requested leg count is not available for this teaser size.");
   const accepted: TeaserSelectionIdentity[] = [];
   for (const leg of legs) {
     assertSelectionMatchesKnownMarket(leg);
@@ -64,12 +64,10 @@ export function validateTeaser(legs: TeaserLeg[], points: TeaserPoints, rulesetV
   }
 }
 
-export function gradeTeaser(grades: LegGrade[], points: TeaserPoints, rulesetVersion: string): { outcome: "win" | "loss" | "refund"; odds?: number; winningLegs: number } {
+export function gradeTeaser(grades: LegGrade[], points: TeaserPoints): { outcome: "win" | "loss" | "refund"; odds?: number; winningLegs: number } {
   const winningLegs = grades.filter((grade) => grade === "win").length;
-  // An unrecognized ruleset has no immutable price to settle at, so it refunds before loss precedence applies.
-  if (!isSupportedTeaserRuleset(rulesetVersion)) return { outcome: "refund", winningLegs };
   if (grades.includes("loss")) return { outcome: "loss", winningLegs };
   if (grades.includes("pending")) throw new Error("Cannot grade a teaser with a pending leg.");
-  const odds = teaserOddsForRuleset(rulesetVersion, winningLegs, points);
+  const odds = teaserOdds(winningLegs, points);
   return odds === undefined ? { outcome: "refund", winningLegs } : { outcome: "win", odds, winningLegs };
 }

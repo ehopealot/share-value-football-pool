@@ -69,7 +69,7 @@ describe("PoolDO wagers and settlement", () => {
     await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]);
   });
 
-  it("continues settling and regrading an accepted legacy seven-leg teaser", async () => {
+  it("refunds a winning seven-leg teaser the six-leg card cannot price, then honors a losing regrade", async () => {
     const slug = await fundedPool();
     await storage(slug, (state) => {
       const sql = state.storage.sql;
@@ -78,12 +78,12 @@ describe("PoolDO wagers and settlement", () => {
       sql.exec("UPDATE share_account SET available_micros='2000000',locked_micros='1000000' WHERE season_id='s1' AND member_id='member'");
       settleWagers(sql, Array.from({ length: 7 }, (_, index) => final(`legacy-seven-event-${index}`, "v1")));
     });
-    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='legacy-seven'")][0], settlement: [...state.storage.sql.exec("SELECT outcome, settled_odds, profit_micros, return_micros FROM settlement WHERE wager_id='legacy-seven' AND outcome <> 'reversal'")][0], account: [...state.storage.sql.exec("SELECT available_micros, locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }))).toEqual({ wager: { status: "won" }, settlement: { outcome: "win", settled_odds: 800, profit_micros: "8000000", return_micros: "9000000" }, account: { available_micros: "11000000", locked_micros: "0" } });
+    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='legacy-seven'")][0], settlement: [...state.storage.sql.exec("SELECT outcome, settled_odds, profit_micros, return_micros FROM settlement WHERE wager_id='legacy-seven' AND outcome <> 'reversal'")][0], account: [...state.storage.sql.exec("SELECT available_micros, locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }))).toEqual({ wager: { status: "refunded" }, settlement: { outcome: "refund", settled_odds: null, profit_micros: "0", return_micros: "1000000" }, account: { available_micros: "3000000", locked_micros: "0" } });
     expect(await send(slug, { type: "RegradeWager", commandId: "legacy-seven-regrade", actorId: "owner", wagerId: "legacy-seven", reason: "official correction", correctedResults: Array.from({ length: 7 }, (_, index) => correctionEvidence(`legacy-seven-event-${index}`, "v2", index === 0 ? 10 : 24, 17)) })).toMatchObject({ commandVersion: expect.any(String) });
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT status FROM wager WHERE id='legacy-seven'")][0])).toEqual({ status: "lost" });
   }, 90_000);
 
-  it("reprices a legacy teaser push reduction from the retired card, not the current one", async () => {
+  it("reprices a teaser push reduction from the single current card regardless of stored ruleset", async () => {
     const slug = await fundedPool();
     await storage(slug, (state) => {
       const sql = state.storage.sql;
@@ -92,9 +92,9 @@ describe("PoolDO wagers and settlement", () => {
       sql.exec("UPDATE share_account SET available_micros='2000000',locked_micros='1000000' WHERE season_id='s1' AND member_id='member'");
       settleWagers(sql, [final("legacy-push-win", "v1", 24, 17), final("legacy-push-win-two", "v1", 24, 17), final("legacy-push-push", "v1", 14, 17)]);
     });
-    // Two winning legs plus a push reprice the ticket as a two-leg legacy teaser at -120;
-    // the current card would pay -110, so these figures bind settlement to the stored ruleset.
-    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='legacy-push'")][0], settlement: [...state.storage.sql.exec("SELECT outcome, settled_odds, profit_micros FROM settlement WHERE wager_id='legacy-push' AND outcome <> 'reversal'")][0], account: [...state.storage.sql.exec("SELECT available_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }))).toEqual({ wager: { status: "won" }, settlement: { outcome: "win", settled_odds: -120, profit_micros: "833333" }, account: { available_micros: "3833333" } });
+    // Two winning legs plus a push reprice the ticket as a two-leg teaser at the card price -110,
+    // even though this beta ticket stored the pre-versioned season ruleset and accepted +150.
+    expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id='legacy-push'")][0], settlement: [...state.storage.sql.exec("SELECT outcome, settled_odds, profit_micros FROM settlement WHERE wager_id='legacy-push' AND outcome <> 'reversal'")][0], account: [...state.storage.sql.exec("SELECT available_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0] }))).toEqual({ wager: { status: "won" }, settlement: { outcome: "win", settled_odds: -110, profit_micros: "909091" }, account: { available_micros: "3909091" } });
   }, 90_000);
 
   it("settles and regrades immutable parlays with effective odds while refunds keep settled odds null", async () => {
