@@ -33,7 +33,7 @@ Each settled ticket counts as one pick regardless of leg count (multis = one pic
 - A wager is displayed for a week when it is settled (`status !== "open"`) or has at least one leg with `eventStartsAt <= now`. Open tickets with no started legs are omitted for every viewer, including the owner (owners still have My Bets).
 - Displayed wagers render in two sections — "In process" and "Settled" — reusing the Activity member-section table (start times, graded legs, stake, P&L) with section ribbons in place of the member name. The section sorts its own input by kickoff anchor on mobile, so callers never rely on server ordering.
 - Empty week: "No bets this week." A week carrying only unstarted tickets shows "Selections not visible yet." (bet existence is already public on Activity).
-- Week enumeration covers every season week through the current one; a clock absurdly far past the anchor keeps the most recent bounded window (80 weeks) always including the current week, never silently dropping it.
+- Week enumeration covers every season week through the current one; a clock absurdly far past the anchor keeps the most recent bounded window (80 weeks) always including the current week, never silently dropping it. The skipped enumeration start is snapped into its intended Eastern week with half a week of slack, so DST drift cannot emit an 81st week.
 
 ## Links
 
@@ -47,7 +47,7 @@ Table-first, square borders, no new visual vocabulary: stats use the existing `t
 
 ## Route lifecycle
 
-Profile loads reset data, error, and selected-week state when the pool slug or member id changes and ignore superseded responses, so React Router component reuse cannot show one pool's data under another.
+Both the profile and the message board mount their stateful body in a child keyed by route identity (profile: pool slug + member id; board: pool slug), so React Router reuse can never render one pool's data, errors, or author links under another route, and a post/reply continuation from a previous pool can only ever touch its own unmounted instance. The profile load effect additionally resets data, error, and selected-week state and ignores superseded responses.
 
 ## Testing
 

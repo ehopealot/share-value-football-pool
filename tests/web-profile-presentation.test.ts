@@ -34,8 +34,9 @@ describe("profile presentation", () => {
   it("lists every season week through the current week, plus weeks carrying the member's bets", () => {
     expect(profileWeekOptions([], new Date("2026-09-10T20:00:00.000Z"))).toEqual([week3, week2, week1]);
     expect(profileWeekOptions([week4, week2], new Date("2026-09-10T20:00:00.000Z"))).toEqual([week4, week3, week2, week1]);
-    // Before the season anchor, only actual bet weeks remain selectable.
+    // Before the season anchor, the current preseason week stays selectable alongside bet weeks.
     expect(profileWeekOptions(["2026-08-18T04:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T04:00:00.000Z"]);
+    expect(profileWeekOptions(["2026-08-11T04:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T04:00:00.000Z", "2026-08-11T04:00:00.000Z"]);
   });
 
   it("keeps the current week selectable past Week 40 and bounds absurd clocks", () => {
@@ -47,6 +48,10 @@ describe("profile presentation", () => {
     const farFuture = profileWeekOptions([], new Date("2030-01-01T12:00:00.000Z"));
     expect(farFuture[0]).toBe("2030-01-01T05:00:00.000Z");
     expect(farFuture).toHaveLength(80);
+    // A skipped start computed during EST must snap into its intended week, never the one before.
+    const dstSkip = profileWeekOptions([], new Date("2028-05-23T12:00:00.000Z"));
+    expect(dstSkip[0]).toBe("2028-05-23T04:00:00.000Z");
+    expect(dstSkip).toHaveLength(80);
   });
 
   it("keeps unstarted tickets off profile pages while showing in-process and settled ones", () => {

@@ -17,6 +17,12 @@ const sectionMember = (memberId: string, memberDisplayName: string, wagers: Wage
 
 export function MemberProfilePage() {
   const { slug = "", memberId = "" } = useParams();
+  // Keying the body by route identity gives each pool/member pair fresh state, so a
+  // route change can never render one pool's data under another's links.
+  return <MemberProfileBody key={`${slug}:${memberId}`} slug={slug} memberId={memberId}/>;
+}
+
+function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string }) {
   const [activity, setActivity] = useState<import("../../contracts/http").ReadActivity>();
   const [view, setView] = useState<import("../../contracts/http").ReadPoolView>();
   const [selectedWeek, setSelectedWeek] = useState("");
@@ -45,7 +51,8 @@ export function MemberProfilePage() {
   const seasonWagers = activeSeason ? activity.activity.wagers.filter((wager) => wager.memberId === memberId && wager.seasonId === activeSeason.id) : [];
   const weeks = profileWeekOptions(seasonWagers.map((wager) => wager.weekStart), now);
   const currentWeek = weekStartOf(now).toISOString();
-  const week = weeks.includes(selectedWeek) ? selectedWeek : weeks.includes(currentWeek) ? currentWeek : weeks[0];
+  // The selector always offers the current week, so selection can only ever be a prior choice.
+  const week = weeks.includes(selectedWeek) ? selectedWeek : currentWeek;
   const { inProcess, settled, unstarted } = splitProfileWeekWagers(week ? seasonWagers.filter((wager) => wager.weekStart === week) : [], now);
   const typeRecord = (type: Wager["type"]) => formatPickRecord(pickRecord(seasonWagers.filter((wager) => wager.type === type)));
 
@@ -60,13 +67,12 @@ export function MemberProfilePage() {
         <tr><th scope="row">Parlay</th><td>{typeRecord("parlay")}</td></tr>
         <tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>
       </tbody></table></div><p className="profile-record-note">Each bet counts as one pick. Refunded bets are not counted as wins or losses.</p></section>
-      <section><h2>Bets</h2>{weeks.length ? <>
+      <section><h2>Bets</h2>
         <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         {inProcess.length + settled.length > 0 ? <>
           {inProcess.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, inProcess)} title="In process"/>}
           {settled.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, settled)} title="Settled"/>}
-        </> : unstarted.length > 0 ? <p className="state-notice">Selections not visible yet.</p> : <p className="state-notice">No bets this week.</p>}
-      </> : <p className="state-notice">No bets yet this season.</p>}</section>
+        </> : unstarted.length > 0 ? <p className="state-notice">Selections not visible yet.</p> : <p className="state-notice">No bets this week.</p>}</section>
     </> : <p className="state-notice">No active season. Member profiles cover the active season.</p>}
     <p><Link to={`/p/${slug}/standings`}>Standings</Link> · <Link to={`/p/${slug}/overview`}>Pool home</Link></p>
   </div></Layout>;

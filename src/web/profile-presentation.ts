@@ -43,8 +43,9 @@ export function profileWeekOptions(betWeeks: Iterable<string>, now: Date): strin
   const currentWeek = weekStartOf(now);
   const anchor = weekStartOf(new Date(SEASON_WEEK1_ANCHOR));
   const elapsedWeeks = Math.floor((currentWeek.getTime() - anchor.getTime()) / PROFILE_WEEK_MS);
-  // Snapping the skipped start back onto a true week start absorbs DST drift.
-  const firstWeek = weekStartOf(new Date(anchor.getTime() + Math.max(0, elapsedWeeks - MAX_PROFILE_WEEKS + 1) * PROFILE_WEEK_MS));
+  // Half a week of slack before snapping absorbs DST drift so the skipped start lands
+  // inside the intended Eastern calendar week, never the one before it.
+  const firstWeek = weekStartOf(new Date(anchor.getTime() + Math.max(0, elapsedWeeks - MAX_PROFILE_WEEKS + 1) * PROFILE_WEEK_MS + PROFILE_WEEK_MS / 2));
   for (let week = firstWeek, guard = 0; week.getTime() <= currentWeek.getTime() && guard < MAX_PROFILE_WEEKS; week = nextWeekStart(week), guard += 1) weeks.add(week.toISOString());
   weeks.add(currentWeek.toISOString());
   return [...weeks].sort().reverse();

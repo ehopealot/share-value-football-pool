@@ -32,10 +32,11 @@ describe("member profile page", () => {
 
   it("defaults the week selector to the current week and announces empty and hidden weeks", () => {
     expect(page).toContain("profileWeekOptions(");
-    expect(page).toContain("weeks.includes(selectedWeek) ? selectedWeek : weeks.includes(currentWeek) ? currentWeek : weeks[0]");
+    expect(page).toContain("weeks.includes(selectedWeek) ? selectedWeek : currentWeek");
     expect(page).toContain("weekNumberLabel(start)");
     expect(page).toContain("unstarted.length > 0 ? <p className=\"state-notice\">Selections not visible yet.</p>");
     expect(page).toContain("No bets this week.");
+    expect(page).not.toContain("No bets yet this season.");
   });
 
   it("splits the selected week into In process and Settled sections built from Activity tables", () => {
@@ -64,6 +65,11 @@ describe("member profile page", () => {
     expect(page).toContain(".catch((reason) => { if (active) setError(errorMessage(reason)); });");
   });
 
+  it("mounts fresh state per route identity so one pool can never render under another", () => {
+    expect(page).toContain('return <MemberProfileBody key={`${slug}:${memberId}`} slug={slug} memberId={memberId}/>;');
+    expect(board).toContain('return <MessageBoardPageBody key={slug} slug={slug}/>;');
+  });
+
   it("renders profile-linked standings names while keeping plain names without a path", () => {
     const linked = render(createElement(MemoryRouter, {}, createElement(StandingsTable, { standings: [{ userId: "member-1", rank: 1, displayName: "Bruin", availableMicros: "0", lockedMicros: "0", totalMicros: "0", notionalValueMicros: "0", priceMicros: "1000000", gainMicros: "0" }], memberProfilePath: (userId) => `/p/demo-pool/member/${userId}` })));
     expect(linked).toContain('href="/p/demo-pool/member/member-1"');
@@ -74,7 +80,7 @@ describe("member profile page", () => {
 
   it("uses section titles in place of member names on profile wager ribbons", () => {
     const html = render(createElement(MemoryRouter, {}, createElement(MemberActivitySection, { member: { memberId: "member-1", memberDisplayName: "Bruin", performanceMicros: "0", wagers: [] }, title: "In process" })));
-    expect(html).toContain('<h3 class="activity-member-ribbon">In process</h3>');
+    expect(html).toContain('<h3 class="activity-member-ribbon">In process<small>+0.00 shares</small></h3>');
     expect(html).not.toContain("Bruin");
   });
 

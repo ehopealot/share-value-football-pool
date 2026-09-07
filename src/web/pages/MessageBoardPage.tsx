@@ -91,7 +91,15 @@ export async function readMemberProfileDirectory(slug: string, poolView: () => P
 }
 
 export function MessageBoardPage() {
-  const { slug = "" } = useParams(); const location = useLocation();
+  const { slug = "" } = useParams();
+  // Keying the body by slug gives each pool its own state and load generations, so a
+  // post or reply continuation from a previous pool can never publish that pool's
+  // board or directory under this route after navigation.
+  return <MessageBoardPageBody key={slug} slug={slug}/>;
+}
+
+function MessageBoardPageBody({ slug }: { slug: string }) {
+  const location = useLocation();
   const [board, setBoard] = useState<ReadMessageBoardResponse>();
   const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState("");
   const [postText, setPostText] = useState(""); const [postAnnouncement, setPostAnnouncement] = useState(false); const [postError, setPostError] = useState("");
