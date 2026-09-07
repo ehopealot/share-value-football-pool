@@ -862,8 +862,8 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
   await page.getByRole("link", { name: "Pool home" }).click();
   await page.getByRole("link", { name: "Share orders" }).click();
   await expect(page.getByLabel("Amount")).toHaveValue("1");
-  await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
-  const quotedMemberId = await page.getByLabel("Member").inputValue();
+  await page.getByLabel("Member", { exact: true }).selectOption({ label: "Quoted Member" });
+  const quotedMemberId = await page.getByLabel("Member", { exact: true }).inputValue();
   expect(quotedMemberId).toBeTruthy();
   const orderQuoteBodies: Record<string, unknown>[] = [];
   const orderExecutionBodies: Record<string, unknown>[] = [];
@@ -972,7 +972,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     expect(confirmedExecution.idempotencyKey).not.toBe(replacementQuote.idempotencyKey);
     await expect(page).toHaveURL(/\/p\/stale-order-pool\/overview$/);
     await page.getByRole("link", { name: "Share orders" }).click();
-    await page.getByLabel("Member").selectOption({ label: "Quoted Member" });
+    await page.getByLabel("Member", { exact: true }).selectOption({ label: "Quoted Member" });
   }
 });
 

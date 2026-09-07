@@ -42,7 +42,7 @@ async function openSeason(page: Page, label: string) {
 
 async function issueShares(page: Page, baseURL: string, slug: string, shares: string, memberName?: string) {
   await page.goto(`${baseURL}/p/${slug}/admin/orders`);
-  if (memberName) await page.getByLabel("Member").selectOption({ label: memberName });
+  if (memberName) await page.getByLabel("Member", { exact: true }).selectOption({ label: memberName });
   await page.getByLabel("Amount").fill(shares);
   await page.getByRole("button", { name: "Quote order" }).click();
   await page.getByRole("button", { name: "Confirm order" }).click();
@@ -352,22 +352,22 @@ test("standings display canonical fixed-point values that change after real sett
     const currentShareValue = page.getByText("Current share value:", { exact: false });
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
     await expect(currentShareValue).toContainText("$1.000");
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "0.00", "3.00", "3.00", "0.00"]);
-    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "0.00", "2.00", "2.00", "0.00"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "0.00", "3.00", "3.00", "0.00", "0.00"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "0.00", "2.00", "2.00", "0.00", "0.00"]);
     // A real straight ticket moves risk from available to locked without changing the price.
     await reseedUpcomingEvent(page);
     await placeAwaySpreadWager(page, worker.baseURL, slug);
     const wagerId = await lastWagerId(page, slug);
     await page.goto(`${worker.baseURL}/p/${slug}/standings`);
     await expect(currentShareValue).toContainText("$1.000");
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "1.00", "3.00", "3.00", "0.00"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "1.00", "3.00", "3.00", "0.00", "1.00"]);
     // Real fixture final + alarm settlement: the win mints 1,000,000 profit into the float (5,000,000 -> 6,000,000)
     // while season notional stays 5,000,000, so the rounded page-level share value becomes $0.833 for every member.
     await settleFixtureResult(page, slug, 17, 24);
     await page.reload();
     await expect(currentShareValue).toContainText("$0.833");
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "0.00", "4.00", "3.33", "0.33"]);
-    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "0.00", "2.00", "1.67", "-0.33"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["1", ownerName, "0.00", "4.00", "3.33", "0.33", "1.00"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["2", memberName, "0.00", "2.00", "1.67", "-0.33", "0.00"]);
     // A reason-gated regrade of that same ticket to a loss must reverse the prior win's float profit before the
     // loss destroys the risk: 6,000,000 - 1,000,000 - 1,000,000 = 4,000,000, so the rounded share value becomes $1.250.
     // (An earlier revision placed a second fixture push here; that ticket stayed locked because the local alarm
@@ -379,8 +379,8 @@ test("standings display canonical fixed-point values that change after real sett
     await expect(currentShareValue).toContainText("$1.250");
     // Both members now hold exactly 2.00 shares; the member attained 2.00 at funding while the owner's ledger
     // only returns to 2.00 at the regrade settlement entry, so the earliest-attainment tiebreak swaps the ranks.
-    expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "0.00", "2.00", "2.50", "0.50"]);
-    expect(await standingsRowTexts(page, ownerName)).toEqual(["2", ownerName, "0.00", "2.00", "2.50", "-0.50"]);
+    expect(await standingsRowTexts(page, memberName)).toEqual(["1", memberName, "0.00", "2.00", "2.50", "0.50", "0.00"]);
+    expect(await standingsRowTexts(page, ownerName)).toEqual(["2", ownerName, "0.00", "2.00", "2.50", "-0.50", "1.00"]);
   } finally { await memberContext.close(); }
 });
 
