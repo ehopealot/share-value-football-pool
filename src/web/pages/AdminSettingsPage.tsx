@@ -12,10 +12,11 @@ export function AdminSettingsPage() {
   const [password, setPassword] = useState("");
   const [maxSideBet, setMaxSideBet] = useState("");
   const [commissionerNotice, setCommissionerNotice] = useState("");
+  const [commissionerRules, setCommissionerRules] = useState("");
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const settings = useFrozenAdminCommand<Record<string, unknown>>();
-  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / MICROS_PER_UNIT).toString()); setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase()); }).catch((e) => setLoadError(errorMessage(e)));
+  const load = () => void api.poolView(slug).then((value) => { setView(value); setName(value.pool.name); setMaxSideBet((BigInt(value.pool.maxSideBetMicros) / MICROS_PER_UNIT).toString()); setCommissionerNotice((value.pool.commissionerNotice ?? "").toUpperCase()); setCommissionerRules(value.pool.commissionerRules ?? ""); }).catch((e) => setLoadError(errorMessage(e)));
   useEffect(load, [slug]);
   if (loadError) return <Layout><h1>Pool settings</h1><p role="alert" tabIndex={-1} className="error-summary">{loadError} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!view) return <Layout><p role="status">Loading settings…</p></Layout>;
@@ -45,6 +46,17 @@ export function AdminSettingsPage() {
         </div>
         <button disabled={!commissionerNotice.trim() || settings.pending} onClick={() => void save(`notice:${commissionerNotice}`, () => ({ commissionerNotice }))}>Save notice</button>
         {view.pool.commissionerNotice !== null && <button disabled={settings.pending} onClick={() => void save("clear-notice", () => ({ commissionerNotice: null }))}>Clear notice</button>}
+      </div>
+    </section>
+    <section className="pool-settings-section" aria-labelledby="commissioner-rules-settings-heading">
+      <h2 id="commissioner-rules-settings-heading">Commissioner rules</h2>
+      <div className="share-order-form pool-settings-notice-controls">
+        <div className="pool-settings-notice-field">
+          <p id="commissioner-rules-help" className="pool-settings-help">Optional pool-specific rules. These appear on the Rules page when filled in.</p>
+          <textarea id="commissioner-rules" className="commissioner-rules-input" aria-labelledby="commissioner-rules-settings-heading" aria-describedby="commissioner-rules-help" disabled={settings.pending} value={commissionerRules} maxLength={4000} onChange={(e) => { edit(); setCommissionerRules(e.target.value); }} />
+        </div>
+        <button disabled={!commissionerRules.trim() || settings.pending} onClick={() => void save(`rules:${commissionerRules}`, () => ({ commissionerRules }))}>Save rules</button>
+        {view.pool.commissionerRules !== null && <button disabled={settings.pending} onClick={() => void save("clear-rules", () => ({ commissionerRules: null }))}>Clear rules</button>}
       </div>
     </section>
     <section className="pool-settings-section" aria-labelledby="join-password-settings-heading">

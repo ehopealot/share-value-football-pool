@@ -22,6 +22,10 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
         : <p className="state-notice">No active or closed season is available. The fixed system rules are shown below.</p>}
       {!supported && <p role="alert" className="error-summary">Unsupported ruleset: {selectedRuleset}. No matching immutable rules table is available.</p>}
     </section>
+    {view.pool.commissionerRules !== null && <section className="table-ribbon-section commissioner-rules-section" aria-labelledby="commissioner-rules-heading">
+      <h2 className="table-ribbon" id="commissioner-rules-heading">Commissioner rules</h2>
+      <p className="commissioner-rules-text">{view.pool.commissionerRules}</p>
+    </section>}
     {supported && <section className="table-ribbon-section" aria-labelledby="teaser-rules-heading">
       <h2 className="table-ribbon" id="teaser-rules-heading">Teaser payouts: {selectedRuleset}</h2>
       <div className="table-scroll" tabIndex={0}><table><thead><tr><th scope="col">Legs</th>{TEASER_POINT_OPTIONS.map((points) => <th key={points} scope="col">{points} points</th>)}</tr></thead><tbody>{TEASER_LEG_COUNTS.map((legs) => <tr key={legs}><th scope="row">{legs === 7 ? "7 (legacy only)" : legs}</th>{TEASER_POINT_OPTIONS.map((points) => <td key={points}>{formatTeaserOdds(TEASER_PAYOUT_MATRIX[legs]?.[points])}</td>)}</tr>)}</tbody></table></div>

@@ -29,6 +29,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .commissioner-notice strong { font-size: 0.9rem; }
 .commissioner-notice > span, .commissioner-notice-input { text-transform: uppercase; }
 .commissioner-notice-input { display: block; width: min(100%, 65ch); min-height: 5rem; padding: var(--space-2); border: 1px solid var(--line); border-radius: 0; font: inherit; resize: vertical; }
+.commissioner-rules-input { display: block; width: min(100%, 65ch); min-height: 10rem; padding: var(--space-2); border: 1px solid var(--line); border-radius: 0; font: inherit; resize: vertical; }
+.commissioner-rules-text { margin: 0 0 var(--space-2); overflow-wrap: anywhere; white-space: pre-wrap; }
 .nav-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); background: var(--blue); }
 .nav-bar a { color: #fff; }
 .nav-bar a.active { font-weight: 700; }

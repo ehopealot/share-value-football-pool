@@ -15,7 +15,7 @@ const css = () => readFileSync(resolve(root, "src/web/styles.css"), "utf8");
 
 const view = {
   commandVersion: "7",
-  pool: { poolId: "pool-id", slug: "pool", name: "Office pool", commissionerId: "commissioner", signupsOpen: true, maxSideBetMicros: "800000000", commissionerNotice: null },
+  pool: { poolId: "pool-id", slug: "pool", name: "Office pool", commissionerId: "commissioner", signupsOpen: true, maxSideBetMicros: "800000000", commissionerNotice: null, commissionerRules: null },
   activeSeason: null, nextDraftSeason: null, latestClosedSeason: null,
   currentMember: { memberId: "member", role: "member" as const, seasonBalances: [], hasUnreadBoard: true },
   members: [], commissioner: null

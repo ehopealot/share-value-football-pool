@@ -4,7 +4,7 @@ import { ReadPoolView, updatePoolSettingsRequest } from "../../src/contracts/htt
 describe("ReadPoolView", () => {
   it("requires explicit lifecycle slots and never accepts legacy season fields", () => {
     const view = {
-      commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "owner", signupsOpen: true, maxSideBetMicros: "800000000", commissionerNotice: null },
+      commandVersion: "1", pool: { poolId: "pool", slug: "pool", name: "Pool", commissionerId: "owner", signupsOpen: true, maxSideBetMicros: "800000000", commissionerNotice: null, commissionerRules: null },
       activeSeason: null, nextDraftSeason: null, latestClosedSeason: null,
       currentMember: { memberId: "owner", role: "commissioner", seasonBalances: [], hasUnreadBoard: false },
       members: [{ memberId: "owner", displayName: "Owner", role: "commissioner", status: "active" }],
@@ -13,6 +13,7 @@ describe("ReadPoolView", () => {
     expect(ReadPoolView.parse(view)).toEqual(view);
     expect(ReadPoolView.safeParse({ ...view, currentMember: { ...view.currentMember, hasUnreadBoard: undefined } }).success).toBe(false);
     expect(ReadPoolView.safeParse({ ...view, pool: { ...view.pool, commissionerNotice: undefined } }).success).toBe(false);
+    expect(ReadPoolView.safeParse({ ...view, pool: { ...view.pool, commissionerRules: undefined } }).success).toBe(false);
     for (const malformed of [
       { ...view, activeSeasonId: null, season: null, orders: [] },
       { ...view, pool: { ...view.pool, unexpected: true } },
@@ -31,6 +32,17 @@ describe("ReadPoolView", () => {
       { commissionerNotice: "   ", idempotencyKey: "whitespace" },
       { commissionerNotice: "x".repeat(501), idempotencyKey: "overlong" },
       { commissionerNotice: "Notice", idempotencyKey: "unknown", unexpected: true }
+    ]) expect(updatePoolSettingsRequest.safeParse(body).success).toBe(false);
+  });
+
+  it("strictly accepts bounded commissioner rules or an explicit clear", () => {
+    expect(updatePoolSettingsRequest.parse({ commissionerRules: "  Weekly picks are due by Sunday noon.  ", idempotencyKey: "rules-set" })).toEqual({ commissionerRules: "Weekly picks are due by Sunday noon.", idempotencyKey: "rules-set" });
+    expect(updatePoolSettingsRequest.parse({ commissionerRules: null, idempotencyKey: "rules-clear" })).toEqual({ commissionerRules: null, idempotencyKey: "rules-clear" });
+    for (const body of [
+      { commissionerRules: "", idempotencyKey: "blank-rules" },
+      { commissionerRules: "   ", idempotencyKey: "whitespace-rules" },
+      { commissionerRules: "x".repeat(4001), idempotencyKey: "overlong-rules" },
+      { commissionerRules: "Rules", idempotencyKey: "unknown-rules", unexpected: true }
     ]) expect(updatePoolSettingsRequest.safeParse(body).success).toBe(false);
   });
 });

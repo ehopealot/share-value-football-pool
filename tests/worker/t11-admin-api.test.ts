@@ -315,6 +315,14 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: "Unexpected", idempotencyKey: "unknown-notice", unexpected: true })))).toMatchObject({ status: 400 });
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerNotice: null, idempotencyKey: "clear-notice" })))).toMatchObject({ status: 200 });
     expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerNotice).toBeNull();
+    expect((await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/admin/settings`, { commissionerRules: "Forged", idempotencyKey: "member-rules" })))).toMatchObject({ status: 403 });
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerRules: "  Weekly picks are due by Sunday noon.  ", idempotencyKey: "rules" })))).toMatchObject({ status: 200 });
+    expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerRules).toBe("Weekly picks are due by Sunday noon.");
+    for (const [commissionerRules, idempotencyKey] of [["", "blank-rules"], ["   ", "whitespace-rules"], ["x".repeat(4001), "overlong-rules"]] as const) {
+      expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerRules, idempotencyKey })))).toMatchObject({ status: 400 });
+    }
+    expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { commissionerRules: null, idempotencyKey: "clear-rules" })))).toMatchObject({ status: 200 });
+    expect(((await (await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"))).json()) as any).pool.commissionerRules).toBeNull();
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate" })))).toMatchObject({ status: 403 });
     expect((await app({ id: "owner", name: "Owner" }, async () => true).fetch(request(`/api/p/${slug}/admin/settings`, { password: "rotated-password", idempotencyKey: "rotate-recent" })))).toMatchObject({ status: 200 });
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { idempotencyKey: "empty" })))).toMatchObject({ status: 400 });
