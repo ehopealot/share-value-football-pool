@@ -37,6 +37,6 @@ describe("Activity page", () => {
     expect(source).toContain('activityWagerPerformanceClass');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td>');
     expect(source).toContain('const performance = formatActivityPerformance(member.performanceMicros);');
-    expect(source).toContain('{member.memberDisplayName}<small>{performance}</small>');
+    expect(source).toContain('{title ?? member.memberDisplayName}<small>{performance}</small>');
   });
 });

@@ -8,8 +8,8 @@ import { formatCurrentShareValue } from "../share-value";
 const shares = (value: string, decimals: 2 | 4 = 2) => formatMicros(parseIntegerText(value), decimals);
 type Standings = import("../../contracts/http").ReadStandings["standings"];
 
-export function StandingsTable({ standings }: { standings: Standings }) {
-  return <section className="table-ribbon-section"><h2 className="table-ribbon">Active season holdings</h2><div className="table-scroll" tabIndex={0}><table><thead><tr><th>Rank</th><th>Member</th><th>Locked</th><th>Total</th><th>Notional value</th><th>SVG</th></tr></thead><tbody>{standings.map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{row.displayName}</th><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td><td>{shares(row.gainMicros)}</td></tr>)}</tbody></table></div></section>;
+export function StandingsTable({ standings, memberProfilePath }: { standings: Standings; memberProfilePath?: (userId: string) => string }) {
+  return <section className="table-ribbon-section"><h2 className="table-ribbon">Active season holdings</h2><div className="table-scroll" tabIndex={0}><table><thead><tr><th>Rank</th><th>Member</th><th>Locked</th><th>Total</th><th>Notional value</th><th>SVG</th></tr></thead><tbody>{standings.map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{memberProfilePath ? <Link to={memberProfilePath(row.userId)}>{row.displayName}</Link> : row.displayName}</th><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td><td>{shares(row.gainMicros)}</td></tr>)}</tbody></table></div></section>;
 }
 
 export function StandingsPage() {
@@ -30,7 +30,7 @@ export function StandingsPage() {
   const shareValue = view.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.000";
   const noIssuedShares = !view.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
   return <Layout><div className="standings-page"><h1>Standings</h1><p className="pool-context">Current share value: <strong>{shareValue}</strong>{noIssuedShares && <> · No shares issued yet; first order price is $1.00 per share.</>}</p>
-    {data.standings.length ? <StandingsTable standings={data.standings} /> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
+    {data.standings.length ? <StandingsTable standings={data.standings} memberProfilePath={(userId) => `/p/${slug}/member/${userId}`} /> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }

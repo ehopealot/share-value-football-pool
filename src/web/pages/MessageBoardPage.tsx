@@ -46,7 +46,12 @@ export const scrollMessageBoardFragment = (hash: string, findTarget: (id: string
 };
 export const shouldScrollMessageBoardFragment = (handled: string | undefined, slug: string, hash: string) => Boolean(hash) && handled !== `${slug}:${hash}`;
 
-export function MessageBoardThreads({ threads, openReplyPostId, replyText, replyPending, onToggleReply, onReplyTextChange, onReplySubmit }: {
+/** Board authors link to their member profile whenever their display name identifies exactly one member. */
+export function BoardAuthorName({ displayName, profileHref }: { displayName: string; profileHref?: string }) {
+  return <strong>{profileHref ? <Link to={profileHref}>{displayName}</Link> : displayName}</strong>;
+}
+
+export function MessageBoardThreads({ threads, openReplyPostId, replyText, replyPending, onToggleReply, onReplyTextChange, onReplySubmit, memberProfileHref }: {
   threads: Thread[];
   openReplyPostId?: string;
   replyText: string;
@@ -54,10 +59,11 @@ export function MessageBoardThreads({ threads, openReplyPostId, replyText, reply
   onToggleReply: (postId: string) => void;
   onReplyTextChange: (text: string) => void;
   onReplySubmit: (event: FormEvent<HTMLFormElement>, postId: string) => void;
+  memberProfileHref?: (displayName: string) => string | undefined;
 }) {
   if (!threads.length) return <p className="state-notice">No messages yet. Start the conversation.</p>;
   return <section className="message-board-threads" aria-label="Message board threads">{threads.map((thread, index) => <article id={`post-${thread.postId}`} key={thread.postId} className={`message-board-thread${index % 2 ? " message-board-thread-alt" : ""}`}>
-    <header><p><strong>{thread.authorDisplayName}</strong>{thread.isAnnouncement && <span className="message-board-announcement-icon" role="img" aria-label="Commissioner announcement" title="Commissioner announcement"><img className="message-board-announcement-icon-image" src="/announcement-color-icon.svg" alt="" /></span>} <time dateTime={thread.createdAt}>{formatBoardTime(thread.createdAt)}</time></p></header>
+    <header><p><BoardAuthorName displayName={thread.authorDisplayName} profileHref={memberProfileHref?.(thread.authorDisplayName)}/>{thread.isAnnouncement && <span className="message-board-announcement-icon" role="img" aria-label="Commissioner announcement" title="Commissioner announcement"><img className="message-board-announcement-icon-image" src="/announcement-color-icon.svg" alt="" /></span>} <time dateTime={thread.createdAt}>{formatBoardTime(thread.createdAt)}</time></p></header>
     <p className="message-board-text">{thread.text}</p>
     <button type="button" className="message-board-reply-toggle" aria-label={`Reply to ${thread.authorDisplayName}`} aria-expanded={openReplyPostId === thread.postId} aria-controls={`message-board-reply-form-${thread.postId}`} disabled={replyPending} onClick={() => onToggleReply(thread.postId)}>Reply</button>
     {openReplyPostId === thread.postId && <form id={`message-board-reply-form-${thread.postId}`} className="message-board-reply-form" onSubmit={(event) => onReplySubmit(event, thread.postId)}>
@@ -66,7 +72,7 @@ export function MessageBoardThreads({ threads, openReplyPostId, replyText, reply
       <button type="submit" disabled={!replyText.trim() || replyPending}>Post reply</button>
     </form>}
     {thread.replies.length > 0 && <section className="message-board-replies" aria-label={`Replies to ${thread.authorDisplayName}`}>{thread.replies.map((reply) => <article key={reply.replyId} className="message-board-reply">
-      <header><p><strong>{reply.authorDisplayName}</strong> <time dateTime={reply.createdAt}>{formatBoardTime(reply.createdAt)}</time></p></header>
+      <header><p><BoardAuthorName displayName={reply.authorDisplayName} profileHref={memberProfileHref?.(reply.authorDisplayName)}/> <time dateTime={reply.createdAt}>{formatBoardTime(reply.createdAt)}</time></p></header>
       <p className="message-board-text">{reply.text}</p>
     </article>)}</section>}
   </article>)}</section>;
@@ -78,6 +84,7 @@ export function MessageBoardPage() {
   const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState("");
   const [postText, setPostText] = useState(""); const [postAnnouncement, setPostAnnouncement] = useState(false); const [postError, setPostError] = useState("");
   const [openReplyPostId, setOpenReplyPostId] = useState<string>(); const [replyText, setReplyText] = useState(""); const [replyError, setReplyError] = useState("");
+  const [memberProfileHrefs, setMemberProfileHrefs] = useState<Map<string, string>>();
   const post = useFrozenAdminCommand<BoardMutation>(); const reply = useFrozenAdminCommand<ReplyMutation>();
   const loads = useState(() => new MessageBoardLoadGeneration())[0]; const errorRef = useRef<HTMLParagraphElement>(null); const handledFragment = useRef<string | undefined>(undefined);
   const load = useCallback(async () => {
@@ -93,6 +100,19 @@ export function MessageBoardPage() {
     }
   }, [slug, loads]);
   useEffect(() => { setLoading(true); setBoard(undefined); void load(); return () => loads.invalidate(); }, [load, loads]);
+  // Display names are not unique: a name links only while it identifies exactly one member.
+  useEffect(() => {
+    let active = true;
+    void api.poolView(slug).then((view) => {
+      if (!active) return;
+      const idsByName = new Map<string, string[]>();
+      for (const entry of view.members) idsByName.set(entry.displayName, [...(idsByName.get(entry.displayName) ?? []), entry.memberId]);
+      const hrefs = new Map<string, string>();
+      for (const [displayName, ids] of idsByName) if (ids.length === 1) hrefs.set(displayName, `/p/${slug}/member/${ids[0]}`);
+      setMemberProfileHrefs(hrefs);
+    }).catch(() => { if (active) setMemberProfileHrefs(new Map()); });
+    return () => { active = false; };
+  }, [slug]);
   useEffect(() => { if (loadError || postError || replyError) errorRef.current?.focus(); }, [loadError, postError, replyError]);
   useEffect(() => {
     if (!board || !shouldScrollMessageBoardFragment(handledFragment.current, slug, location.hash)) return;
@@ -129,7 +149,7 @@ export function MessageBoardPage() {
     <form className="message-board-post-form" onSubmit={submitPost}><label htmlFor="message-board-post">New post</label><textarea id="message-board-post" value={postText} onChange={(event) => { post.retire(); setPostError(""); setPostText(event.target.value); }} maxLength={1000} required disabled={post.pending} />{board.canAnnounce && <label className="message-board-announcement-option"><input type="checkbox" checked={postAnnouncement} disabled={post.pending} onChange={(event) => { post.retire(); setPostError(""); setPostAnnouncement(event.target.checked); }} /> Send as a commissioner announcement and email active members (except you).</label>}<button type="submit" disabled={!postText.trim() || post.pending}>{postAnnouncement ? "Post announcement and email league" : "Post"}</button></form>
     {postError && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{postError}</p>}
     {replyError && <p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{replyError}</p>}
-    <MessageBoardThreads threads={board.threads} openReplyPostId={openReplyPostId} replyText={replyText} replyPending={reply.pending} onToggleReply={(postId) => { setReplyError(""); setOpenReplyPostId((current) => current === postId ? undefined : postId); }} onReplyTextChange={(text) => { reply.retire(); setReplyError(""); setReplyText(text); }} onReplySubmit={submitReply}/>
+    <MessageBoardThreads threads={board.threads} openReplyPostId={openReplyPostId} replyText={replyText} replyPending={reply.pending} memberProfileHref={memberProfileHrefs === undefined ? undefined : (displayName) => memberProfileHrefs.get(displayName)} onToggleReply={(postId) => { setReplyError(""); setOpenReplyPostId((current) => current === postId ? undefined : postId); }} onReplyTextChange={(text) => { reply.retire(); setReplyError(""); setReplyText(text); }} onReplySubmit={submitReply}/>
     <p><Link to={`/p/${slug}/overview`}>Pool home</Link></p>
   </div></Layout>;
 }
