@@ -141,6 +141,19 @@ describe("member-facing odds display", () => {
     expect(games[1]!.markets.moneyline).toEqual({});
   });
 
+  it.each([
+    [-1300, 1192, 1200, true],
+    [-1300, 1193, 1201, false],
+    [-1200, 1300, 1292, false]
+  ])("filters book prices %s/%s by their vig-free strike, not raw prices", (home, away, strike, available) => {
+    const [game] = groupBoardByEvent([{ eventId: "vig-limit", league: "nfl", startsAt: "2026-09-10T17:00:00.000Z", homeTeam: "Home", awayTeam: "Away", market: "moneyline", outcomes: [{ name: "Home", price: home }, { name: "Away", price: away }] }]);
+    if (available) {
+      expect(game!.markets.moneyline.home?.odds).toBe(`-${strike}`);
+      expect(game!.markets.moneyline.away?.odds).toBe(`+${strike}`);
+      expect(game!.markets.moneyline.home?.outcome.price).toBe(home);
+    } else expect(game!.markets.moneyline).toEqual({});
+  });
+
   it("filters either team fuzzily while retaining input order", () => {
     const markets = { spread: {}, total: {}, moneyline: {} };
     const games: GameRow[] = [

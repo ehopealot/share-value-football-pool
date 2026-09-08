@@ -228,6 +228,23 @@ describe("authenticated pool HTTP boundary", () => {
     const forged = { ...command, leg: { ...command.leg, canonicalBook: "FanDuel", offerVersion: "forged-v9", originalOdds: 200, canonicalOfferProof: { ...command.leg.canonicalOfferProof, canonicalBook: "FanDuel", offerVersion: "forged-v9", odds: 200 } } };
     await expect(revalidateWagerOffers(bindings.DB, forged, now)).rejects.toThrow("LINE_CHANGED");
 
+    // A raw favorite beyond the cap may have an eligible fair strike; a raw
+    // underdog inside the cap may not. Both sides must use the rounded fair price.
+    for (const [home, away, magnitude] of [[-1300, 1192, 1200], [-1300, 1193, 1201], [-1200, 1300, 1292]] as const) {
+      await bindings.DB.prepare("UPDATE market_offer SET payload_json = ? WHERE event_id = ?").bind(JSON.stringify({ policyVersion: CANONICAL_BOOK_POLICY_VERSION, outcomes: [{ name: "Fixture Home", price: home }, { name: "Fixture Away", price: away }] }), "trusted-event").run();
+      for (const selection of ["home", "away"] as const) {
+        const strike = selection === "home" ? -magnitude : magnitude;
+        const candidate = { ...command, acceptedOdds: strike, leg: { ...command.leg, selection, originalOdds: strike, canonicalOfferProof: { ...command.leg.canonicalOfferProof, selection, offerId: `trusted-event:moneyline:${selection}`, odds: selection === "home" ? home : away } } };
+        if (magnitude <= 1200) {
+          await expect(canonicalizeWagerQuote(bindings.DB, candidate, now)).resolves.toMatchObject({ acceptedOdds: strike, leg: { originalOdds: strike, canonicalOfferProof: candidate.leg.canonicalOfferProof } });
+          await expect(revalidateWagerOffers(bindings.DB, candidate, now)).resolves.toEqual(candidate);
+        } else {
+          await expect(canonicalizeWagerQuote(bindings.DB, candidate, now)).rejects.toThrow("MARKET_UNAVAILABLE");
+          await expect(revalidateWagerOffers(bindings.DB, candidate, now)).rejects.toThrow("MARKET_UNAVAILABLE");
+        }
+      }
+    }
+
     const atLimit = { ...command, acceptedOdds: -1200, leg: { ...command.leg, originalOdds: -1200, canonicalOfferProof: { ...command.leg.canonicalOfferProof, odds: -1200 } } };
     await bindings.DB.prepare("UPDATE market_offer SET payload_json = ? WHERE event_id = ?").bind(JSON.stringify({ policyVersion: CANONICAL_BOOK_POLICY_VERSION, outcomes: [{ name: "Fixture Home", price: -1200 }, { name: "Fixture Away", price: 1200 }] }), "trusted-event").run();
     await expect(canonicalizeWagerQuote(bindings.DB, { ...atLimit, acceptedOdds: 100 } as any, now)).resolves.toMatchObject({ acceptedOdds: -1200, leg: { originalOdds: -1200 } });

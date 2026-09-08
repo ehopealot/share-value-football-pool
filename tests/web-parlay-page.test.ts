@@ -142,6 +142,17 @@ describe("parlay slip and page semantics", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([1200, -1200, 1201, -1201, 4000, -4000])("restores saved moneyline slips only for eligible strikes (%s)", (strike) => {
+    const source = { ...offer("saved", "moneyline", { name: "Home", price: -1300 }), outcomes: [{ name: "Home", price: -1300 }, { name: "Away", price: 1192 }] };
+    const leg = { ...parlayLegForOutcome(source, source.outcomes[0]!, "home"), originalOdds: strike };
+    const stored = JSON.stringify([leg]);
+    // Read previously persisted bytes directly: the builder must not pre-filter this fixture.
+    vi.stubGlobal("sessionStorage", { getItem: () => stored });
+    try {
+      expect(readParlaySlip("pool")).toEqual(Math.abs(strike) <= 1200 ? [leg] : []);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("rebuilds stale parlay selections only from the fresh board and retires just the parlay slip", async () => {
     const current = offer("game-1", "spread", { name: "Home", price: -105, point: -2.5 });
     const odds = vi.spyOn(api, "odds").mockResolvedValue({ offers: [current], feed: { status: "current", message: "Current", lastPolledAt: current.retrievedAt, lastSuccessAt: current.retrievedAt } } as any);
