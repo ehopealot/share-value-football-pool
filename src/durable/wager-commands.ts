@@ -3,6 +3,7 @@ import { WHOLE_SHARE_MICROS, parseIntegerText } from "../domain/fixed-point";
 import { adjustTeaserLine, validateTeaser } from "../domain/grading";
 import { teaserOdds, TEASER_RULESET_ID } from "../domain/teaser-table";
 import { CANONICAL_BOOK_POLICY_VERSION, canonicalBooks } from "../odds/types";
+import { moneylineStrikeIsAvailable } from "../odds/moneyline-policy";
 import { PARLAY_RULESET_ID, parlayOdds } from "../domain/parlay";
 import type { TeaserLeg } from "../domain/types";
 import type { PoolCommand } from "./pool-commands";
@@ -65,6 +66,7 @@ export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
   const account = first(sql, "SELECT available_micros, locked_micros FROM share_account WHERE season_id = ? AND member_id = ?", command.seasonId, command.actorId);
   if (!account || parseIntegerText(String(account.available_micros)) < risk) throw new Error("INSUFFICIENT_SHARES");
   if (legs.some((leg) => !canonicalBooks.some((book) => book === leg.canonicalBook) || leg.policyVersion !== CANONICAL_BOOK_POLICY_VERSION || leg.canonicalOfferProof.eventId !== leg.eventId || leg.canonicalOfferProof.offerVersion !== leg.offerVersion || leg.canonicalOfferProof.canonicalBook !== leg.canonicalBook || leg.canonicalOfferProof.market !== leg.market || leg.canonicalOfferProof.selection !== leg.selection || (leg.market !== "moneyline" && leg.canonicalOfferProof.odds !== leg.originalOdds) || leg.canonicalOfferProof.line !== leg.originalLine)) throw new Error("INVALID_OFFER_SNAPSHOT");
+  if (legs.some((leg) => leg.market === "moneyline" && !moneylineStrikeIsAvailable(leg.originalOdds))) throw new Error("MARKET_UNAVAILABLE");
   if (command.type === "PlaceStraightWager") {
     const validSelection = command.leg.market === "total" ? ["over", "under"].includes(command.leg.selection) : ["home", "away"].includes(command.leg.selection);
     if (!validSelection || (command.leg.market === "moneyline" && (command.leg.originalLine !== null || command.leg.adjustedLine !== null || command.acceptedOdds !== command.leg.originalOdds)) || (command.leg.market !== "moneyline" && (command.leg.originalLine === null || command.leg.adjustedLine !== command.leg.originalLine || command.acceptedOdds !== 100))) throw new Error("INVALID_WAGER_LEG");

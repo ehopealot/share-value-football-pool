@@ -3,6 +3,7 @@ import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runSettlementAlarm } from "../../src/durable/alarm";
 import { settleWagers } from "../../src/durable/settlement";
+import { parlayOdds } from "../../src/domain/parlay";
 import type { FinalResultVersion, ResultSource } from "../../src/odds/result-source";
 
 const bindings = env as unknown as { POOL_DO: DurableObjectNamespace; DB: D1Database };
@@ -68,6 +69,61 @@ describe("PoolDO wagers and settlement", () => {
   beforeEach(async () => {
     await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]);
   });
+
+  it.each(["straight", "parlay"] as const)("enforces inclusive moneyline limits inside the DO for %s wagers without rejected-placement mutations", async (kind) => {
+    const slug = await fundedPool();
+    for (const odds of [1200, -1200, 1201, -1201]) {
+      const id = `${kind}-${odds}`;
+      const base = leg(id);
+      const moneyline = { ...base, market: "moneyline" as const, originalLine: null, adjustedLine: null, originalOdds: odds, canonicalOfferProof: { ...base.canonicalOfferProof, offerId: `${id}:moneyline:home`, market: "moneyline" as const, odds, line: null } };
+      const command = { commandId: id, actorId: "member", wagerId: id, seasonId: "s1", riskMicros: "1000000", ...(kind === "straight"
+        ? { type: "PlaceStraightWager", acceptedOdds: odds, rulesetVersion: "SHARE_POOL_2026_V1", leg: moneyline }
+        : { type: "PlaceParlayWager", acceptedOdds: parlayOdds([moneyline, parlayLeg(`${id}-other`)]), rulesetVersion: "PARLAY_2026_V1", legs: [moneyline, parlayLeg(`${id}-other`)] }) };
+      // Persist a quote directly, bypassing Worker validation just as a pre-policy quote could.
+      const quoteKey = `quote:${id}`;
+      const quote = await quoteWager(slug, command, quoteKey);
+      expect(quote.code).toBeUndefined();
+      const snapshot = () => storage(slug, (state) => JSON.stringify({
+        accounts: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")],
+        wagers: [...state.storage.sql.exec("SELECT * FROM wager ORDER BY rowid")],
+        legs: [...state.storage.sql.exec("SELECT * FROM wager_leg ORDER BY rowid")],
+        ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")],
+        commands: [...state.storage.sql.exec("SELECT * FROM processed_command ORDER BY rowid")],
+        pool: [...state.storage.sql.exec("SELECT command_version FROM pool")]
+      }));
+      const before = await snapshot();
+      const result = await direct(slug, placementFromQuote(command, quoteKey, quote));
+      if (Math.abs(odds) <= 1200) expect(result).toMatchObject({ wagerId: id });
+      else {
+        expect(result).toMatchObject({ code: "MARKET_UNAVAILABLE" });
+        expect(await snapshot()).toBe(before);
+      }
+    }
+  }, 90_000);
+
+  it.each(["straight", "parlay"] as const)("settles and regrades a pre-policy over-limit %s at its immutable price", async (kind) => {
+    const slug = await fundedPool();
+    const acceptedOdds = kind === "straight" ? 4000 : 8100;
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      // Historical rows must be seeded, not placed through today's availability policy.
+      sql.exec("INSERT INTO wager (id,season_id,owner_id,type,risk_micros,accepted_odds,status,ruleset_version,confirmed_at) VALUES ('legacy-moneyline','s1','member',?,'1000000',?,'open',?,'2026-01-01T00:00:00.000Z')", kind, acceptedOdds, kind === "straight" ? "SHARE_POOL_2026_V1" : "PARLAY_2026_V1");
+      for (const [eventId, odds] of [["legacy-longshot", 4000], ...(kind === "parlay" ? [["legacy-void", 100] as const] : [])] as const) {
+        sql.exec("INSERT INTO wager_leg (id,wager_id,event_id,league,canonical_book,retrieved_at,policy_version,offer_version,market,selection,original_line,original_odds,teaser_adjustment,adjusted_line,event_starts_at,is_super_bowl) VALUES (?, 'legacy-moneyline', ?, 'nfl','DraftKings','2026-01-01T00:00:00.000Z','CANONICAL_BOOKS_2026_V1','v1','moneyline','home',NULL,?,NULL,NULL,'2026-01-02T00:00:00.000Z',0)", eventId, eventId, odds);
+      }
+      sql.exec("UPDATE share_account SET available_micros='2000000',locked_micros='1000000' WHERE season_id='s1' AND member_id='member'");
+      // A voided companion leg must leave the historical +4000 leg payable, not unavailable.
+      settleWagers(sql, [final("legacy-longshot", "v1"), correctionEvidence("legacy-void", "v1", 0, 0, "cancelled")]);
+    });
+    const snapshot = () => storage(slug, (state) => ({
+      wager: [...state.storage.sql.exec("SELECT status,accepted_odds FROM wager WHERE id='legacy-moneyline'")][0],
+      settlement: [...state.storage.sql.exec("SELECT outcome,settled_odds,profit_micros,return_micros FROM settlement WHERE wager_id='legacy-moneyline' AND outcome <> 'reversal' ORDER BY rowid DESC LIMIT 1")][0],
+      account: [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0]
+    }));
+    expect(await snapshot()).toEqual({ wager: { status: "won", accepted_odds: acceptedOdds }, settlement: { outcome: "win", settled_odds: 4000, profit_micros: "40000000", return_micros: "41000000" }, account: { available_micros: "43000000", locked_micros: "0" } });
+    expect(await send(slug, { type: "RegradeWager", commandId: "legacy-correction", actorId: "owner", wagerId: "legacy-moneyline", reason: "official correction", correctedResults: [correctionEvidence("legacy-longshot", "v2", 10, 17), ...(kind === "parlay" ? [correctionEvidence("legacy-void", "v1", 0, 0, "cancelled")] : [])] })).toMatchObject({ commandVersion: expect.any(String) });
+    expect(await snapshot()).toEqual({ wager: { status: "lost", accepted_odds: acceptedOdds }, settlement: { outcome: "loss", settled_odds: null, profit_micros: "0", return_micros: "0" }, account: { available_micros: "2000000", locked_micros: "0" } });
+  }, 90_000);
 
   it.each(["straight", "teaser", "parlay"] as const)("closes new %s betting until Tuesday 10am PT without breaking committed replays", async (kind) => {
     vi.useFakeTimers({ toFake: ["Date"] });

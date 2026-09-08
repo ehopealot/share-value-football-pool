@@ -132,6 +132,28 @@ describe("member-facing odds display", () => {
     expect(html).not.toContain("Oklahoma Sooners");
   });
 
+  it("shows only vig-free moneylines through the inclusive +/-1200 limit", () => {
+    const moneyline = (eventId: string, price: number) => ({ eventId, league: "nfl", startsAt: "2026-09-10T17:00:00.000Z", awayTeam: "Away", homeTeam: "Home", market: "moneyline", outcomes: [{ name: "Away", price }, { name: "Home", price: -price }] });
+    const games = groupBoardByEvent([moneyline("at-limit", 1200), moneyline("over-limit", 1201)]);
+
+    expect(games[0]!.markets.moneyline.away?.odds).toBe("+1200");
+    expect(games[0]!.markets.moneyline.home?.odds).toBe("-1200");
+    expect(games[1]!.markets.moneyline).toEqual({});
+  });
+
+  it.each([
+    [-1300, 1192, 1200, true],
+    [-1300, 1193, 1201, false],
+    [-1200, 1300, 1292, false]
+  ])("filters book prices %s/%s by their vig-free strike, not raw prices", (home, away, strike, available) => {
+    const [game] = groupBoardByEvent([{ eventId: "vig-limit", league: "nfl", startsAt: "2026-09-10T17:00:00.000Z", homeTeam: "Home", awayTeam: "Away", market: "moneyline", outcomes: [{ name: "Home", price: home }, { name: "Away", price: away }] }]);
+    if (available) {
+      expect(game!.markets.moneyline.home?.odds).toBe(`-${strike}`);
+      expect(game!.markets.moneyline.away?.odds).toBe(`+${strike}`);
+      expect(game!.markets.moneyline.home?.outcome.price).toBe(home);
+    } else expect(game!.markets.moneyline).toEqual({});
+  });
+
   it("filters either team fuzzily while retaining input order", () => {
     const markets = { spread: {}, total: {}, moneyline: {} };
     const games: GameRow[] = [

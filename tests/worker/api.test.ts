@@ -767,7 +767,7 @@ describe("later wager and member HTTP API", () => {
     expect(await durableSnapshot()).toBe(before);
   }, 90_000);
 
-  it("rejects six safe moneyline legs whose combined parlay odds overflow without durable mutation", async () => {
+  it("rejects extreme moneyline legs at the availability limit before aggregate overflow without durable mutation", async () => {
     const poolId = `overflow-${crypto.randomUUID()}`; const slug = `overflow-${crypto.randomUUID()}`;
     await setupPool(poolId, slug);
     const retrievedAt = new Date().toISOString(); const startsAt = "2099-09-10T20:00:00.000Z";
@@ -781,12 +781,13 @@ describe("later wager and member HTTP API", () => {
     const before = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote")], command: [...state.storage.sql.exec("SELECT * FROM processed_command")], wager: [...state.storage.sql.exec("SELECT * FROM wager")], account: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")] }));
     const response = await app.fetch(request(`/api/p/${slug}/wagers/parlays/quote`, body));
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ code: "PARLAY_ODDS_OUT_OF_RANGE" });
+    // Domain overflow coverage remains in tests/domain/parlay.test.ts; these offers are no longer eligible.
+    expect(await response.json()).toEqual({ code: "MARKET_UNAVAILABLE" });
     const after = await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => JSON.stringify({ quote: [...state.storage.sql.exec("SELECT * FROM wager_quote")], command: [...state.storage.sql.exec("SELECT * FROM processed_command")], wager: [...state.storage.sql.exec("SELECT * FROM wager")], account: [...state.storage.sql.exec("SELECT * FROM share_account ORDER BY rowid")], ledger: [...state.storage.sql.exec("SELECT * FROM ledger_entry ORDER BY rowid")] }));
     expect(after).toBe(before);
   }, 90_000);
 
-  it("rejects a safe initial parlay whose reachable void reprice would overflow without mutation", async () => {
+  it("rejects extreme moneylines before reachable void-reprice validation without mutation", async () => {
     const poolId = `reprice-overflow-${crypto.randomUUID()}`; const slug = `reprice-overflow-${crypto.randomUUID()}`;
     await setupPool(poolId, slug);
     const retrievedAt = new Date().toISOString(); const startsAt = "2099-09-10T20:00:00.000Z";
@@ -804,7 +805,7 @@ describe("later wager and member HTTP API", () => {
     const before = await durableSnapshot();
     const response = await app.fetch(request(`/api/p/${slug}/wagers/parlays/quote`, body));
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ code: "PARLAY_ODDS_OUT_OF_RANGE" });
+    expect(await response.json()).toEqual({ code: "MARKET_UNAVAILABLE" });
     expect(await durableSnapshot()).toBe(before);
   }, 90_000);
 

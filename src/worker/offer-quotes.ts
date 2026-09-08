@@ -1,5 +1,6 @@
 import { assertBettingOpen } from "../domain/betting-week";
 import { offerIsStale } from "../odds/ingestion";
+import { moneylineStrikeIsAvailable } from "../odds/moneyline-policy";
 import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
 import { CANONICAL_BOOK_POLICY_VERSION, type MarketName } from "../odds/types";
 import type { PoolCommand } from "../durable/pool-commands";
@@ -125,7 +126,7 @@ function canonicalLeg(row: OfferRow | undefined, ingestion: IngestionRow | undef
   const originalLine = outcome.point;
   // Moneyline tickets strike at the vig-free fair line; the proof keeps the true book price as source.
   const strikeOdds = leg.market === "moneyline" && (leg.selection === "home" || leg.selection === "away") ? vigFreeMoneylinePrice({ homeTeam: row.home_team, awayTeam: row.away_team }, payload.outcomes, leg.selection) : outcome.price;
-  if (strikeOdds === undefined) throw new Error("MARKET_UNAVAILABLE");
+  if (strikeOdds === undefined || (leg.market === "moneyline" && !moneylineStrikeIsAvailable(strikeOdds))) throw new Error("MARKET_UNAVAILABLE");
   const canonicalOfferProof = { offerId: `${leg.eventId}:${leg.market}:${leg.selection}`, eventId: leg.eventId, offerVersion: row.offer_version, canonicalBook: row.canonical_book, market: leg.market, selection: leg.selection, odds: outcome.price, line: originalLine ?? null };
   return { eventId: leg.eventId, league: row.league as "nfl" | "ncaaf", canonicalBook: row.canonical_book, retrievedAt: row.retrieved_at, policyVersion: payload.policyVersion, offerVersion: row.offer_version, canonicalOfferProof, market: leg.market, selection: leg.selection, originalLine: originalLine ?? null, adjustedLine: originalLine ?? null, originalOdds: strikeOdds, eventStartsAt: row.starts_at, homeTeam: row.home_team, awayTeam: row.away_team } as PlacementLeg;
 }
@@ -148,6 +149,7 @@ function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | unde
   const line = outcome?.point ?? null;
   // The strike the ticket must carry: the vig-free fair line for moneyline, the book price otherwise.
   const expectedStrikeOdds = leg.market === "moneyline" && (leg.selection === "home" || leg.selection === "away") ? (outcome ? vigFreeMoneylinePrice({ homeTeam: row.home_team, awayTeam: row.away_team }, payload.outcomes, leg.selection) : undefined) : outcome?.price;
+  if (leg.market === "moneyline" && (expectedStrikeOdds === undefined || !moneylineStrikeIsAvailable(expectedStrikeOdds))) throw new Error("MARKET_UNAVAILABLE");
   const offerId = `${leg.eventId}:${leg.market}:${leg.selection}`;
   const proof = leg.canonicalOfferProof;
   const expectedAdjustedLine = teaserPoints === undefined
