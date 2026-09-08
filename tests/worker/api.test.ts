@@ -600,7 +600,7 @@ describe("later wager and member HTTP API", () => {
     }
   }, 180_000);
 
-  it("uses quote-first HTTP teaser D1 revalidation for every adjustment direction", async () => {
+  it("places unchanged teasers across feed refreshes and rejects changed lines in every adjustment direction", async () => {
     const poolId = `api-teaser-directions-${crypto.randomUUID()}`;
     const slug = "api-teaser-directions";
     await setupPool(poolId, slug);
@@ -628,8 +628,12 @@ describe("later wager and member HTTP API", () => {
       const input = { wagerId: `unchanged-${id}`, seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [leg(id, initial, selection), leg(other, otherLine, selection)] };
       const unchanged = await quoteAndPlace(app, slug, "teasers", input, `unchanged-${id}`);
       expect(unchanged.quote).toMatchObject({ legs: expect.arrayContaining([expect.objectContaining({ eventId: id, originalLine: initial, adjustedLine: adjusted })]) });
-      expect((await unchanged.place()).status).toBe(200);
       const altered = await quoteAndPlace(app, slug, "teasers", { ...input, wagerId: `changed-${id}` }, `changed-${id}`);
+      // Polling replaces the retrieval timestamp and offer version, even with identical outcomes.
+      await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ?, offer_version = 'refreshed' WHERE event_id IN (?, ?)").bind(new Date(Date.parse(retrievedAt) + 1000).toISOString(), id, other).run();
+      const placed = await unchanged.place();
+      expect(await placed.json()).not.toMatchObject({ code: "LINE_CHANGED" });
+      expect(placed.status).toBe(200);
       const outcomes = market === "spread" ? [{ name: "Home", price: -110, point: selection === "home" ? changed : -changed }, { name: "Away", price: -110, point: selection === "away" ? changed : -changed }] : [{ name: "Over", price: -110, point: changed }, { name: "Under", price: -110, point: changed }];
       await bindings.DB.prepare("UPDATE market_offer SET offer_version = 'v2', payload_json = ? WHERE event_id = ? AND market = ?").bind(JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes }), id, market).run();
       const rejected = await altered.place(); expect(rejected.status).toBe(400);

@@ -155,12 +155,13 @@ function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | unde
   const expectedAdjustedLine = teaserPoints === undefined
     ? leg.market === "moneyline" ? null : line
     : adjustTeaserLine({ eventId: leg.eventId, market: leg.market, selection: leg.selection, line: leg.originalLine! } as TeaserLeg, teaserPoints);
+  // Polls replace retrievedAt and offerVersion even when terms are identical.
+  // Validate current freshness above and current terms below; keep the original
+  // quote bytes intact for PoolDO's exact stored-quote check and audit history.
   const matches = payload.policyVersion === CANONICAL_BOOK_POLICY_VERSION
     && leg.league === row.league
     && leg.canonicalBook === row.canonical_book
-    && leg.retrievedAt === row.retrieved_at
     && leg.policyVersion === payload.policyVersion
-    && leg.offerVersion === row.offer_version
     && leg.eventStartsAt === row.starts_at
     && outcome !== undefined
     && expectedStrikeOdds !== undefined
@@ -169,7 +170,7 @@ function revalidateLeg(row: OfferRow | undefined, ingestion: IngestionRow | unde
     && leg.adjustedLine === expectedAdjustedLine
     && proof.offerId === offerId
     && proof.eventId === leg.eventId
-    && proof.offerVersion === row.offer_version
+    && proof.offerVersion === leg.offerVersion
     && proof.canonicalBook === row.canonical_book
     && proof.market === leg.market
     && proof.selection === leg.selection
