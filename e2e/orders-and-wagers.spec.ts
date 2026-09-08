@@ -301,6 +301,7 @@ test("commissioner confirms an in-page reversal and preserves immutable order hi
   await expect(
     page.getByRole("heading", { name: "Share orders" }),
   ).toBeVisible();
+  await page.getByLabel("Show individual orders").check();
   await page.getByRole("button", { name: "Reverse with reason" }).click();
   await expect(
     page.getByRole("heading", { name: "Confirm share-order reversal" }),
@@ -721,7 +722,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
             market: "spread",
             selection: "away",
             price: -115,
-            point: 4.5,
+            point: 5.5,
             offerVersion: "local-line-change-v3",
           }),
         })
@@ -733,13 +734,13 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
   await expect(page.getByRole("alert")).toContainText("Line changed.");
   await page.getByRole("button", { name: "Back to odds board" }).click();
   await expect(
-    page.getByRole("checkbox", { name: "Local Away +4.5", exact: true }),
+    page.getByRole("checkbox", { name: "Local Away +5.5", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Place bets" }).click();
   await expect(
     page.getByRole("heading", { name: "Review straight wagers" }),
   ).toBeVisible();
-  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("4.5");
+  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("5.5");
   // A fetched board that lacks the selected semantic outcome is terminal for this selection, unlike a dropped read.
   expect(
     await page.evaluate(
@@ -753,7 +754,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
               market: "spread",
               selection: "away",
               price: -115,
-              point: 4.5,
+              point: 5.5,
               offerVersion: "local-line-change-v3-unavailable",
               removeSelection: true,
             }),
@@ -1373,6 +1374,7 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
       reversalBodies.push(request.postDataJSON() as Record<string, unknown>);
   });
   await page.goto(`${worker.baseURL}/p/${slug}/admin/orders`);
+  await page.getByLabel("Show individual orders").check();
   await page
     .getByRole("button", { name: "Reverse with reason" })
     .first()

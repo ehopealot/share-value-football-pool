@@ -727,6 +727,8 @@ test("suspension denies an ordinary member with an actionable overview denial un
     await page.goto(`${worker.baseURL}/p/${slug}/admin/members`);
     const memberRow = page.getByRole("row", { name: memberName });
     await memberRow.getByRole("button", { name: "Suspend" }).click();
+    await expect(page.getByRole("heading", { name: "Confirm member suspension" })).toBeVisible();
+    await page.getByRole("button", { name: "Confirm suspension" }).click();
     await expect(memberRow).toContainText("suspended");
     await expect(memberRow.getByRole("button", { name: "Restore" })).toBeVisible();
     // The member's overview must deny access actionably, not hang on its loading status forever.
@@ -787,6 +789,8 @@ test("commissioner transfer honors self, invalid-target, recent-auth, and suspen
     // Recent authentication is required: an aged session is denied at UI and boundary alike.
     expect(await expireRecentAuth(page, commissionerUserId)).toBe(200);
     await memberRow.getByRole("button", { name: "Make commissioner" }).click();
+    await expect(page.getByRole("heading", { name: "Confirm commissioner transfer" })).toBeVisible();
+    await page.getByRole("button", { name: "Confirm transfer" }).click();
     await expect(page.getByRole("alert")).toHaveText("Sign in again.");
     expect(await transferStatus(page, slug, memberUserId, "Documented handover")).toEqual({ status: 403, code: "RECENT_AUTH_REQUIRED" });
     await worker.resetAuthLimiter();
@@ -794,12 +798,14 @@ test("commissioner transfer honors self, invalid-target, recent-auth, and suspen
     // A suspended member cannot receive the commissioner role: UI hides the control, boundary denies.
     await page.goto(`${worker.baseURL}/p/${slug}/admin/members`);
     await memberRow.getByRole("button", { name: "Suspend" }).click();
+    await page.getByRole("button", { name: "Confirm suspension" }).click();
     await expect(page.getByRole("button", { name: "Make commissioner" })).toHaveCount(0);
     expect(await transferStatus(page, slug, memberUserId, "Documented handover")).toEqual({ status: 403, code: "SUSPENDED" });
     await memberRow.getByRole("button", { name: "Restore" }).click();
     await expect(memberRow).toContainText("active");
     // The real handover: the same page immediately loses commissioner controls.
     await memberRow.getByRole("button", { name: "Make commissioner" }).click();
+    await page.getByRole("button", { name: "Confirm transfer" }).click();
     await expect(page.getByText("Only the commissioner can manage members.")).toBeVisible();
     await page.goto(`${worker.baseURL}/p/${slug}/overview`);
     await expect(page.getByRole("link", { name: "Members", exact: true })).toHaveCount(0);
