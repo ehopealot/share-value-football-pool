@@ -1,6 +1,6 @@
 import { applyD1Migrations, env, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSettlementAlarm } from "../../src/durable/alarm";
 import type { FinalResultVersion, ResultSource } from "../../src/odds/result-source";
 
@@ -72,8 +72,11 @@ const wagerState = (slug: string, wagerId: string) => storage(slug, (state) => {
 
 describe("PoolDO settlement regrade accounting", () => {
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-08T17:00:00.000Z"));
     await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]);
   });
+  afterEach(() => vi.useRealTimers());
 
   it("regrades a settled win to a loss by reversing its prior float profit through an immutable chain", async () => {
     const slug = await fundedPool();

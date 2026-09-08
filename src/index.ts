@@ -9,6 +9,7 @@ import { createAuthAbuseGuard } from "./security/turnstile";
 import { consumeProjectionQueue } from "./worker/queue";
 import { handleInternalSettlement } from "./worker/internal-settlement";
 import { backupConfigured, runBackupCron } from "./worker/backup-cron";
+import { createSentryReporter, reportSafeFault, reportSafeFaultForEnv, withOptionalSentry } from "./observability/sentry-server";
 
 const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
@@ -22,11 +23,14 @@ export interface Env {
   POOL_COMMAND_AUTHENTICATOR_KEY?: string; TURNSTILE_SECRET_KEY?: string;
   SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string;
   BACKUP_ENCRYPTION_KEY?: string; BACKUPS?: R2Bucket; POOL_EVENTS?: Queue; ASSETS: Fetcher;
+  SENTRY_DSN?: string; CF_VERSION_METADATA?: { id?: string }; SENTRY_TEST_TRANSPORT?: import("@sentry/cloudflare").CloudflareOptions["transport"]; SENTRY_TEST_FLUSHES?: Promise<unknown>[];
 }
 
 export { handleInternalSettlement };
 
-const worker: ExportedHandler<Env> = {
+export function createProductionWorker(overrides: { oddsProvider?: (apiKey: string) => import("./odds/ingestion").IngestionProvider } = {}): ExportedHandler<Env> {
+  const oddsProvider = overrides.oddsProvider ?? ((apiKey: string) => new TheOddsApiProvider(apiKey));
+  const worker: ExportedHandler<Env> = {
   async fetch(request, env, ctx): Promise<Response> {
     const internalSettlement = await handleInternalSettlement(request, env);
     if (internalSettlement) return internalSettlement;
@@ -43,7 +47,18 @@ const worker: ExportedHandler<Env> = {
     });
     return app.fetch(request, env, ctx);
   },
-  scheduled(_event, env, ctx): void { if (env.ODDS_API_KEY) ctx.waitUntil(runOddsCron(env.DB, new TheOddsApiProvider(env.ODDS_API_KEY))); if (backupConfigured(env)) ctx.waitUntil(runBackupCron({ db: env.DB, pools: env.POOL_DO, bucket: env.BACKUPS, encryptionKey: env.BACKUP_ENCRYPTION_KEY, backupServiceToken: env.POOL_BACKUP_SERVICE_TOKEN })); },
-  queue(batch, env, ctx): void { ctx.waitUntil(consumeProjectionQueue(batch, { db: env.DB, pools: env.POOL_DO, projectionServiceToken: env.POOL_PROJECTION_SERVICE_TOKEN })); }
-};
+  scheduled(_event, env, ctx): void {
+    const report = createSentryReporter(env, (promise) => ctx.waitUntil(promise));
+    if (env.ODDS_API_KEY) ctx.waitUntil((async () => {
+      try { await runOddsCron(env.DB, oddsProvider(env.ODDS_API_KEY!)); }
+      catch (error) { report("scheduled-odds-poll-failure"); throw error; }
+    })());
+    if (backupConfigured(env)) ctx.waitUntil(runBackupCron({ db: env.DB, pools: env.POOL_DO, bucket: env.BACKUPS, encryptionKey: env.BACKUP_ENCRYPTION_KEY, backupServiceToken: env.POOL_BACKUP_SERVICE_TOKEN, report: (category) => report(category) }));
+  },
+  queue(batch, env, ctx): void { const report = createSentryReporter(env, (promise) => ctx.waitUntil(promise)); ctx.waitUntil(consumeProjectionQueue(batch, { db: env.DB, pools: env.POOL_DO, projectionServiceToken: env.POOL_PROJECTION_SERVICE_TOKEN, report: (category) => report(category) })); }
+  };
+  return withOptionalSentry(worker);
+}
+
+const worker = createProductionWorker();
 export default worker;

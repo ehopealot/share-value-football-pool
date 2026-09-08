@@ -1,6 +1,9 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PoolCommand } from "../../src/durable/pool-commands";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 const pools = (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO;
 const send = async (slug: string, command: PoolCommand) => {

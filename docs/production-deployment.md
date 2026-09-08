@@ -82,7 +82,7 @@ npm run deploy:production
 2. Create a disposable account, complete the Resend verification email, sign in, request a password reset, and confirm the reset link succeeds.
 3. Confirm protected signup/signin, pool creation, and join requests reject an absent or replayed Turnstile response.
 4. Review persisted Workers Logs and traces for errors and latency. Runtime logs, invocation URLs, and automatic trace URLs may include Better Auth's single-use query tokens; access must remain limited to production operators.
-5. This deployment deliberately enables 100% log and trace sampling, invocation logs, persisted source maps, and the Worker Logpush event source for maximum native diagnostics. Persisting this data is an explicitly accepted debugging tradeoff. `logpush: true` enables delivery to a separately configured Workers Logpush job; it does not create that destination.
+5. This deployment deliberately enables 100% log and trace sampling, invocation logs, persisted source maps, and the Worker Logpush event source for maximum native diagnostics. Persisting this data is an explicitly accepted debugging tradeoff. `logpush: true` enables delivery to a separately configured Workers Logpush job; it does not create that destination. Optional Sentry reporting has separate privacy controls and does not alter this native Cloudflare retention residual; see [Sentry error reporting](sentry-operator-guide.md).
 
 If a deployment must be reverted, inspect the deployed version and use Wrangler rollback rather than changing resource bindings by hand:
 

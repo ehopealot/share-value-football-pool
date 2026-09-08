@@ -29,6 +29,10 @@ Durable Object alarms retry settlement. Repeated service delivery is safe becaus
 
 The odds adapter records poll observations and respects configured freshness windows. Provider errors, quota backoff, and no-offer states are visible to members as concise feed status. Do not expose provider API keys, raw provider credentials, or hidden wager selections in logs, screenshots, or support material.
 
+## Sentry reporting
+
+Optional Sentry error reporting is documented in [Sentry error reporting](sentry-operator-guide.md). Its privacy controls are separate from the existing Cloudflare Logs, tracing, Logpush, and native source-map retention described in the production runbook.
+
 ## Production publishing
 
 Publishing is an explicit operator action. A dry-run (`wrangler deploy --dry-run`) is not a deployment. Before a real publish, follow [the production deployment runbook](production-deployment.md), verify the production artifact, confirm migrations remotely, and use Cloudflare OAuth or an authorized secret path. Never substitute a copied browser key or a local environment file for production secret configuration.

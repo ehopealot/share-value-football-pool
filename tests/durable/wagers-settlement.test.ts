@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runSettlementAlarm } from "../../src/durable/alarm";
 import { settleWagers } from "../../src/durable/settlement";
 import type { FinalResultVersion, ResultSource } from "../../src/odds/result-source";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 const bindings = env as unknown as { POOL_DO: DurableObjectNamespace; DB: D1Database };
 const send = async (slug: string, command: any): Promise<Record<string, unknown>> => {

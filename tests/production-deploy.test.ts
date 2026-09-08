@@ -18,6 +18,9 @@ const buildEnvironment = (buildProduction: ReturnType<typeof vi.fn>) => buildPro
 const environmentWithSecrets = (ci = false): NodeJS.ProcessEnv => ({
   ...(ci ? { CI: "true" } : {}),
   VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_",
+  SENTRY_AUTH_TOKEN: "sourcemap-token",
+  SENTRY_ORG: "sentry-org",
+  SENTRY_PROJECT: "sentry-project",
   CLOUDFLARE_INCLUDE_PROCESS_ENV: "true",
   CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "true",
   BETTER_AUTH_SECRET: "production-secret",
@@ -50,7 +53,12 @@ describe("guarded production deployment", () => {
     expect(spawnSync).toHaveBeenNthCalledWith(1, expect.stringMatching(/node_modules[/\\]\.bin[/\\]wrangler$/), ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], expect.objectContaining({ cwd: root }));
     expect(spawnSync).toHaveBeenNthCalledWith(2, process.execPath, [resolve(root, "scripts/verify-production-artifact.mjs")], expect.objectContaining({ cwd: root }));
     expect(spawnSync).toHaveBeenNthCalledWith(3, expect.stringMatching(/node_modules[/\\]\.bin[/\\]wrangler$/), ["deploy", "--keep-vars", "--config", "dist/office_pool_reborn/wrangler.json"], expect.objectContaining({ cwd: root }));
-    for (const call of (spawnSync as ReturnType<typeof vi.fn>).mock.calls) expectNoSensitiveBindings(call[2].env);
+    for (const call of (spawnSync as ReturnType<typeof vi.fn>).mock.calls) {
+      expectNoSensitiveBindings(call[2].env);
+      expect(call[2].env.SENTRY_AUTH_TOKEN).toBeUndefined();
+      expect(call[2].env.SENTRY_ORG).toBeUndefined();
+      expect(call[2].env.SENTRY_PROJECT).toBeUndefined();
+    }
     for (const call of (spawnSync as ReturnType<typeof vi.fn>).mock.calls.slice(0, 2)) expectIsolatedNonPublishingEnvironment(call[2].env);
   });
 

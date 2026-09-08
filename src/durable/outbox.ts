@@ -1,5 +1,6 @@
 import { poolOutboxMessage, type PoolOutboxMessage as ContractPoolOutboxMessage } from "../contracts/commands";
 import { recordQueuedProjection } from "../services/projections";
+import { reportSafeFault } from "../observability/sentry-server";
 export type PoolOutboxMessage = ContractPoolOutboxMessage;
 type Row = Record<string, SqlStorageValue>;
 const MAX_OUTBOX_ATTEMPTS = 5;
@@ -12,7 +13,7 @@ export function enqueueOutbox(sql: SqlStorage, event: PoolOutboxMessage): void {
 }
 
 /** Drains committed rows after the command transaction. Exhausted rows remain only for audit and manual repair. */
-export async function drainOutbox(state: DurableObjectState, queue?: Queue<PoolOutboxMessage>, now = new Date(), db?: D1Database): Promise<{ pending: boolean }> {
+export async function drainOutbox(state: DurableObjectState, queue?: Queue<PoolOutboxMessage>, now = new Date(), db?: D1Database, report: (category: "outbox-producer-delivery-failure") => void = () => reportSafeFault("outbox-producer-delivery-failure", "durable-object")): Promise<{ pending: boolean }> {
   const rows = [...state.storage.sql.exec<Row>(`SELECT id, event_type, version, payload_json, attempts FROM outbox WHERE delivered_at IS NULL AND attempts < ${MAX_OUTBOX_ATTEMPTS} AND next_attempt_at <= ? ORDER BY created_at LIMIT 25`, now.toISOString())];
   if (!queue) return { pending: rows.length > 0 };
   for (const row of rows) {
@@ -36,6 +37,7 @@ export async function drainOutbox(state: DurableObjectState, queue?: Queue<PoolO
       await state.storage.transaction(async () => {
         state.storage.sql.exec("UPDATE outbox SET attempts = ?, next_attempt_at = ?, last_error = ? WHERE id = ? AND delivered_at IS NULL", attempts, new Date(Date.now() + delayMs).toISOString(), error instanceof Error ? error.message.slice(0, 200) : "QUEUE_SEND_FAILED", row.id);
       });
+      if (attempts === 1 || attempts >= MAX_OUTBOX_ATTEMPTS) report("outbox-producer-delivery-failure");
     }
   }
   const pending = [...state.storage.sql.exec<Row>(`SELECT 1 FROM outbox WHERE delivered_at IS NULL AND attempts < ${MAX_OUTBOX_ATTEMPTS} LIMIT 1`)].length > 0;

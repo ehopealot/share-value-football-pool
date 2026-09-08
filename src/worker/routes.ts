@@ -1,13 +1,14 @@
 import type { Context, Hono } from "hono";
 import { z } from "zod";
-import { PoolRegistry } from "../services/pool-registry";
+import { PoolRegistry, ReportedRegistryFault } from "../services/pool-registry";
 import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
-import { PoolCommandError, PoolCommandRouter } from "./do-router";
+import { PoolCommandError, PoolCommandRouter, ReportedWorkerFault } from "./do-router";
 import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
+import { reportSafeFault } from "../observability/sentry-server";
 import { offerIsStale } from "../odds/ingestion";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
@@ -28,6 +29,7 @@ export type RouteDependencies = {
   beforeOddsRead?: () => Promise<void>;
 };
 const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503 = 400) => c.json({ code }, status);
+const expectedRouteCode = new Set(["LINE_CHANGED", "MARKET_UNAVAILABLE", "MARKET_LOCKED", "MARKET_STALE", "BETTING_CLOSED", "POOL_UNAVAILABLE", "POOL_NOT_AVAILABLE", "IDEMPOTENCY_CONFLICT", "FORBIDDEN", "SUSPENDED", "UNAUTHENTICATED", "CSRF_REJECTED", "RATE_LIMITED", "TURNSTILE_REJECTED", "RECENT_AUTH_REQUIRED"]);
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
 const csrf = (c: Context) => {
   const origin = c.req.header("origin");
@@ -66,6 +68,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       // A malformed post-commit authority response leaves the browser with an unknown outcome.
       if (error instanceof z.ZodError) return jsonError(c, "POOL_UNAVAILABLE", 503);
       const code = error instanceof Error ? error.message : "COMMAND_FAILED";
+      if (!(error instanceof PoolCommandError) && !(error instanceof ReportedWorkerFault) && !(error instanceof ReportedRegistryFault) && !expectedRouteCode.has(code)) reportSafeFault("hono-unhandled-route-failure");
       const unavailable = code === "POOL_UNAVAILABLE" || code === "POOL_NOT_AVAILABLE";
       if (error instanceof QuoteLineChangedError) return c.json({ code: "LINE_CHANGED", reconfirmationRequired: true }, 400);
       if (error instanceof LineChangedError) return c.json({ code: "LINE_CHANGED", replacement: error.replacement, reconfirmationRequired: true }, 400);
@@ -112,6 +115,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (!user) return jsonError(c, "UNAUTHENTICATED", 401);
     try { return await action(user); } catch (error) {
       const code = error instanceof Error ? error.message : "COMMAND_FAILED";
+      if (!(error instanceof PoolCommandError) && !(error instanceof ReportedWorkerFault) && !(error instanceof ReportedRegistryFault) && !expectedRouteCode.has(code)) reportSafeFault("hono-unhandled-route-failure");
       if (code === "FORBIDDEN" || code === "SUSPENDED") return jsonError(c, code, 403);
       return jsonError(c, code, code === "POOL_UNAVAILABLE" || code === "POOL_NOT_AVAILABLE" ? 503 : 400);
     }

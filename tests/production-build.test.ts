@@ -30,12 +30,14 @@ describe("isolated production build", () => {
     const environment = productionBuildEnvironment!({
       PATH: process.env.PATH,
       VITE_TURNSTILE_SITE_KEY: " 0x4AAAAAAEjUfp2Ub4CBu-E_ ",
+      VITE_SENTRY_DSN: "https://public@sentry.invalid/1",
       CLOUDFLARE_INCLUDE_PROCESS_ENV: "true",
       ...Object.fromEntries(sensitiveNames.map((name) => [name, `test-only-${name}`]))
     });
 
     expect(environment).toMatchObject({
       VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_",
+      VITE_SENTRY_DSN: "https://public@sentry.invalid/1",
       OFFICE_POOL_REBORN_PRODUCTION_BUILD: "true",
       CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
       CLOUDFLARE_INCLUDE_PROCESS_ENV: "false"
@@ -63,10 +65,11 @@ describe("isolated production build", () => {
     try {
       expect(isolated.configPath.startsWith(root)).toBe(false);
       expect(existsSync(resolve(isolated.configPath, "..", ".dev.vars"))).toBe(false);
-      const config = JSON.parse(readFileSync(isolated.configPath, "utf8")) as { main: string; assets: { directory: string }; d1_databases: Array<{ migrations_dir: string }> };
+      const config = JSON.parse(readFileSync(isolated.configPath, "utf8")) as { main: string; assets: { directory: string }; d1_databases: Array<{ migrations_dir: string }>; version_metadata?: { binding: string } };
       expect(config.main).toBe(resolve(root, "src/index.ts"));
       expect(config.assets.directory).toBe(resolve(root, "dist/client"));
       expect(config.d1_databases[0]?.migrations_dir).toBe(resolve(root, "src/db/migrations"));
+      expect(config.version_metadata).toEqual({ binding: "CF_VERSION_METADATA" });
       const environment = productionBuildEnvironment!({ VITE_TURNSTILE_SITE_KEY: "0x4AAAAAAEjUfp2Ub4CBu-E_", VITE_UNRELATED_SECRET: "must-not-reach-vite" }, isolated.configPath);
       expect(environment.OFFICE_POOL_REBORN_WORKER_CONFIG).toBe(isolated.configPath);
       expect(environment.VITE_UNRELATED_SECRET).toBeUndefined();

@@ -12,6 +12,9 @@ import { createPoolRequest, joinPoolRequest } from "../../src/contracts/http";
 import worker, { handleInternalSettlement, type Env } from "../../src/index";
 import { canonicalizeWagerQuote, revalidateWagerOffers } from "../../src/worker/offer-quotes";
 import { CANONICAL_BOOK_POLICY_VERSION } from "../../src/odds/types";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 /**
  * Single home for tests that import the production auth/entry module graph
