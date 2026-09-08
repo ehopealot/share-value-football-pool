@@ -2,7 +2,7 @@ import { applyD1Migrations, env } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import oddsPollGeneration from "../../src/db/migrations/0002_odds_poll_generation.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
-import { localFixtureControls, refreshLocalFixtures } from "../../src/worker/test-controls";
+import { LocalPlacementOddsProvider, localFixtureControls, refreshLocalFixtures } from "../../src/worker/test-controls";
 import { offerIsStale } from "../../src/odds/ingestion";
 
 const bindings = env as unknown as { DB: D1Database };
@@ -62,6 +62,26 @@ describe("local fixture lifecycle", () => {
       { provider_event_id: "local-nfl-super-bowl", starts_at: "2031-04-08T06:57:00.000Z" },
       { provider_event_id: "local-nfl-upcoming", starts_at: "2031-04-08T06:56:00.000Z" }
     ]);
+  });
+
+  it("provides one-shot unchanged, changed, and failed placement refreshes", async () => {
+    const fixture = controls();
+    await fixture.seed();
+    const provider = new LocalPlacementOddsProvider(bindings.DB);
+    expect(await provider.configured()).toBe(false);
+
+    await fixture.configurePlacementRefresh!({ mode: "unchanged" });
+    const unchanged = await provider.events("nfl");
+    expect(unchanged.events.find((event) => event.id === "local-nfl-upcoming")?.bookmakers[0]?.markets.find((market) => market.key === "spread")?.outcomes.find((outcome) => outcome.name === "Local Away")?.point).toBe(3);
+    expect(await fixture.placementRefreshStatus!()).toEqual({ calls: 1, mode: "unchanged", pending: false });
+
+    await fixture.configurePlacementRefresh!({ mode: "changed", changedAwayPoint: 5.5 });
+    const changed = await provider.events("nfl");
+    expect(changed.events.find((event) => event.id === "local-nfl-upcoming")?.bookmakers[0]?.markets.find((market) => market.key === "spread")?.outcomes.find((outcome) => outcome.name === "Local Away")?.point).toBe(5.5);
+
+    await fixture.configurePlacementRefresh!({ mode: "failure" });
+    await expect(provider.events("nfl")).rejects.toThrow("Controlled local placement provider failure");
+    expect(await fixture.placementRefreshStatus!()).toEqual({ calls: 1, mode: "failure", pending: false });
   });
 
   it("does not overwrite an explicit local stale-offer state", async () => {
