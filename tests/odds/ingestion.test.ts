@@ -101,6 +101,35 @@ beforeEach(async () => {
 });
 
 describe("odds ingestion", () => {
+  it("forces a placement refresh for only the requested leagues before their next scheduled poll", async () => {
+    const at = new Date("2026-09-09T00:00:00.000Z");
+    await new OddsIngestion(db, new Provider([event()]), { now: () => at }).poll();
+    const provider = new Provider([event()]);
+    const refreshedAt = new Date(at.getTime() + 1000);
+    await new OddsIngestion(db, provider, { now: () => refreshedAt }).poll({ placementLeagues: ["nfl", "nfl"] });
+    expect(provider.calls).toEqual(["nfl"]);
+    expect(await db.prepare("SELECT retrieved_at FROM market_offer WHERE event_id = 'event-1' LIMIT 1").first()).toEqual({ retrieved_at: refreshedAt.toISOString() });
+  });
+
+  it("keeps last-good offers and feed health when a placement refresh fails", async () => {
+    const at = new Date("2026-09-09T00:00:00.000Z");
+    await new OddsIngestion(db, new Provider([event()]), { now: () => at }).poll();
+    const before = await lastGoodD1Snapshot();
+    const health = await db.prepare("SELECT last_polled_at, last_error, quota_json FROM odds_ingestion WHERE provider = 'odds'").first();
+    const failing: IngestionProvider = { events: async () => { throw new Error("provider timeout"); } };
+    await expect(new OddsIngestion(db, failing, { now: () => new Date(at.getTime() + 1000) }).poll({ placementLeagues: ["nfl"] })).rejects.toThrow("provider timeout");
+    expect(await lastGoodD1Snapshot()).toEqual(before);
+    expect(await db.prepare("SELECT last_polled_at, last_error, quota_json FROM odds_ingestion WHERE provider = 'odds'").first()).toEqual(health);
+  });
+
+  it("does not spend exhausted provider quota on a placement refresh", async () => {
+    const at = new Date("2026-09-09T00:00:00.000Z");
+    await new OddsIngestion(db, new Provider([event()], { remaining: 1 }), { now: () => at }).poll();
+    const provider = new Provider([event()]);
+    await new OddsIngestion(db, provider, { now: () => new Date(at.getTime() + 1000) }).poll({ placementLeagues: ["nfl"] });
+    expect(provider.calls).toEqual([]);
+  });
+
   it("uses the first complete canonical book per market and never selection-shops", () => {
     const offers = canonicalize(event(), "2026-09-10T00:00:00.000Z");
     expect(offers.map(({ market, canonicalBook }) => [market, canonicalBook])).toEqual([["spread", "DraftKings"], ["total", "FanDuel"], ["moneyline", "FanDuel"]]);

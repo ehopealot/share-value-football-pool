@@ -2,6 +2,7 @@ import { createAuthBoundary } from "./auth";
 import { authenticatedUserFromSession, sessionIsRecentForUser } from "./auth/session";
 import { createResendEmailSender, createResendPoolNotifier } from "./auth/email-sender";
 import { TheOddsApiProvider } from "./odds/the-odds-api-provider";
+import { OddsIngestion } from "./odds/ingestion";
 import { runOddsCron } from "./worker/cron";
 import { createWorkerApp } from "./worker/app";
 import { RateLimiter } from "./security/rate-limit";
@@ -38,6 +39,13 @@ const worker: ExportedHandler<Env> = {
       authHandler: auth.handler, limiter: poolMutationLimiter,
       authAbuseGuard: createAuthAbuseGuard({ secret: env.TURNSTILE_SECRET_KEY, expectedHostname: productionTurnstileHostname, allowInsecureLocalAuth: false, limiter: authLimiter }),
       allowInsecureLocalAuth: false, queue: env.POOL_EVENTS, spaAssets: env.ASSETS, poolNotifier: createResendPoolNotifier(emailOptions), oddsConfigured: Boolean(env.ODDS_API_KEY), backupConfigured: backupConfigured(env),
+      async refreshPlacementOdds(leagues) {
+        if (!env.ODDS_API_KEY) return;
+        // One shared deadline covers both odds and score requests across all ticket leagues.
+        const signal = AbortSignal.timeout(4000);
+        const provider = new TheOddsApiProvider(env.ODDS_API_KEY, (input, init) => fetch(input, { ...init, signal }));
+        await new OddsIngestion(env.DB, provider).poll({ placementLeagues: leagues });
+      },
       async currentUser(sessionRequest) { return authenticatedUserFromSession(await auth.api.getSession({ headers: sessionRequest.headers })); },
       async recentlyAuthenticated(sessionRequest, user) { return sessionIsRecentForUser(await auth.api.getSession({ headers: sessionRequest.headers }), user.id); }
     });

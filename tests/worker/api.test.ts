@@ -600,6 +600,38 @@ describe("later wager and member HTTP API", () => {
     }
   }, 180_000);
 
+  it.each(["unchanged", "changed", "timeout"] as const)("checks live odds before teaser placement: %s", async (outcome) => {
+    const poolId = `api-live-${crypto.randomUUID()}`; const slug = `api-live-${outcome}`;
+    await setupPool(poolId, slug);
+    const fundingQuote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "fund-live-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000" })).json() as { priceMicros: string; commandVersion: string };
+    await send(poolId, { type: "ExecuteShareOrder", commandId: "fund-live", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000", quote: fundingQuote, reason: "live odds fixture" });
+    const payload = (line: number) => JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: line }, { name: "Away", price: -110, point: -line }] });
+    for (const id of ["live-one", "live-two"]) {
+      await bindings.DB.prepare("INSERT INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, correction_version) VALUES (?, ?, 'nfl', 'Home', 'Away', '2099-09-10T20:00:00.000Z', 'scheduled', '1')").bind(id, id).run();
+      await bindings.DB.prepare("INSERT INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, 'spread', 'DraftKings', ?, 'v1', ?)").bind(id, new Date().toISOString(), payload(-3)).run();
+    }
+    const refreshPlacementOdds = vi.fn(async () => {
+      if (outcome === "timeout") throw new DOMException("Timed out", "TimeoutError");
+      await bindings.DB.prepare("UPDATE market_offer SET offer_version = 'live', payload_json = ? WHERE event_id = 'live-one'").bind(payload(outcome === "changed" ? -4 : -3)).run();
+    });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds });
+    const legs = ["live-one", "live-two"].map(eventId => ({ eventId, canonicalBook: "DraftKings", market: "spread", selection: "home", offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:spread:home` } }));
+    const quoted = await quoteAndPlace(app, slug, "teasers", { wagerId: "live-wager", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs }, "live-place");
+    expect(refreshPlacementOdds).not.toHaveBeenCalled();
+    const response = await quoted.place();
+    expect(refreshPlacementOdds).toHaveBeenCalledExactlyOnceWith(["nfl"]);
+    if (outcome === "changed") {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "LINE_CHANGED", replacement: { legs: expect.arrayContaining([expect.objectContaining({ eventId: "live-one", originalLine: -4 })]) } });
+      expect(await (await app.fetch(request(`/api/p/${slug}/wagers`, undefined, "GET"))).text()).not.toContain("live-wager");
+    } else {
+      expect(response.status).toBe(200);
+      const accepted = await response.json();
+      expect(await (await quoted.place()).json()).toEqual(accepted);
+      expect(refreshPlacementOdds).toHaveBeenCalledTimes(1);
+    }
+  }, 90_000);
+
   it("places unchanged teasers across feed refreshes and rejects changed lines in every adjustment direction", async () => {
     const poolId = `api-teaser-directions-${crypto.randomUUID()}`;
     const slug = "api-teaser-directions";

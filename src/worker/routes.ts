@@ -9,6 +9,7 @@ import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decode
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
 import { offerIsStale } from "../odds/ingestion";
+import type { League } from "../odds/types";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
 
@@ -26,6 +27,8 @@ export type RouteDependencies = {
   poolJoinNotifier?: PoolJoinNotifier;
   /** Local composition can renew its deterministic board before an authenticated odds read. */
   beforeOddsRead?: () => Promise<void>;
+  /** Best-effort live refresh; failures leave the existing placement checks authoritative. */
+  refreshPlacementOdds?: (leagues: League[]) => Promise<void>;
 };
 const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503 = 400) => c.json({ code }, status);
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
@@ -261,6 +264,12 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
           : { type: "PlaceParlayWager" as const, commandId: data.commandId, actorId: user.id, wagerId: data.wagerId, quoteKey: data.quoteKey, quotedCommandVersion: data.quotedCommandVersion, seasonId: data.seasonId, riskMicros: data.riskMicros, acceptedOdds: data.acceptedOdds, rulesetVersion: data.rulesetVersion, legs: data.legs };
       const replay = await router.send(slug, { type: "ProbePlacementReplay", commandId: crypto.randomUUID(), actorId: user.id, placement: command });
       if (replay.replayed === true) return c.json(replay.response);
+      if (dependencies.refreshPlacementOdds) {
+        const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
+        const leagues = [...new Set<League>(legs.map((leg: { league: League }) => leg.league))];
+        try { await dependencies.refreshPlacementOdds(leagues); }
+        catch { console.warn({ event: "placement_odds_refresh_failed", fallback: "stored_offer_checks" }); }
+      }
       return c.json(await router.send(slug, command));
     }
     const semantic = kind === "straight"
