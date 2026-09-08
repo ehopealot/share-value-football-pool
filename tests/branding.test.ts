@@ -8,15 +8,19 @@ import { Layout } from "../src/web/components/Layout";
 
 const root = resolve(import.meta.dirname, "..");
 
-describe("Office Pool Reborn branding", () => {
+describe("Yourfootballpool branding", () => {
+  it("uses the product name for the production email sender without changing its address", () => {
+    const worker = readFileSync(resolve(root, "src/index.ts"), "utf8");
+    expect(worker).toContain('const productionEmailFrom = "Yourfootballpool <noreply@officepool.football>";');
+  });
   it("uses the product name in the browser shell and deployment identity", () => {
     const rendered = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Layout, null, "content")));
     const html = readFileSync(resolve(root, "index.html"), "utf8");
     const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as { name: string };
     const wrangler = JSON.parse(readFileSync(resolve(root, "wrangler.jsonc"), "utf8")) as { name: string };
 
-    expect(rendered).toContain("Office Pool Reborn");
-    expect(html).toContain("<title>Office Pool Reborn</title>");
+    expect(rendered).toContain("Yourfootballpool");
+    expect(html).toContain("<title>Yourfootballpool</title>");
     expect(manifest.name).toBe("office-pool-reborn");
     expect(wrangler.name).toBe("office-pool-reborn");
   });

@@ -14,7 +14,7 @@ const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
 const productionAuthOrigin = "https://officepool.football";
 const productionTurnstileHostname = new URL(productionAuthOrigin).hostname;
-const productionEmailFrom = "Office Pool Reborn <noreply@officepool.football>";
+const productionEmailFrom = "Yourfootballpool <noreply@officepool.football>";
 export { PoolDO } from "./durable/pool-do";
 
 export interface Env {
