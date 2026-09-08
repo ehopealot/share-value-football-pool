@@ -44,6 +44,14 @@ describe("selection tray", () => {
     expect(resolveTrayItem(board([]), item())).toBeUndefined();
   });
 
+  it("does not resolve stale moneyline selections beyond the inclusive +/-1200 strike limit", () => {
+    const atLimit = { eventId: "e1", market: "moneyline" as const, homeTeam: "KC", awayTeam: "DET", outcomes: [{ name: "DET", price: 1200 }, { name: "KC", price: -1200 }] };
+    const overLimit = { ...atLimit, outcomes: [{ name: "DET", price: 1201 }, { name: "KC", price: -1201 }] };
+
+    expect(resolveTrayItem(board([atLimit]), item({ market: "moneyline", selection: "away" }))).toMatchObject({ offer: atLimit, outcome: atLimit.outcomes[0] });
+    expect(resolveTrayItem(board([overLimit]), item({ market: "moneyline", selection: "away" }))).toBeUndefined();
+  });
+
   it("marks only spreads and totals teaser-eligible", () => {
     expect(teaserEligible(item())).toBe(true);
     expect(teaserEligible(item({ market: "total", selection: "over" }))).toBe(true);

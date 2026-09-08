@@ -67,7 +67,7 @@ describe("truthful rules and feed presentation", () => {
     expect(html).not.toContain("+860");
     expect(html).toContain("Teaser payouts: SHARE_POOL_2026_V1</h2>");
     expect(html.indexOf("Teaser payouts: SHARE_POOL_2026_V1")).toBeLessThan(html.indexOf("Parlays: PARLAY_2026_V1"));
-    for (const text of ["PARLAY_2026_V1", "2–6 legs", "spreads, totals, and moneylines", "one spread or moneyline", "-133", "settles as soon as any final leg loses", "Wins and refunds wait until all legs are final", "Pushes and voids are removed and surviving legs are repriced"]) expect(html).toContain(text);
+    for (const text of ["PARLAY_2026_V1", "2–6 legs", "spreads, totals, and moneylines", "one spread or moneyline", "-133", "between -1200 and +1200, inclusive", "settles as soon as any final leg loses", "Wins and refunds wait until all legs are final", "Pushes and voids are removed and surviving legs are repriced"]) expect(html).toContain(text);
   });
 
   it("renders the persisted selected-season ruleset and refuses an unknown table", () => {

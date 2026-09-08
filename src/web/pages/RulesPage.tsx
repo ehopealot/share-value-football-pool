@@ -37,6 +37,7 @@ export function RulesContent({ slug, view, board }: { slug: string; view: ReadPo
       <h2 id="parlay-rules-heading">Parlays: {PARLAY_RULESET_ID}</h2>
       <p>Parlays allow 2–6 legs from NFL or NCAA spreads, totals, and moneylines. Each event may include one spread or moneyline, optionally paired with one total; spread-plus-moneyline and duplicate or opposing selections are not allowed.</p>
       <p>A total paired with its event’s spread or moneyline is priced at -133. All other spread and total legs use +100, while moneylines use their accepted vig-free price.</p>
+      <p>Moneyline offers are available only when their vig-free strike is between -1200 and +1200, inclusive.</p>
       <p>A parlay settles as soon as any final leg loses. Wins and refunds wait until all legs are final. Pushes and voids are removed and surviving legs are repriced from their immutable accepted terms; if no legs survive, the risk is refunded.</p>
     </section>
     <section aria-labelledby="source-policy-heading">

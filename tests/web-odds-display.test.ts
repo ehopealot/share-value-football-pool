@@ -132,6 +132,15 @@ describe("member-facing odds display", () => {
     expect(html).not.toContain("Oklahoma Sooners");
   });
 
+  it("shows only vig-free moneylines through the inclusive +/-1200 limit", () => {
+    const moneyline = (eventId: string, price: number) => ({ eventId, league: "nfl", startsAt: "2026-09-10T17:00:00.000Z", awayTeam: "Away", homeTeam: "Home", market: "moneyline", outcomes: [{ name: "Away", price }, { name: "Home", price: -price }] });
+    const games = groupBoardByEvent([moneyline("at-limit", 1200), moneyline("over-limit", 1201)]);
+
+    expect(games[0]!.markets.moneyline.away?.odds).toBe("+1200");
+    expect(games[0]!.markets.moneyline.home?.odds).toBe("-1200");
+    expect(games[1]!.markets.moneyline).toEqual({});
+  });
+
   it("filters either team fuzzily while retaining input order", () => {
     const markets = { spread: {}, total: {}, moneyline: {} };
     const games: GameRow[] = [

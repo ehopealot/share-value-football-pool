@@ -1,6 +1,7 @@
 import { timestamp } from "../contracts/commands";
 import { validateParlay } from "../domain/parlay";
 import { vigFreeMoneylinePrice } from "../odds/market-semantics";
+import { moneylineStrikeIsAvailable } from "../odds/moneyline-policy";
 import { resolveTrayItem, type TrayItem } from "./selection-tray";
 
 export type ParlayLeg = {
@@ -42,8 +43,8 @@ export const parlayLegForOutcome = (offer: Offer, outcome: Outcome, selection: P
   const originalOdds = offer.market === "moneyline" && (selection === "home" || selection === "away")
     ? vigFreeMoneylinePrice({ homeTeam: offer.homeTeam, awayTeam: offer.awayTeam }, offer.outcomes, selection)
     : outcome.price;
-  // Parsed board offers always contain both moneyline outcomes. Refuse malformed direct callers rather than estimating from vigged terms.
-  if (originalOdds === undefined) throw new Error("CURRENT_OFFER_UNAVAILABLE");
+  // Parsed board offers always contain both moneyline outcomes. Refuse malformed or unavailable direct callers rather than estimating from vigged terms.
+  if (originalOdds === undefined || (offer.market === "moneyline" && !moneylineStrikeIsAvailable(originalOdds))) throw new Error("CURRENT_OFFER_UNAVAILABLE");
   return {
     eventId: offer.eventId, league: offer.league, canonicalBook: offer.canonicalBook, retrievedAt: offer.retrievedAt, policyVersion: offer.policyVersion, offerVersion: offer.offerVersion,
     canonicalOfferProof: { offerId: `${offer.eventId}:${offer.market}:${selection}`, eventId: offer.eventId, offerVersion: offer.offerVersion, canonicalBook: offer.canonicalBook, market: offer.market, selection, odds: outcome.price, line: originalLine },
@@ -109,6 +110,7 @@ const isParlayLeg = (value: unknown): value is ParlayLeg => {
     && isNonemptyString(leg.canonicalBook) && isTimestamp(leg.retrievedAt) && isNonemptyString(leg.policyVersion)
     && isNonemptyString(leg.offerVersion) && isTimestamp(leg.eventStartsAt) && validMarket && validSelection
     && isAmericanOdds(leg.originalOdds) && validLine && leg.adjustedLine === null && validProof
+    && (leg.market !== "moneyline" || moneylineStrikeIsAvailable(leg.originalOdds))
     && canonicalOfferProof.eventId === leg.eventId && canonicalOfferProof.offerVersion === leg.offerVersion
     && canonicalOfferProof.canonicalBook === leg.canonicalBook && canonicalOfferProof.line === leg.originalLine
     && (leg.market === "moneyline" || canonicalOfferProof.odds === leg.originalOdds)

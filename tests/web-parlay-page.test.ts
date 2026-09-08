@@ -164,6 +164,16 @@ describe("parlay slip and page semantics", () => {
     expect(parlayAdvisoryOdds([moneylineLeg, totalLeg])).toBe(216);
   });
 
+  it("refuses unavailable moneyline legs when building a parlay", () => {
+    const atLimit = { ...offer("at-limit", "moneyline", { name: "Away", price: 1200 }), outcomes: [{ name: "Away", price: 1200 }, { name: "Home", price: -1200 }] };
+    const overLimit = { ...atLimit, eventId: "over-limit", offerVersion: "v-over-limit", outcomes: [{ name: "Away", price: 1201 }, { name: "Home", price: -1201 }] };
+    const total = offer("total", "total", { name: "Over", price: -110, point: 44.5 });
+
+    expect(parlayLegForOutcome(atLimit, atLimit.outcomes[0]!, "away").originalOdds).toBe(1200);
+    expect(() => parlayLegForOutcome(overLimit, overLimit.outcomes[0]!, "away")).toThrow("CURRENT_OFFER_UNAVAILABLE");
+    expect(buildParlaySlip([item("over-limit", "moneyline", "away"), item("total", "total", "over")], board([overLimit, total]))).toEqual({ legs: [], error: "A selected parlay leg is no longer available on the board." });
+  });
+
   it("keeps an unknown placement frozen and clears stale errors before its exact retry", () => {
     const request = { wagerId: "wager-1", quoteKey: "quote-1", risk: "2", legs: [] } as any;
     const quote = { quoteKey: "quote-1" };
