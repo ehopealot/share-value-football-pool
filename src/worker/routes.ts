@@ -5,11 +5,11 @@ import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
 import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
-import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical } from "./offer-quotes";
+import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateLiveWagerOffers } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
 import { offerIsStale } from "../odds/ingestion";
-import type { League } from "../odds/types";
+import type { League, ProviderEvent } from "../odds/types";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
 
@@ -28,7 +28,8 @@ export type RouteDependencies = {
   /** Local composition can renew its deterministic board before an authenticated odds read. */
   beforeOddsRead?: () => Promise<void>;
   /** Best-effort live refresh; failures leave the existing placement checks authoritative. */
-  refreshPlacementOdds?: (leagues: League[]) => Promise<void>;
+  refreshPlacementOdds?: (leagues: League[]) => Promise<ProviderEvent[] | void>;
+  placementRefreshLimiter?: RateLimiter;
 };
 const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503 = 400) => c.json({ code }, status);
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
@@ -56,6 +57,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   const registry = new PoolRegistry(dependencies.db, new DurablePoolCommandClient(dependencies.pools), dependencies.commandAuthenticatorKey);
   const router = new PoolCommandRouter(registry, dependencies.pools, dependencies.db);
   const limiter = dependencies.limiter ?? new RateLimiter();
+  const placementRefreshLimiter = dependencies.placementRefreshLimiter ?? new RateLimiter(10, 60_000);
   const poolNotifier = dependencies.poolNotifier ?? dependencies.poolJoinNotifier;
   const requireUser = async (c: Context) => {
     if (!csrf(c)) return undefined;
@@ -265,10 +267,14 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       const replay = await router.send(slug, { type: "ProbePlacementReplay", commandId: crypto.randomUUID(), actorId: user.id, placement: command });
       if (replay.replayed === true) return c.json(replay.response);
       if (dependencies.refreshPlacementOdds) {
+        if (!placementRefreshLimiter.allow(user.id)) return jsonError(c, "RATE_LIMITED", 429);
         const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
         const leagues = [...new Set<League>(legs.map((leg: { league: League }) => leg.league))];
-        try { await dependencies.refreshPlacementOdds(leagues); }
+        let liveEvents: ProviderEvent[] | void = undefined;
+        try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
         catch { console.warn({ event: "placement_odds_refresh_failed", fallback: "stored_offer_checks" }); }
+        // Confirmed drift is not a provider failure and must never be swallowed.
+        if (liveEvents) revalidateLiveWagerOffers(command, liveEvents);
       }
       return c.json(await router.send(slug, command));
     }

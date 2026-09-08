@@ -111,6 +111,34 @@ describe("odds ingestion", () => {
     expect(await db.prepare("SELECT retrieved_at FROM market_offer WHERE event_id = 'event-1' LIMIT 1").first()).toEqual({ retrieved_at: refreshedAt.toISOString() });
   });
 
+  it("returns live placement evidence even when another league supersedes its database write", async () => {
+    const at = { now: () => new Date("2026-09-09T00:00:00.000Z") };
+    await new OddsIngestion(db, new Provider([event()]), at).poll();
+    const older = new DeferredProvider(); const newer = new DeferredProvider();
+    const olderPoll = new OddsIngestion(db, older, at).poll({ placementLeagues: ["nfl"] }); await older.called;
+    const newerPoll = new OddsIngestion(db, newer, at).poll({ placementLeagues: ["ncaaf"] }); await newer.called;
+    const changed = event();
+    changed.bookmakers[0]!.markets[0]!.outcomes[0]!.point = -4;
+    changed.bookmakers[0]!.markets[0]!.outcomes[1]!.point = 4;
+    older.resolve({ events: [changed] });
+    const result = await olderPoll;
+    newer.resolve({ events: [] }); await newerPoll;
+    // The global generation fence still protects D1, but cannot erase known drift.
+    expect(result).toMatchObject({ events: 0, offers: 0, placementEvents: [changed] });
+    expect(JSON.parse((await db.prepare("SELECT payload_json FROM market_offer WHERE event_id = 'event-1' AND market = 'spread'").first<{ payload_json: string }>())!.payload_json).outcomes[0].point).toBe(-3.5);
+  });
+
+  it("returns live placement evidence when publishing validated odds fails", async () => {
+    const at = { now: () => new Date("2026-09-09T00:00:00.000Z") };
+    await new OddsIngestion(db, new Provider([event()]), at).poll();
+    const before = await lastGoodD1Snapshot();
+    await db.exec("CREATE TRIGGER ingestion_fail_offer_insert BEFORE INSERT ON market_offer BEGIN SELECT RAISE(ABORT, 'induced offer insert failure'); END;");
+    const changed = event({ bookmakers: [event().bookmakers[1]!] });
+    const result = await new OddsIngestion(db, new Provider([changed]), at).poll({ placementLeagues: ["nfl"] });
+    expect(result).toMatchObject({ events: 0, offers: 0, placementEvents: [changed] });
+    expect(await lastGoodD1Snapshot()).toEqual(before);
+  });
+
   it("keeps last-good offers and feed health when a placement refresh fails", async () => {
     const at = new Date("2026-09-09T00:00:00.000Z");
     await new OddsIngestion(db, new Provider([event()]), { now: () => at }).poll();

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
 import { selectionForOutcome } from "../../src/web/selection-matcher";
 import { poolCommandSchema } from "../../src/durable/pool-commands";
+import { RateLimiter } from "../../src/security/rate-limit";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 let migrated = false;
@@ -600,7 +601,7 @@ describe("later wager and member HTTP API", () => {
     }
   }, 180_000);
 
-  it.each(["unchanged", "changed", "timeout"] as const)("checks live odds before teaser placement: %s", async (outcome) => {
+  it.each(["unchanged", "changed", "timeout", "superseded-changed", "superseded-unchanged"] as const)("checks live odds before teaser placement: %s", async (outcome) => {
     const poolId = `api-live-${crypto.randomUUID()}`; const slug = `api-live-${outcome}`;
     await setupPool(poolId, slug);
     const fundingQuote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "fund-live-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000" })).json() as { priceMicros: string; commandVersion: string };
@@ -612,18 +613,32 @@ describe("later wager and member HTTP API", () => {
     }
     const refreshPlacementOdds = vi.fn(async () => {
       if (outcome === "timeout") throw new DOMException("Timed out", "TimeoutError");
+      if (outcome.startsWith("superseded")) return ["live-one", "live-two"].map(id => ({
+        id, sport: "nfl" as const, homeTeam: "Home", awayTeam: "Away", commenceTime: "2099-09-10T20:00:00.000Z", status: "scheduled" as const,
+        bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spread" as const, outcomes: JSON.parse(payload(outcome === "superseded-changed" && id === "live-one" ? -4 : -3)).outcomes }] }]
+      }));
       await bindings.DB.prepare("UPDATE market_offer SET offer_version = 'live', payload_json = ? WHERE event_id = 'live-one'").bind(payload(outcome === "changed" ? -4 : -3)).run();
     });
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds, placementRefreshLimiter: new RateLimiter(1) });
     const legs = ["live-one", "live-two"].map(eventId => ({ eventId, canonicalBook: "DraftKings", market: "spread", selection: "home", offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:spread:home` } }));
     const quoted = await quoteAndPlace(app, slug, "teasers", { wagerId: "live-wager", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs }, "live-place");
     expect(refreshPlacementOdds).not.toHaveBeenCalled();
+    // Invalid quote requests must not spend provider quota or consume the limiter.
+    for (const invalid of [{ ...quoted.placement, quoteKey: "nonexistent" }, { ...quoted.placement, riskMicros: "2000000" }]) {
+      const rejected = await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, invalid));
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toMatchObject({ code: "LINE_CHANGED" });
+      expect(refreshPlacementOdds).not.toHaveBeenCalled();
+    }
     const response = await quoted.place();
     expect(refreshPlacementOdds).toHaveBeenCalledExactlyOnceWith(["nfl"]);
-    if (outcome === "changed") {
+    if (outcome === "changed" || outcome === "superseded-changed") {
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({ code: "LINE_CHANGED", replacement: { legs: expect.arrayContaining([expect.objectContaining({ eventId: "live-one", originalLine: -4 })]) } });
       expect(await (await app.fetch(request(`/api/p/${slug}/wagers`, undefined, "GET"))).text()).not.toContain("live-wager");
+      const throttled = await quoted.place();
+      expect(throttled.status).toBe(429);
+      expect(refreshPlacementOdds).toHaveBeenCalledTimes(1);
     } else {
       expect(response.status).toBe(200);
       const accepted = await response.json();

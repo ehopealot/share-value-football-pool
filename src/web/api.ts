@@ -12,7 +12,7 @@ export type CommandOutcome = "stale" | "retryable" | "terminal";
 export const commandOutcome = (error: unknown): CommandOutcome => {
   if (!(error instanceof ApiError) || error.status >= 500) return "retryable";
   if (error.code === "LINE_CHANGED" || error.code === "ORDER_QUOTE_STALE") return "stale";
-  if (["POOL_NOT_AVAILABLE", "POOL_UNAVAILABLE", "RECENT_AUTH_REQUIRED"].includes(error.code)) return "retryable";
+  if (["POOL_NOT_AVAILABLE", "POOL_UNAVAILABLE", "RECENT_AUTH_REQUIRED", "RATE_LIMITED"].includes(error.code)) return "retryable";
   return "terminal";
 };
 

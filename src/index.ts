@@ -13,6 +13,7 @@ import { backupConfigured, runBackupCron } from "./worker/backup-cron";
 
 const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
+const placementRefreshLimiter = new RateLimiter(10, 60_000);
 const productionAuthOrigin = "https://officepool.football";
 const productionTurnstileHostname = new URL(productionAuthOrigin).hostname;
 const productionEmailFrom = "Yourfootballpool <noreply@officepool.football>";
@@ -39,12 +40,14 @@ const worker: ExportedHandler<Env> = {
       authHandler: auth.handler, limiter: poolMutationLimiter,
       authAbuseGuard: createAuthAbuseGuard({ secret: env.TURNSTILE_SECRET_KEY, expectedHostname: productionTurnstileHostname, allowInsecureLocalAuth: false, limiter: authLimiter }),
       allowInsecureLocalAuth: false, queue: env.POOL_EVENTS, spaAssets: env.ASSETS, poolNotifier: createResendPoolNotifier(emailOptions), oddsConfigured: Boolean(env.ODDS_API_KEY), backupConfigured: backupConfigured(env),
+      placementRefreshLimiter,
       async refreshPlacementOdds(leagues) {
         if (!env.ODDS_API_KEY) return;
         // One shared deadline covers both odds and score requests across all ticket leagues.
         const signal = AbortSignal.timeout(4000);
         const provider = new TheOddsApiProvider(env.ODDS_API_KEY, (input, init) => fetch(input, { ...init, signal }));
-        await new OddsIngestion(env.DB, provider).poll({ placementLeagues: leagues });
+        const result = await new OddsIngestion(env.DB, provider).poll({ placementLeagues: leagues });
+        return result.placementEvents;
       },
       async currentUser(sessionRequest) { return authenticatedUserFromSession(await auth.api.getSession({ headers: sessionRequest.headers })); },
       async recentlyAuthenticated(sessionRequest, user) { return sessionIsRecentForUser(await auth.api.getSession({ headers: sessionRequest.headers }), user.id); }

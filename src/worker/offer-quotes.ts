@@ -2,7 +2,8 @@ import { assertBettingOpen } from "../domain/betting-week";
 import { offerIsStale } from "../odds/ingestion";
 import { moneylineStrikeIsAvailable } from "../odds/moneyline-policy";
 import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
-import { CANONICAL_BOOK_POLICY_VERSION, type MarketName } from "../odds/types";
+import { CANONICAL_BOOK_POLICY_VERSION, type MarketName, type ProviderEvent } from "../odds/types";
+import { canonicalize } from "../odds/canonicalize";
 import type { PoolCommand } from "../durable/pool-commands";
 import { SHARE_POOL_RULESET_ID, TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
 import { adjustTeaserLine } from "../domain/grading";
@@ -22,6 +23,7 @@ type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTease
 type PlacementLeg = Extract<PoolCommand, { type: "PlaceStraightWager" }>['leg'] | Extract<PoolCommand, { type: "PlaceTeaserWager" | "PlaceParlayWager" }>['legs'][number];
 type OfferRow = Record<"league" | "home_team" | "away_team" | "starts_at" | "status" | "canonical_book" | "retrieved_at" | "offer_version" | "payload_json", string>;
 type IngestionRow = { last_success_at: string | null; last_error: string | null };
+type OfferSnapshot = { rows: Array<OfferRow | undefined>; ingestion: IngestionRow | undefined };
 export type StoredOutcome = { name: string; price: number; point?: number };
 export type StoredOffer = { policyVersion: typeof CANONICAL_BOOK_POLICY_VERSION; outcomes: StoredOutcome[] };
 export type StoredOfferContext = { market: MarketName; canonicalBook: string; homeTeam: string; awayTeam: string };
@@ -30,7 +32,11 @@ export type StoredOfferContext = { market: MarketName; canonicalBook: string; ho
 export async function canonicalizeWagerQuote(db: D1Database, proposed: Placement, now = new Date()): Promise<Placement> {
   assertBettingOpen(now);
   const proposedLegs = proposed.type === "PlaceStraightWager" ? [proposed.leg] : proposed.legs;
-  const snapshot = await readPlacementSnapshot(db, proposedLegs);
+  return canonicalizePlacementSnapshot(proposed, await readPlacementSnapshot(db, proposedLegs), now);
+}
+
+function canonicalizePlacementSnapshot(proposed: Placement, snapshot: OfferSnapshot, now: Date): Placement {
+  const proposedLegs = proposed.type === "PlaceStraightWager" ? [proposed.leg] : proposed.legs;
   const canonicalLegs = proposedLegs.map((leg, index) => canonicalLeg(snapshot.rows[index], snapshot.ingestion, leg, now));
   if (proposed.type === "PlaceStraightWager") {
     const leg = canonicalLegs[0]!;
@@ -70,7 +76,27 @@ export function quoteRequestMatchesCanonical(submitted: { rulesetVersion: string
 export async function revalidateWagerOffers(db: D1Database, command: Placement, now = new Date()): Promise<Placement> {
   assertBettingOpen(now);
   const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
-  const snapshot = await readPlacementSnapshot(db, legs);
+  return revalidatePlacementSnapshot(command, await readPlacementSnapshot(db, legs), now);
+}
+
+/** Check the fetched evidence even if a concurrent poll prevented its D1 publication. */
+export function revalidateLiveWagerOffers(command: Placement, events: ProviderEvent[], now = new Date()): Placement {
+  assertBettingOpen(now);
+  const retrievedAt = now.toISOString();
+  const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
+  const rows = legs.map((leg): OfferRow | undefined => {
+    const matches = events.filter(event => event.id === leg.eventId);
+    if (matches.length !== 1) return undefined;
+    const event = matches[0]!;
+    const offer = canonicalize(event, retrievedAt).find(offer => offer.market === leg.market);
+    if (!offer) return undefined;
+    return { league: event.sport, home_team: event.homeTeam, away_team: event.awayTeam, starts_at: event.commenceTime, status: event.status ?? "scheduled", canonical_book: offer.canonicalBook, retrieved_at: retrievedAt, offer_version: offer.offerVersion, payload_json: JSON.stringify({ policyVersion: offer.policyVersion, outcomes: offer.payload.outcomes }) };
+  });
+  return revalidatePlacementSnapshot(command, { rows, ingestion: { last_success_at: retrievedAt, last_error: null } }, now);
+}
+
+function revalidatePlacementSnapshot(command: Placement, snapshot: OfferSnapshot, now: Date): Placement {
+  const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
   try {
     const teaserAdjustment = command.type === "PlaceTeaserWager" ? command.teaserPoints : undefined;
     legs.forEach((leg, index) => revalidateLeg(snapshot.rows[index], snapshot.ingestion, leg, now, teaserAdjustment));
@@ -79,7 +105,7 @@ export async function revalidateWagerOffers(db: D1Database, command: Placement, 
       // An absent selected outcome cannot produce replacement terms, but it is
       // still a stale quote rather than an unrelated market-read failure.
       try {
-        throw new LineChangedError(await canonicalizeWagerQuote(db, command, now) as Record<string, unknown>);
+        throw new LineChangedError(canonicalizePlacementSnapshot(command, snapshot, now) as Record<string, unknown>);
       } catch (replacementError) {
         if (replacementError instanceof LineChangedError || !(replacementError instanceof Error) || replacementError.message !== "MARKET_UNAVAILABLE") throw replacementError;
         throw error;
@@ -102,7 +128,7 @@ export async function revalidateWagerOffers(db: D1Database, command: Placement, 
   return command;
 }
 
-async function readPlacementSnapshot(db: D1Database, legs: PlacementLeg[]): Promise<{ rows: Array<OfferRow | undefined>; ingestion: IngestionRow | undefined }> {
+async function readPlacementSnapshot(db: D1Database, legs: PlacementLeg[]): Promise<OfferSnapshot> {
   const identities = legs.map((leg) => `${leg.eventId}\u0000${leg.market}`);
   if (new Set(identities).size !== identities.length) throw new Error("MARKET_UNAVAILABLE");
   const statements = legs.map((leg) => db.prepare("SELECT e.league, e.home_team, e.away_team, e.starts_at, e.status, mo.canonical_book, mo.retrieved_at, mo.offer_version, mo.payload_json FROM sports_event e JOIN market_offer mo ON mo.event_id = e.id WHERE e.provider_event_id = ? AND mo.market = ?").bind(leg.eventId, leg.market));
