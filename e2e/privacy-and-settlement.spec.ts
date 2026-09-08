@@ -816,8 +816,8 @@ test("commissioner transfer honors self, invalid-target, recent-auth, and suspen
     await expect(member.getByRole("link", { name: "Members", exact: true })).toBeVisible();
     await member.goto(`${worker.baseURL}/p/${slug}/admin/members`);
     await expect(member.getByRole("heading", { name: "Member administration" })).toBeVisible();
-    await expect(member.getByRole("row", { name: memberName }).getByRole("cell").first()).toHaveText("commissioner");
-    await expect(member.getByRole("row", { name: commissionerName }).getByRole("cell").first()).toHaveText("member");
+    await expect(member.getByRole("row", { name: memberName }).getByRole("cell", { name: "commissioner", exact: true })).toBeVisible();
+    await expect(member.getByRole("row", { name: commissionerName }).getByRole("cell", { name: "member", exact: true })).toBeVisible();
     await expect(member.getByRole("button", { name: "Suspend" })).toHaveCount(1);
   } finally { await memberContext.close(); await visitorContext.close(); }
 });
