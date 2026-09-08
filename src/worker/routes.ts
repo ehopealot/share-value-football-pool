@@ -337,13 +337,13 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   app.post("/api/p/:slug/admin/orders/quote", (c) => mutation(c, async (user) => {
     const parsed = shareOrderQuoteRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
-    return c.json(await router.send(c.req.param("slug"), { type: "QuoteShareOrder", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: parsed.data.seasonId, memberId: parsed.data.memberId, mode: parsed.data.mode, amountMicros: parsed.data.amountMicros }));
+    return c.json(await router.send(c.req.param("slug"), { type: "QuoteShareOrder", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: parsed.data.seasonId, memberId: parsed.data.memberId, mode: parsed.data.mode, amountMicros: parsed.data.amountMicros, lockPriceAtOneDollar: parsed.data.lockPriceAtOneDollar }));
   }));
   app.post("/api/p/:slug/admin/orders/execute", (c) => mutation(c, async (user) => {
     const parsed = executeShareOrderRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
     const slug = c.req.param("slug");
-    const result = await router.send(slug, { type: "ExecuteShareOrder", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: parsed.data.seasonId, memberId: parsed.data.memberId, mode: parsed.data.mode, amountMicros: parsed.data.amountMicros, quote: parsed.data.quote, reason: parsed.data.reason });
+    const result = await router.send(slug, { type: "ExecuteShareOrder", commandId: parsed.data.idempotencyKey, actorId: user.id, seasonId: parsed.data.seasonId, memberId: parsed.data.memberId, mode: parsed.data.mode, amountMicros: parsed.data.amountMicros, lockPriceAtOneDollar: parsed.data.lockPriceAtOneDollar, quote: parsed.data.quote, reason: parsed.data.reason });
     if (result.replayed !== true && poolNotifier && typeof result.sharesMicros === "string" && typeof result.valueMicros === "string") {
       try {
         const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));

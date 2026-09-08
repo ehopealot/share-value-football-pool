@@ -1,0 +1,7 @@
+# Lock Share Order Price at $1 — Approved Design
+
+Commissioners may opt into a one-order pricing policy with an unchecked-by-default **Lock price at $1 per share** checkbox. The option is available for any share order and for both shares and dollars input modes. Unchecked requests retain current market-price behavior.
+
+The browser sends a boolean pricing choice, never a price. HTTP and PoolDO command schemas default omitted values to `false` for old-client compatibility. The PoolDO independently selects either the current calculated price or exactly `1_000_000` micros. The quote includes both the execution price and current market price plus the pricing choice. Execution binds the same choice and quoted version; it recomputes the permitted execution price server-side and rejects stale versions or mismatched quote prices. This prevents arbitrary client-selected prices while keeping retries idempotent because the choice is part of the command fingerprint.
+
+Confirmation shows issued shares, locked price, current price, total charged, and the signed comparison against valuing the quoted share quantity at current price. The comparison uses existing integer round-half-even fixed-point arithmetic and labels positive differences as above current value, negative differences as below current value, and zero as no difference. Persisted orders and reversals continue using the actual executed price/value already stored in the immutable ledger.

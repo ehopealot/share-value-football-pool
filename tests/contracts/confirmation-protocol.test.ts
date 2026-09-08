@@ -58,14 +58,15 @@ describe("immutable confirmation protocol", () => {
       expect(straightWagerQuoteSnapshot.safeParse(mismatchedQuote).success).toBe(true);
       expect(() => parseStraightQuoteSuccess(request, mismatchedQuote)).toThrow();
     }
-    const order: z.infer<typeof shareOrderQuoteSnapshot> = { seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", commandVersion: "12" };
-    const orderRequest: z.infer<typeof shareOrderQuoteRequest> = { seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", idempotencyKey: "order-quote" };
+    const order = shareOrderQuoteSnapshot.parse({ seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", currentPriceMicros: "1030000", lockPriceAtOneDollar: true, commandVersion: "12" });
+    const orderRequest = shareOrderQuoteRequest.parse({ seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", lockPriceAtOneDollar: true, idempotencyKey: "order-quote" });
+    expect(shareOrderQuoteRequest.parse({ seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", idempotencyKey: "legacy-order-quote" }).lockPriceAtOneDollar).toBe(false);
     const parsedOrder = parseShareOrderQuoteSuccess(orderRequest, order, "member");
     expect(parsedOrder).toEqual(order);
     expect(() => parseShareOrderQuoteSuccess(orderRequest, order, "different-trusted-member")).toThrow();
-    for (const [key, value] of Object.entries({ seasonId: "other-season", memberId: "other-member", mode: "value", amountMicros: "2000000" })) expect(() => parseShareOrderQuoteSuccess(orderRequest, { ...order, [key]: value })).toThrow();
+    for (const [key, value] of Object.entries({ seasonId: "other-season", memberId: "other-member", mode: "value", amountMicros: "2000000", lockPriceAtOneDollar: false })) expect(() => parseShareOrderQuoteSuccess(orderRequest, { ...order, [key]: value })).toThrow();
     const expectedOrderExecution = {
-      seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000",
+      seasonId: "season-1", memberId: "member", mode: "shares", amountMicros: "1000000", lockPriceAtOneDollar: true,
       quote: { priceMicros: "1000000", commandVersion: "12" }, reason: "reason", idempotencyKey: "mutation"
     };
     expect(buildShareOrderExecution(parsedOrder, "mutation", "reason")).toEqual(expectedOrderExecution);
@@ -96,9 +97,21 @@ describe("immutable confirmation protocol", () => {
       legs: [leg, { ...leg, eventId: "event-2", canonicalOfferProof: { ...leg.canonicalOfferProof, eventId: "event-2", offerId: "event-2:spread:home" } }, { ...leg, eventId: "event-3", canonicalOfferProof: { ...leg.canonicalOfferProof, eventId: "event-3", offerId: "event-3:spread:home" } }]
     });
     const teaser = renderToStaticMarkup(createElement(Confirmation, { snapshot: { kind: "teaser", quote: teaserQuote }, editor: { teaserPoints: 99, homeTeam: "editor-injection", riskMicros: "999999999" } } as any));
-    const order = renderToStaticMarkup(createElement(Confirmation, { snapshot: { kind: "order", quote: { seasonId: "season", memberId: "member", mode: "shares", amountMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", commandVersion: "1" }, memberDisplayName: "Frozen Member" }, editor: { amountMicros: "999999999", memberId: "editor-injection" } } as any));
-    expect(teaser).toContain("Snapshot Away at Snapshot Home"); expect(teaser).toContain("6-point teaser"); expect(teaser).toContain("<strong>Win:</strong> 1.65"); expect(teaser).toContain("<strong>Payout:</strong> 2.65"); expect(order).toContain("Issue <strong>1</strong> shares to Frozen Member"); expect(order).toContain("Locked price: <strong>$1.00</strong> per share.");
+    const order = renderToStaticMarkup(createElement(Confirmation, { snapshot: { kind: "order", quote: { seasonId: "season", memberId: "member", mode: "shares", amountMicros: "1000000", sharesMicros: "1000000", valueMicros: "1000000", priceMicros: "1000000", currentPriceMicros: "1000000", lockPriceAtOneDollar: false, commandVersion: "1" }, memberDisplayName: "Frozen Member" }, editor: { amountMicros: "999999999", memberId: "editor-injection" } } as any));
+    expect(teaser).toContain("Snapshot Away at Snapshot Home"); expect(teaser).toContain("6-point teaser"); expect(teaser).toContain("<strong>Win:</strong> 1.65"); expect(teaser).toContain("<strong>Payout:</strong> 2.65"); expect(order).toContain("Issue <strong>1</strong> shares to Frozen Member"); expect(order).toContain("Locked price: <strong>$1.00</strong> per share."); expect(order).toContain("Total charged: <strong>$1.00</strong>.");
     expect(`${teaser}${order}`).not.toContain("editor-injection"); expect(`${teaser}${order}`).not.toContain("999999999");
+  });
+  it.each([
+    ["1030000", "Difference: <strong>-$3.00</strong> (below current value)."],
+    ["970000", "Difference: <strong>+$3.00</strong> (above current value)."],
+    ["1000000", "Difference: <strong>$0.00</strong> (no difference from current value)."]
+  ])("renders locked-order comparison against a %s current price", (currentPriceMicros, expectedDifference) => {
+    const quote = shareOrderQuoteSnapshot.parse({ seasonId: "season", memberId: "member", mode: "shares", amountMicros: "100000000", sharesMicros: "100000000", valueMicros: "100000000", priceMicros: "1000000", currentPriceMicros, lockPriceAtOneDollar: true, commandVersion: "1" });
+    const html = renderToStaticMarkup(createElement(Confirmation, { snapshot: { kind: "order", quote, memberDisplayName: "Late Player" } }));
+    expect(html).toContain("Locked price: <strong>$1.00</strong> per share.");
+    expect(html).toContain(`Current share price: <strong>$${currentPriceMicros === "1030000" ? "1.03" : currentPriceMicros === "970000" ? "0.97" : "1.00"}</strong> per share.`);
+    expect(html).toContain("Total charged: <strong>$100.00</strong>.");
+    expect(html).toContain(expectedDifference);
   });
   it("requires canonical null moneyline lines and strict teaser direction/count", () => {
     const moneyline = { commandId: "mutation-money", mutationKey: "mutation-money", wagerId: "wager-money", quoteKey: "quote-money", quotedCommandVersion: "12", seasonId: "season-1", riskMicros: "1000000", acceptedOdds: 150, rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event-money", league: "nfl", canonicalBook: "DraftKings", retrievedAt: time, policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "7", canonicalOfferProof: { offerId: "event-money:moneyline:home", eventId: "event-money", offerVersion: "7", canonicalBook: "DraftKings", market: "moneyline", selection: "home", odds: 150, line: null }, market: "moneyline", selection: "home", originalLine: null, adjustedLine: null, originalOdds: 150, eventStartsAt: time, homeTeam: "Home", awayTeam: "Away" } };

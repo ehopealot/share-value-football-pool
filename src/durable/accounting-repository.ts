@@ -3,8 +3,8 @@ import { divideRoundHalfEven, MICROS_PER_UNIT, parseIntegerText } from "../domai
 export type Sql = { exec(query: string, ...bindings: unknown[]): Iterable<Record<string, unknown>> };
 export class OrderQuoteStaleError extends Error {
   constructor(
-    readonly quote: { priceMicros: bigint; commandVersion: string; sharesMicros: bigint; valueMicros: bigint },
-    readonly terms: { seasonId: string; memberId: string; mode: "shares" | "value"; amountMicros: string }
+    readonly quote: { priceMicros: bigint; currentPriceMicros: bigint; commandVersion: string; sharesMicros: bigint; valueMicros: bigint },
+    readonly terms: { seasonId: string; memberId: string; mode: "shares" | "value"; amountMicros: string; lockPriceAtOneDollar: boolean }
   ) {
     super("ORDER_QUOTE_STALE");
   }
@@ -23,7 +23,7 @@ export const calculateShareOrderAmounts = (mode: "shares" | "value", requestedMi
 
 type ApplyOrderInput = {
   id: string; commandId: string; seasonId: string; memberId: string; actorId: string;
-  mode: "shares" | "value"; requestedMicros: bigint; priceMicros: bigint;
+  mode: "shares" | "value"; requestedMicros: bigint; priceMicros: bigint; lockPriceAtOneDollar: boolean;
   commandVersion: string; reason: string; now: string; reversalOf?: string;
 };
 
@@ -50,21 +50,22 @@ export class AccountingRepository {
     if (!season) throw new Error("SEASON_NOT_FOUND");
     if (season.state !== "active") throw new Error("SEASON_NOT_ACTIVE");
     const quote = this.quote(input.seasonId);
-    if (quote.commandVersion !== input.commandVersion || quote.priceMicros !== input.priceMicros) {
-      const { sharesMicros, valueMicros } = calculateShareOrderAmounts(input.mode, input.requestedMicros, quote.priceMicros);
+    const executionPriceMicros = input.lockPriceAtOneDollar ? MICROS_PER_UNIT : quote.priceMicros;
+    if (quote.commandVersion !== input.commandVersion || executionPriceMicros !== input.priceMicros) {
+      const { sharesMicros, valueMicros } = calculateShareOrderAmounts(input.mode, input.requestedMicros, executionPriceMicros);
       throw new OrderQuoteStaleError(
-        { ...quote, sharesMicros, valueMicros },
-        { seasonId: input.seasonId, memberId: input.memberId, mode: input.mode, amountMicros: input.requestedMicros.toString() }
+        { priceMicros: executionPriceMicros, currentPriceMicros: quote.priceMicros, commandVersion: quote.commandVersion, sharesMicros, valueMicros },
+        { seasonId: input.seasonId, memberId: input.memberId, mode: input.mode, amountMicros: input.requestedMicros.toString(), lockPriceAtOneDollar: input.lockPriceAtOneDollar }
       );
     }
-    const { sharesMicros: shares, valueMicros: value } = calculateShareOrderAmounts(input.mode, input.requestedMicros, quote.priceMicros);
+    const { sharesMicros: shares, valueMicros: value } = calculateShareOrderAmounts(input.mode, input.requestedMicros, executionPriceMicros);
     if (shares <= 0n || value <= 0n) throw new Error("ORDER_ROUNDS_BELOW_ONE_MICRO");
     const account = this.account(input.seasonId, input.memberId);
     const nextVersion = (BigInt(quote.commandVersion) + 1n).toString();
     this.sql.exec("UPDATE share_account SET available_micros = ?, row_version = ? WHERE season_id = ? AND member_id = ?", text(account.availableMicros + shares), nextVersion, input.seasonId, input.memberId);
     this.sql.exec("UPDATE season SET float_micros = ?, notional_micros = ?, command_version = ? WHERE id = ?", text(parseIntegerText(String(season.float_micros)) + shares), text(parseIntegerText(String(season.notional_micros)) + value), nextVersion, input.seasonId);
-    this.insertOrderAndLedger(input, shares, value, quote.priceMicros, input.reversalOf ? "order_reversal" : "order");
-    return { orderId: input.id, sharesMicros: shares, valueMicros: value, priceMicros: quote.priceMicros, commandVersion: nextVersion };
+    this.insertOrderAndLedger(input, shares, value, executionPriceMicros, input.reversalOf ? "order_reversal" : "order");
+    return { orderId: input.id, sharesMicros: shares, valueMicros: value, priceMicros: executionPriceMicros, commandVersion: nextVersion };
   }
 
   reverseOrder(input: { id: string; commandId: string; orderId: string; actorId: string; reason: string; now: string }) {
@@ -85,7 +86,7 @@ export class AccountingRepository {
     const nextVersion = (BigInt(String(season.command_version)) + 1n).toString();
     this.sql.exec("UPDATE share_account SET available_micros = ?, row_version = ? WHERE season_id = ? AND member_id = ?", text(account.availableMicros - shares), nextVersion, seasonId, memberId);
     this.sql.exec("UPDATE season SET float_micros = ?, notional_micros = ?, command_version = ? WHERE id = ?", text(float - shares), text(notional - value), nextVersion, seasonId);
-    this.insertOrderAndLedger({ id: input.id, commandId: input.commandId, seasonId, memberId, actorId: input.actorId, mode: "shares", requestedMicros: -shares, priceMicros: parseIntegerText(String(original.price_micros)), commandVersion: String(season.command_version), reason: input.reason, now: input.now, reversalOf: input.orderId }, -shares, -value, parseIntegerText(String(original.price_micros)), "order_reversal");
+    this.insertOrderAndLedger({ id: input.id, commandId: input.commandId, seasonId, memberId, actorId: input.actorId, mode: "shares", requestedMicros: -shares, priceMicros: parseIntegerText(String(original.price_micros)), lockPriceAtOneDollar: false, commandVersion: String(season.command_version), reason: input.reason, now: input.now, reversalOf: input.orderId }, -shares, -value, parseIntegerText(String(original.price_micros)), "order_reversal");
     return { orderId: input.id, reversedOrderId: input.orderId, sharesMicros: -shares, valueMicros: -value, priceMicros: parseIntegerText(String(original.price_micros)), commandVersion: nextVersion };
   }
 

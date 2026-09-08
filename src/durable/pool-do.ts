@@ -50,9 +50,13 @@ const requestFingerprint = (command: PoolCommand, commandAuthenticatorKey?: stri
   if (command.type === "QuoteStraightWager" || command.type === "QuoteTeaserWager" || command.type === "QuoteParlayWager") return canonical({ type: command.type, commandId: command.commandId, actorId: command.actorId, identity: command.identity });
   return canonical(command);
 };
-/** Pre-announcement post commands remain replayable for the processed-command retention window. */
+/** Commands stored before defaulted fields were introduced remain replayable for the retention window. */
 const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "CreateMessageBoardPost" }>) => {
   const { announcement: _announcement, ...legacy } = command;
+  return canonical(legacy);
+};
+const legacyShareOrderRequestFingerprint = (command: Extract<PoolCommand, { type: "ExecuteShareOrder" }>) => {
+  const { lockPriceAtOneDollar: _lockPriceAtOneDollar, ...legacy } = command;
   return canonical(legacy);
 };
 
@@ -99,7 +103,7 @@ export class PoolDO {
     } catch (error) {
       if (error instanceof SideBetLimitError) return Response.json({ code: error.message, ...error.details }, { status: 400 });
       if (error instanceof OrderQuoteStaleError) {
-        return Response.json({ code: error.message, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, replacement: { ...error.terms, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, sharesMicros: error.quote.sharesMicros.toString(), valueMicros: error.quote.valueMicros.toString() } }, { status: 400 });
+        return Response.json({ code: error.message, priceMicros: error.quote.priceMicros.toString(), currentPriceMicros: error.quote.currentPriceMicros.toString(), commandVersion: error.quote.commandVersion, replacement: { ...error.terms, priceMicros: error.quote.priceMicros.toString(), currentPriceMicros: error.quote.currentPriceMicros.toString(), commandVersion: error.quote.commandVersion, sharesMicros: error.quote.sharesMicros.toString(), valueMicros: error.quote.valueMicros.toString() } }, { status: 400 });
       }
       return Response.json({ code: error instanceof Error ? error.message : "COMMAND_FAILED" }, { status: 400 });
     }
@@ -114,7 +118,8 @@ export class PoolDO {
     const isRead = isReadCommand(command);
     if (previous && !isRead) {
       const legacyPostReplay = command.type === "CreateMessageBoardPost" && !command.announcement && previous.request_json === legacyPostRequestFingerprint(command);
-      if (previous.type !== command.type || previous.actor_id !== actorId(command) || (previous.request_json !== requestFingerprint(command, commandAuthenticatorKey) && !legacyPostReplay)) throw new Error("IDEMPOTENCY_CONFLICT");
+      const legacyShareOrderReplay = command.type === "ExecuteShareOrder" && !command.lockPriceAtOneDollar && previous.request_json === legacyShareOrderRequestFingerprint(command);
+      if (previous.type !== command.type || previous.actor_id !== actorId(command) || (previous.request_json !== requestFingerprint(command, commandAuthenticatorKey) && !legacyPostReplay && !legacyShareOrderReplay)) throw new Error("IDEMPOTENCY_CONFLICT");
       const response = JSON.parse(String(previous.response_json)) as Record<string, unknown>;
       // External notifications need to distinguish newly committed actions from idempotent replays.
       if (command.type === "CreateMessageBoardPost") return { ...response, ...(typeof response.postId === "string" ? {} : { isAnnouncement: false }), replayed: true } as unknown as PoolCommandResult;
@@ -373,7 +378,7 @@ export class PoolDO {
     }
     if (command.type === "QuoteShareOrder") {
       this.requireActiveMember(sql, command.memberId);
-      return quoteShareOrder(sql, command.seasonId, command.memberId, command.mode, command.amountMicros);
+      return quoteShareOrder(sql, command.seasonId, command.memberId, command.mode, command.amountMicros, command.lockPriceAtOneDollar);
     }
     if (command.type === "ExecuteShareOrder") {
       this.requireActiveMember(sql, command.memberId);

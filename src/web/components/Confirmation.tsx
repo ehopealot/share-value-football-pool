@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { straightWagerQuoteSnapshot, teaserWagerQuoteSnapshot, parlayWagerQuoteSnapshot, shareOrderQuoteSnapshot } from "../../contracts/http";
-import { formatMicros, MICROS_PER_UNIT } from "../../domain/fixed-point";
+import { divideRoundHalfEven, formatMicros, MICROS_PER_UNIT } from "../../domain/fixed-point";
 import { ticketReturns } from "../wager-presentation";
 import { formatAmericanOdds } from "../odds-format";
 
@@ -26,5 +26,12 @@ export function Confirmation({ snapshot }: { snapshot: Snapshot }) {
     return <section aria-labelledby="confirmation-title"><h1 id="confirmation-title">Confirm parlay wager</h1><div className="confirmation-terms"><p>{q.legs.length}-leg parlay · ruleset {q.rulesetVersion}</p><p><strong>Odds:</strong> {formatAmericanOdds(q.acceptedOdds)} · <strong>Risk:</strong> {(BigInt(q.riskMicros) / MICROS_PER_UNIT).toString()} · <strong>Win:</strong> {returns.profit} · <strong>Payout:</strong> {returns.total}</p><ul>{q.legs.map((leg) => <li key={`${leg.eventId}-${leg.market}-${leg.selection}`}>{leg.awayTeam} at {leg.homeTeam}: {leg.market} {leg.selection}{leg.originalLine === null ? ` (${formatAmericanOdds(leg.originalOdds)})` : `, line ${leg.originalLine}`}</li>)}</ul>{hasSameGamePair && <p>Same-game total adjustment: a total paired with its event’s spread or moneyline is priced at -133.</p>}</div></section>;
   }
   const q = snapshot.quote;
-  return <section aria-labelledby="confirmation-title"><h1 id="confirmation-title">Confirm share order</h1><div className="confirmation-terms"><p>Issue <strong>{(BigInt(q.sharesMicros) / MICROS_PER_UNIT).toString()}</strong> shares to {snapshot.memberDisplayName}.</p><p>Locked price: <strong>${formatMicros(BigInt(q.priceMicros), 2)}</strong> per share.</p></div></section>;
+  const currentValueMicros = divideRoundHalfEven(BigInt(q.sharesMicros) * BigInt(q.currentPriceMicros), MICROS_PER_UNIT);
+  const differenceMicros = BigInt(q.valueMicros) - currentValueMicros;
+  const difference = differenceMicros > 0n
+    ? <>Difference: <strong>+${formatMicros(differenceMicros, 2)}</strong> (above current value).</>
+    : differenceMicros < 0n
+      ? <>Difference: <strong>-${formatMicros(-differenceMicros, 2)}</strong> (below current value).</>
+      : <>Difference: <strong>$0.00</strong> (no difference from current value).</>;
+  return <section aria-labelledby="confirmation-title"><h1 id="confirmation-title">Confirm share order</h1><div className="confirmation-terms"><p>Issue <strong>{(BigInt(q.sharesMicros) / MICROS_PER_UNIT).toString()}</strong> shares to {snapshot.memberDisplayName}.</p><p>Locked price: <strong>${formatMicros(BigInt(q.priceMicros), 2)}</strong> per share.</p>{q.lockPriceAtOneDollar && <p>Current share price: <strong>${formatMicros(BigInt(q.currentPriceMicros), 2)}</strong> per share.</p>}<p>Total charged: <strong>${formatMicros(BigInt(q.valueMicros), 2)}</strong>.</p>{q.lockPriceAtOneDollar && <p>{difference}</p>}</div></section>;
 }

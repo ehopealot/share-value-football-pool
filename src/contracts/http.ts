@@ -31,7 +31,7 @@ export const memberStatusRequest = z.object({ idempotencyKey });
 export const voidWagerRequest = z.object({ idempotencyKey, reason: auditReason });
 export const regradeWagerRequest = z.object({ idempotencyKey, reason: auditReason, correctedResults: z.array(correctedEventResult).min(1).max(7) }).strict();
 export const seasonAnnotationRequest = z.object({ idempotencyKey, text: z.string().trim().min(1).max(2000) });
-export const shareOrderQuoteRequest = z.object({ seasonId: z.string().min(1).max(128), memberId: z.string().min(1).max(128), mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/), idempotencyKey });
+export const shareOrderQuoteRequest = z.object({ seasonId: z.string().min(1).max(128), memberId: z.string().min(1).max(128), mode: z.enum(["shares", "value"]), amountMicros: z.string().regex(/^[1-9]\d*$/), lockPriceAtOneDollar: z.boolean().default(false), idempotencyKey });
 export const executeShareOrderRequest = shareOrderQuoteRequest.extend({ quote: z.object({ priceMicros: z.string().regex(/^(?:0|[1-9]\d*)$/), commandVersion: z.string().regex(/^(?:0|[1-9]\d*)$/) }), reason: z.string().trim().min(1).max(500) });
 /** A board read changes only the caller's durable HWM, so it still needs a strict POST body. */
 export const messageBoardReadRequest = z.object({}).strict();

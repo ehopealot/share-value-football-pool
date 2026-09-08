@@ -358,6 +358,23 @@ describe("later wager and member HTTP API", () => {
     }
   });
 
+  it("forwards the server-owned $1 pricing choice through quote and execution", async () => {
+    const poolId = `api-order-lock-${crypto.randomUUID()}`;
+    const slug = `api-order-lock-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug);
+    await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId)), (_instance, state) => {
+      state.storage.sql.exec("UPDATE season SET float_micros = '100000000', notional_micros = '103000000' WHERE id = 's1'");
+    });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }) });
+    const quoteResponse = await app.fetch(request(`/api/p/${slug}/admin/orders/quote`, { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "100000000", lockPriceAtOneDollar: true, idempotencyKey: "locked-http-quote" }));
+    expect(quoteResponse.status).toBe(200);
+    const quote = await quoteResponse.json() as Record<string, unknown>;
+    expect(quote).toMatchObject({ lockPriceAtOneDollar: true, priceMicros: "1000000", currentPriceMicros: "1030000", valueMicros: "100000000" });
+    const executeResponse = await app.fetch(request(`/api/p/${slug}/admin/orders/execute`, { seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "100000000", lockPriceAtOneDollar: true, quote: { priceMicros: quote.priceMicros, commandVersion: quote.commandVersion }, reason: "late player", idempotencyKey: "locked-http-order" }));
+    expect(executeResponse.status).toBe(200);
+    expect(await executeResponse.json()).toMatchObject({ priceMicros: "1000000", valueMicros: "100000000" });
+  }, 90_000);
+
   it("notifies the funded member once after a new share order is fulfilled", async () => {
     const poolId = `api-order-email-${crypto.randomUUID()}`;
     const slug = `api-order-email-${crypto.randomUUID()}`;

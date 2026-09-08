@@ -89,7 +89,7 @@ export const teaserWagerQuoteSnapshot = teaserWagerQuoteSnapshotBase.superRefine
 const parlayWagerQuoteSnapshotBase = z.object({ quoteKey, seasonId: z.string().min(1), ownerMemberId: z.string().min(1), riskMicros: positiveCanonicalIntegerText, acceptedOdds: americanOdds, rulesetVersion: z.literal(PARLAY_RULESET_ID), legs: z.array(parlayLeg).min(2).max(6), commandVersion: canonicalIntegerText }).strict();
 const parlaySnapshotIssues = parlaySemanticIssues;
 export const parlayWagerQuoteSnapshot = parlayWagerQuoteSnapshotBase.superRefine(parlaySnapshotIssues);
-export const shareOrderQuoteSnapshot = z.object({ seasonId: z.string().min(1), memberId: z.string().min(1), mode: orderMode, amountMicros: positiveCanonicalIntegerText, sharesMicros: canonicalIntegerText, valueMicros: canonicalIntegerText, priceMicros: canonicalIntegerText, commandVersion: canonicalIntegerText }).strict();
+export const shareOrderQuoteSnapshot = z.object({ seasonId: z.string().min(1), memberId: z.string().min(1), mode: orderMode, amountMicros: positiveCanonicalIntegerText, sharesMicros: canonicalIntegerText, valueMicros: canonicalIntegerText, priceMicros: canonicalIntegerText, currentPriceMicros: canonicalIntegerText, lockPriceAtOneDollar: z.boolean(), commandVersion: canonicalIntegerText }).strict();
 /** Trusted Worker-to-PoolDO projections contain every canonical placement term. */
 export const canonicalStraightQuoteProjection = straightWagerQuoteSnapshotBase.extend({ wagerId, actorId: z.string().min(1), fingerprint: z.string().min(1) }).strict();
 export const canonicalTeaserQuoteProjection = teaserWagerQuoteSnapshotBase.extend({ wagerId, actorId: z.string().min(1), fingerprint: z.string().min(1) }).strict().superRefine(teaserSnapshotIssues);

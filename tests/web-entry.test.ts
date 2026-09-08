@@ -128,7 +128,7 @@ describe("web entry and workflow helpers", () => {
     expect(teaserPlacementAttemptTransition(unresolvedTeaser)).toEqual({ state: { ...unresolvedTeaser, tag: "submitting" }, error: "" });
     expect(teaserUnknownPlacementMessage).toBe("Placement result unknown. Retry this exact placement to check its result.");
 
-    const order = { seasonId: "s", memberId: "m", mode: "shares" as const, amount: "1", quoteKey: "order-quote" };
+    const order = { seasonId: "s", memberId: "m", mode: "shares" as const, amount: "1", lockPriceAtOneDollar: false, quoteKey: "order-quote" };
     const recoveredOrder = recoverStaleOrderEditor(order);
     expect(recoveredOrder.quoteKey).not.toBe(order.quoteKey);
     const reversal = { tag: "reviewing" as const, order: { orderId: "o" }, reason: "reason", idempotencyKey: "reversal-key" } as any;

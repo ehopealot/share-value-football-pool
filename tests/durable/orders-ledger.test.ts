@@ -33,15 +33,30 @@ async function activePool(slug = `orders-${crypto.randomUUID()}`) {
 
 const seedNonUnitAccounting = (slug: string) => storage(slug, (state) => state.storage.sql.exec("UPDATE pool SET command_version = '4'; UPDATE season SET float_micros = '3000000', notional_micros = '10000000', command_version = '4' WHERE id = 's1'; UPDATE share_account SET available_micros = '3000000', row_version = '4' WHERE season_id = 's1' AND member_id = 'member'; INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES ('seed-order', 's1', 'member', 'owner', 'shares', '3000000', '3000000', '10000000', '3333333', NULL, 'valid non-unit seed', 'seed-command', '2026-01-01T00:00:00.000Z'); INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES ('ledger:seed-order', 's1', 'member', 'owner', '3000000', '0', '3000000', '10000000', 'seed-order', 'order', '2026-01-01T00:00:00.000Z')"));
 
+const seedCurrentPrice = (slug: string, notionalMicros: string) => storage(slug, (state) => {
+  state.storage.sql.exec("UPDATE pool SET command_version = '4'");
+  state.storage.sql.exec("UPDATE season SET float_micros = '100000000', notional_micros = ?, command_version = '4' WHERE id = 's1'", notionalMicros);
+  state.storage.sql.exec("UPDATE share_account SET available_micros = '100000000', row_version = '4' WHERE season_id = 's1' AND member_id = 'member'");
+  state.storage.sql.exec("INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES ('seed-order', 's1', 'member', 'owner', 'shares', '100000000', '100000000', ?, ?, NULL, 'price seed', 'seed-command', '2026-01-01T00:00:00.000Z')", notionalMicros, (BigInt(notionalMicros) / 100n).toString());
+  state.storage.sql.exec("INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES ('ledger:seed-order', 's1', 'member', 'owner', '100000000', '0', '100000000', ?, 'seed-order', 'order', '2026-01-01T00:00:00.000Z')", notionalMicros);
+});
+
 describe("PoolDO share orders", () => {
   it("persists account/cache/journal equality through execute, replay, and reversal", async () => {
     const slug = await activePool();
     const quote = await send(slug, { type: "QuoteShareOrder", commandId: "quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000" });
-    const execute: PoolCommand = { type: "ExecuteShareOrder", commandId: "order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000", quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "initial virtual shares" };
+    const execute: PoolCommand = { type: "ExecuteShareOrder", commandId: "order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000", lockPriceAtOneDollar: false, quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "initial virtual shares" };
     const executed = await send(slug, execute);
     expect(executed).toMatchObject({ sharesMicros: "5000000", valueMicros: "5000000" });
     expect(executed).not.toHaveProperty("replayed");
     await accountingInvariant(slug, 1);
+    expect(await send(slug, execute)).toEqual({ ...executed, replayed: true });
+    await storage(slug, (state) => {
+      const row = [...state.storage.sql.exec<{ request_json: string }>("SELECT request_json FROM processed_command WHERE id = 'order'")][0]!;
+      const legacy = JSON.parse(row.request_json) as Record<string, unknown>;
+      delete legacy.lockPriceAtOneDollar;
+      state.storage.sql.exec("UPDATE processed_command SET request_json = ? WHERE id = 'order'", JSON.stringify(legacy));
+    });
     expect(await send(slug, execute)).toEqual({ ...executed, replayed: true });
     await accountingInvariant(slug, 1);
     expect(await send(slug, { type: "ReverseShareOrder", commandId: "reverse", actorId: "owner", orderId: String(executed.orderId), reason: "commissioner correction" })).toMatchObject({ sharesMicros: "-5000000", valueMicros: "-5000000" });
@@ -74,6 +89,39 @@ describe("PoolDO share orders", () => {
     await accountingInvariant(slug, 4);
     expect(await send(slug, { type: "ReverseShareOrder", commandId: "reverse-share-order", actorId: "owner", orderId: String(shareExecuted.orderId), reason: "rounding correction" })).toMatchObject({ sharesMicros: "-500000", valueMicros: "-1666666" });
     await accountingInvariant(slug, 5);
+  }, 30_000);
+
+  it.each([
+    ["103000000", "1030000"],
+    ["97000000", "970000"],
+    ["100000000", "1000000"]
+  ])("quotes locked shares at $1 while reporting current price %s", async (notionalMicros, expectedCurrentPrice) => {
+    const slug = await activePool();
+    await seedCurrentPrice(slug, notionalMicros);
+    const quote = await send(slug, { type: "QuoteShareOrder", commandId: "locked-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "100000000", lockPriceAtOneDollar: true });
+    expect(quote).toMatchObject({ lockPriceAtOneDollar: true, priceMicros: "1000000", currentPriceMicros: expectedCurrentPrice, sharesMicros: "100000000", valueMicros: "100000000" });
+  }, 30_000);
+
+  it("enforces locked pricing for both modes, staleness, replay identity, history, and reversal", async () => {
+    const slug = await activePool();
+    await seedCurrentPrice(slug, "103000000");
+    const valueQuote = await send(slug, { type: "QuoteShareOrder", commandId: "locked-value-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "2500000", lockPriceAtOneDollar: true });
+    expect(valueQuote).toMatchObject({ lockPriceAtOneDollar: true, priceMicros: "1000000", currentPriceMicros: "1030000", sharesMicros: "2500000", valueMicros: "2500000" });
+    const tampered = await send(slug, { type: "ExecuteShareOrder", commandId: "tampered", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "2500000", lockPriceAtOneDollar: true, quote: { priceMicros: "999999", commandVersion: String(valueQuote.commandVersion) }, reason: "must reject arbitrary price" });
+    expect(tampered).toMatchObject({ code: "ORDER_QUOTE_STALE", replacement: { lockPriceAtOneDollar: true, priceMicros: "1000000", currentPriceMicros: "1030000" } });
+    const execution = { type: "ExecuteShareOrder", commandId: "locked-value-order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "2500000", lockPriceAtOneDollar: true, quote: { priceMicros: String(valueQuote.priceMicros), commandVersion: String(valueQuote.commandVersion) }, reason: "late entry" };
+    const executed = await send(slug, execution);
+    expect(executed).toMatchObject({ sharesMicros: "2500000", valueMicros: "2500000", priceMicros: "1000000" });
+    expect(await send(slug, execution)).toEqual({ ...executed, replayed: true });
+    expect(await send(slug, { ...execution, lockPriceAtOneDollar: false })).toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    const persisted = await storage(slug, (state) => [...state.storage.sql.exec<{ price_micros: string; value_micros: string }>("SELECT price_micros, value_micros FROM share_order WHERE command_id = 'locked-value-order'")][0]);
+    expect(persisted).toEqual({ price_micros: "1000000", value_micros: "2500000" });
+    expect(await send(slug, { type: "ReverseShareOrder", commandId: "locked-reversal", actorId: "owner", orderId: String(executed.orderId), reason: "late entry correction" })).toMatchObject({ sharesMicros: "-2500000", valueMicros: "-2500000", priceMicros: "1000000" });
+
+    const staleQuote = await send(slug, { type: "QuoteShareOrder", commandId: "stale-locked-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", lockPriceAtOneDollar: true });
+    const advanceQuote = await send(slug, { type: "QuoteShareOrder", commandId: "advance-locked-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", lockPriceAtOneDollar: true });
+    await send(slug, { type: "ExecuteShareOrder", commandId: "advance-locked-order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", lockPriceAtOneDollar: true, quote: advanceQuote, reason: "advance version" });
+    expect(await send(slug, { type: "ExecuteShareOrder", commandId: "stale-locked-order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", lockPriceAtOneDollar: true, quote: staleQuote, reason: "stale locked quote" })).toMatchObject({ code: "ORDER_QUOTE_STALE", replacement: { lockPriceAtOneDollar: true, priceMicros: "1000000", currentPriceMicros: expect.any(String), commandVersion: expect.any(String) } });
   }, 30_000);
 
   it("keeps defaults form-only, rejects noncanonical orders, and serializes concurrent executions from one quote", async () => {
