@@ -57,10 +57,10 @@ describe("local fixture lifecycle", () => {
     await refreshLocalFixtures(bindings.DB, now);
 
     const scheduled = await bindings.DB.prepare("SELECT provider_event_id, starts_at FROM sports_event WHERE status = 'scheduled' ORDER BY provider_event_id").all<{ provider_event_id: string; starts_at: string }>();
-    // Both clamp just before the 2031-04-08T04:00:00Z boundary; the per-index minute preserves offer order.
+    // Both clamp just before the midnight PT (2031-04-08T07:00:00Z) boundary; the per-index minute preserves offer order.
     expect(scheduled.results).toEqual([
-      { provider_event_id: "local-nfl-super-bowl", starts_at: "2031-04-08T03:57:00.000Z" },
-      { provider_event_id: "local-nfl-upcoming", starts_at: "2031-04-08T03:56:00.000Z" }
+      { provider_event_id: "local-nfl-super-bowl", starts_at: "2031-04-08T06:57:00.000Z" },
+      { provider_event_id: "local-nfl-upcoming", starts_at: "2031-04-08T06:56:00.000Z" }
     ]);
   });
 

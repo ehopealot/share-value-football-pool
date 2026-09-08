@@ -5,16 +5,16 @@ type Wager = Parameters<typeof splitProfileWeekWagers>[0][number];
 
 const wager = (overrides: Partial<Wager> & Pick<Wager, "status" | "type">): Wager => ({
   wagerId: "wager-1", seasonId: "season-1", memberId: "member-1", memberDisplayName: "Bruin",
-  confirmedAt: "2026-09-08T12:00:00.000Z", weekStart: "2026-09-08T04:00:00.000Z", performanceMicros: "0",
+  confirmedAt: "2026-09-08T12:00:00.000Z", weekStart: "2026-09-08T07:00:00.000Z", performanceMicros: "0",
   ...overrides
 });
 
 const leg = (eventStartsAt: string) => ({ eventId: "game", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-08T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalLine: "-7.5", originalOdds: -110, eventStartsAt, awayTeam: "UCLA", homeTeam: "Arizona" });
 
-const week1 = "2026-08-25T04:00:00.000Z";
-const week2 = "2026-09-01T04:00:00.000Z";
-const week3 = "2026-09-08T04:00:00.000Z";
-const week4 = "2026-09-15T04:00:00.000Z";
+const week1 = "2026-08-25T07:00:00.000Z";
+const week2 = "2026-09-01T07:00:00.000Z";
+const week3 = "2026-09-08T07:00:00.000Z";
+const week4 = "2026-09-15T07:00:00.000Z";
 
 describe("profile presentation", () => {
   it("counts each settled ticket as exactly one pick regardless of leg count", () => {
@@ -35,22 +35,22 @@ describe("profile presentation", () => {
     expect(profileWeekOptions([], new Date("2026-09-10T20:00:00.000Z"))).toEqual([week3, week2, week1]);
     expect(profileWeekOptions([week4, week2], new Date("2026-09-10T20:00:00.000Z"))).toEqual([week4, week3, week2, week1]);
     // Before the season anchor, the current preseason week stays selectable alongside bet weeks.
-    expect(profileWeekOptions(["2026-08-18T04:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T04:00:00.000Z"]);
-    expect(profileWeekOptions(["2026-08-11T04:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T04:00:00.000Z", "2026-08-11T04:00:00.000Z"]);
+    expect(profileWeekOptions(["2026-08-18T07:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T07:00:00.000Z"]);
+    expect(profileWeekOptions(["2026-08-11T07:00:00.000Z"], new Date("2026-08-20T20:00:00.000Z"))).toEqual(["2026-08-18T07:00:00.000Z", "2026-08-11T07:00:00.000Z"]);
   });
 
   it("keeps the current week selectable past Week 40 and bounds absurd clocks", () => {
     // Week 41 (June 2027) must remain present and defaultable for reusable seasons.
     const week41 = profileWeekOptions([], new Date("2027-06-01T12:00:00.000Z"));
-    expect(week41[0]).toBe("2027-06-01T04:00:00.000Z");
+    expect(week41[0]).toBe("2027-06-01T07:00:00.000Z");
     expect(week41).toHaveLength(41);
     // A clock years past the anchor keeps the most recent bounded window, still including the current week.
     const farFuture = profileWeekOptions([], new Date("2030-01-01T12:00:00.000Z"));
-    expect(farFuture[0]).toBe("2030-01-01T05:00:00.000Z");
+    expect(farFuture[0]).toBe("2030-01-01T08:00:00.000Z");
     expect(farFuture).toHaveLength(80);
-    // A skipped start computed during EST must snap into its intended week, never the one before.
+    // A skipped start computed during PST must snap into its intended week, never the one before.
     const dstSkip = profileWeekOptions([], new Date("2028-05-23T12:00:00.000Z"));
-    expect(dstSkip[0]).toBe("2028-05-23T04:00:00.000Z");
+    expect(dstSkip[0]).toBe("2028-05-23T07:00:00.000Z");
     expect(dstSkip).toHaveLength(80);
   });
 

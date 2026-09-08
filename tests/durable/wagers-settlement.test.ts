@@ -1,6 +1,6 @@
 import { applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runSettlementAlarm } from "../../src/durable/alarm";
 import { settleWagers } from "../../src/durable/settlement";
 import type { FinalResultVersion, ResultSource } from "../../src/odds/result-source";
@@ -68,6 +68,38 @@ describe("PoolDO wagers and settlement", () => {
   beforeEach(async () => {
     await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]);
   });
+
+  it.each(["straight", "teaser", "parlay"] as const)("closes new %s betting until Tuesday 10am PT without breaking committed replays", async (kind) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-07T16:00:00Z"));
+    const slug = await fundedPool();
+    const make = (id: string): any => {
+      const legs = [leg(`${id}-1`, "2026-09-09T18:00:00Z"), leg(`${id}-2`, "2026-09-09T19:00:00Z")];
+      const base = { commandId: id, actorId: "member", wagerId: id, seasonId: "s1", riskMicros: "1000000" };
+      return kind === "straight" ? { ...base, type: "PlaceStraightWager", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: legs[0] }
+        : kind === "teaser" ? { ...base, type: "PlaceTeaserWager", acceptedOdds: -110, rulesetVersion: "SHARE_POOL_2026_V1", teaserPoints: 6, legs: legs.map((item) => ({ ...item, adjustedLine: 3 })) }
+        : { ...base, type: "PlaceParlayWager", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs };
+    };
+    const committed = make("committed");
+    const accepted = await send(slug, committed);
+    expect(accepted).toMatchObject({ wagerId: "committed" });
+    const pending = make("pending");
+    const quote = await quoteWager(slug, pending);
+    const placement = placementFromQuote(pending, "quote:pending", quote);
+
+    vi.setSystemTime(new Date("2026-09-08T07:00:00Z"));
+    expect(await send(slug, committed)).toEqual(accepted);
+    expect(await quoteWager(slug, pending)).toEqual(quote);
+    expect(await direct(slug, placement)).toMatchObject({ code: "BETTING_CLOSED" });
+    expect(await quoteWager(slug, make("new-quote"))).toMatchObject({ code: "BETTING_CLOSED" });
+    expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0])).toEqual({ available_micros: "2000000", locked_micros: "1000000" });
+
+    vi.setSystemTime(new Date("2026-09-08T16:59:59.999Z"));
+    expect(await direct(slug, placement)).toMatchObject({ code: "BETTING_CLOSED" });
+    vi.setSystemTime(new Date("2026-09-08T17:00:00Z"));
+    expect(await direct(slug, placement)).toMatchObject({ wagerId: "pending" });
+    expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM wager")][0])).toEqual({ count: 2 });
+  }, 90_000);
 
   it("refunds a winning seven-leg teaser the six-leg card cannot price, then honors a losing regrade", async () => {
     const slug = await fundedPool();

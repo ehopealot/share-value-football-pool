@@ -6,6 +6,7 @@ import { validateTeaser } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
 import { calculateSharePriceMicros, OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
+import { assertBettingOpen } from "../domain/betting-week";
 import { placeWager, SideBetLimitError } from "./wager-commands";
 import { runSettlementAlarm } from "./alarm";
 import { correctWager, voidWager } from "./settlement";
@@ -252,6 +253,8 @@ export class PoolDO {
         if (existing.fingerprint !== command.identity.fingerprint || existing.wager_id !== command.projection.wagerId || existing.kind !== kind) throw new Error("IDEMPOTENCY_CONFLICT");
         return JSON.parse(String(existing.snapshot_json)) as PoolCommandResult;
       }
+      // Stored quote replays above remain readable; only new betting is closed.
+      assertBettingOpen(new Date());
       const commandVersion = String(pool.command_version);
       if (command.type === "QuoteTeaserWager") {
         try {
