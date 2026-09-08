@@ -278,7 +278,7 @@ export function OddsPage() {
   const persist = (next: TrayItem[]) => { trayRef.current = next; writeSelectionTray(slug, next); setTray(next); };
   useEffect(() => { const backToBoard = () => setBatch(batchAfterPopState); window.addEventListener("popstate", backToBoard); return () => window.removeEventListener("popstate", backToBoard); }, []);
   const removeItem = (items: TrayItem[], item: TrayItem) => items.filter((candidate) => !(candidate.eventId === item.eventId && candidate.market === item.market && candidate.selection === item.selection));
-  // Eastern-week calculation is expensive for a full board; it changes only when its data or week changes, never while a risk field is edited.
+  // Pacific-week calculation is expensive for a full board; it changes only when its data or week changes, never while a risk field is edited.
   const weekOptions = useMemo(() => {
     const seasonWeeks: string[] = [];
     for (let cursor = new Date(SEASON_WEEK1_ANCHOR), latest = weekStartOf(new Date()); cursor <= latest; cursor = nextWeekStart(cursor)) seasonWeeks.push(cursor.toISOString());

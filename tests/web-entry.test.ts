@@ -261,31 +261,31 @@ describe("web entry and workflow helpers", () => {
     });
   });
 
-  it("anchors Tuesday weeks to Eastern Time boundaries", () => {
-    // Monday 2026-08-31 23:59:59 ET is still Week 1; Tuesday 00:00 ET starts Week 2.
-    expect(weekStartOf(new Date("2026-09-01T03:59:59.000Z")).toISOString()).toBe("2026-08-25T04:00:00.000Z");
-    expect(weekStartOf(new Date("2026-09-01T04:00:00.000Z")).toISOString()).toBe("2026-09-01T04:00:00.000Z");
-    expect(SEASON_WEEK1_ANCHOR).toBe(Date.parse("2026-08-25T04:00:00.000Z"));
+  it("anchors Tuesday weeks to Pacific Time boundaries", () => {
+    // Monday 2026-08-31 23:59:59 PT is still Week 1; Tuesday 00:00 PT starts Week 2.
+    expect(weekStartOf(new Date("2026-09-01T06:59:59.000Z")).toISOString()).toBe("2026-08-25T07:00:00.000Z");
+    expect(weekStartOf(new Date("2026-09-01T07:00:00.000Z")).toISOString()).toBe("2026-09-01T07:00:00.000Z");
+    expect(SEASON_WEEK1_ANCHOR).toBe(Date.parse("2026-08-25T07:00:00.000Z"));
   });
 
-  it("keeps Eastern Tuesday week identity and sequencing correct across DST", () => {
-    const fall = new Date("2026-10-27T04:00:00.000Z");
-    expect(nextWeekStart(fall).toISOString()).toBe("2026-11-03T05:00:00.000Z");
-    expect(inWeek("2026-11-10T04:59:59.000Z", "2026-11-03T05:00:00.000Z")).toBe(true);
-    expect(inWeek("2026-11-10T05:00:00.000Z", "2026-11-03T05:00:00.000Z")).toBe(false);
+  it("keeps Pacific Tuesday week identity and sequencing correct across DST", () => {
+    const fall = new Date("2026-10-27T07:00:00.000Z");
+    expect(nextWeekStart(fall).toISOString()).toBe("2026-11-03T08:00:00.000Z");
+    expect(inWeek("2026-11-10T07:59:59.000Z", "2026-11-03T08:00:00.000Z")).toBe(true);
+    expect(inWeek("2026-11-10T08:00:00.000Z", "2026-11-03T08:00:00.000Z")).toBe(false);
 
-    const spring = new Date("2026-03-03T05:00:00.000Z");
-    expect(nextWeekStart(spring).toISOString()).toBe("2026-03-10T04:00:00.000Z");
-    expect(inWeek("2026-03-17T03:59:59.000Z", "2026-03-10T04:00:00.000Z")).toBe(true);
-    expect(inWeek("2026-03-17T04:00:00.000Z", "2026-03-10T04:00:00.000Z")).toBe(false);
+    const spring = new Date("2026-03-03T08:00:00.000Z");
+    expect(nextWeekStart(spring).toISOString()).toBe("2026-03-10T07:00:00.000Z");
+    expect(inWeek("2026-03-17T06:59:59.000Z", "2026-03-10T07:00:00.000Z")).toBe(true);
+    expect(inWeek("2026-03-17T07:00:00.000Z", "2026-03-10T07:00:00.000Z")).toBe(false);
   });
 
   it("uses the Tuesday identity for Sunday and Monday wagers in DST transition weeks", () => {
     const cases = [
-      ["2026-11-01T23:59:59.000Z", "2026-10-27T04:00:00.000Z"],
-      ["2026-11-03T04:59:59.000Z", "2026-10-27T04:00:00.000Z"],
-      ["2026-03-08T23:59:59.000Z", "2026-03-03T05:00:00.000Z"],
-      ["2026-03-10T03:59:59.000Z", "2026-03-03T05:00:00.000Z"],
+      ["2026-11-01T23:59:59.000Z", "2026-10-27T07:00:00.000Z"],
+      ["2026-11-03T07:59:59.000Z", "2026-10-27T07:00:00.000Z"],
+      ["2026-03-08T23:59:59.000Z", "2026-03-03T08:00:00.000Z"],
+      ["2026-03-10T06:59:59.000Z", "2026-03-03T08:00:00.000Z"],
     ] as const;
     for (const [startsAt, expectedWeek] of cases) {
       expect(weekStartOf(new Date(startsAt)).toISOString()).toBe(expectedWeek);

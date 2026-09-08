@@ -8,8 +8,8 @@ type Placement = Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTease
 const command = (type: Placement["type"]) => ({ type, riskMicros: "1000000", leg: {}, legs: [{}, {}] } as unknown as Placement);
 
 describe("betting-window authority", () => {
-  it.each(["PlaceStraightWager", "PlaceTeaserWager", "PlaceParlayWager"] as const)("rejects %s quotes, revalidation and accounting before 10am ET", async (type) => {
-    const now = new Date("2026-09-01T13:59:59.999Z");
+  it.each(["PlaceStraightWager", "PlaceTeaserWager", "PlaceParlayWager"] as const)("rejects %s quotes, revalidation and accounting before 10am PT", async (type) => {
+    const now = new Date("2026-09-01T16:59:59.999Z");
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);
     const prepare = vi.fn(() => { throw new Error("OFFER_READ_REACHED"); });
     const db = { prepare } as unknown as D1Database;
@@ -21,7 +21,7 @@ describe("betting-window authority", () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it.each(["2026-09-01T03:59:59.999Z", "2026-09-01T14:00:00.000Z", "2026-11-03T15:00:00.000Z"])("allows normal validation at %s", async (instant) => {
+  it.each(["2026-09-01T06:59:59.999Z", "2026-09-01T17:00:00.000Z", "2026-11-03T18:00:00.000Z"])("allows normal validation at %s", async (instant) => {
     const now = new Date(instant);
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);
     const db = { prepare: () => { throw new Error("OFFER_READ_REACHED"); } } as unknown as D1Database;

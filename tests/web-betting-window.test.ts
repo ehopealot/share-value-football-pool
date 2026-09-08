@@ -17,12 +17,12 @@ const setup = (instant: string) => {
 };
 
 describe("betting window UI", () => {
-  it("updates an open page at midnight and 10am ET without a reload", () => {
-    setup("2026-09-08T03:59:59.000Z");
-    expect(useBettingWindow()).toMatchObject({ open: true, currentWeek: "2026-09-01T04:00:00.000Z" });
+  it("updates an open page at midnight and 10am PT without a reload", () => {
+    setup("2026-09-08T06:59:59.000Z");
+    expect(useBettingWindow()).toMatchObject({ open: true, currentWeek: "2026-09-01T07:00:00.000Z" });
     let cleanup = hooks.effect!();
     vi.advanceTimersByTime(1000);
-    expect(useBettingWindow()).toMatchObject({ open: false, currentWeek: "2026-09-08T04:00:00.000Z" });
+    expect(useBettingWindow()).toMatchObject({ open: false, currentWeek: "2026-09-08T07:00:00.000Z" });
     cleanup(); cleanup = hooks.effect!();
     vi.advanceTimersByTime(10 * 60 * 60 * 1000);
     expect(useBettingWindow().open).toBe(true);
@@ -31,10 +31,10 @@ describe("betting window UI", () => {
   });
 
   it("refreshes when a sleeping tab regains focus", () => {
-    setup("2026-11-03T14:00:00.000Z");
+    setup("2026-11-03T17:00:00.000Z");
     expect(useBettingWindow().open).toBe(false);
     const cleanup = hooks.effect!();
-    vi.setSystemTime(new Date("2026-11-03T15:00:00.000Z"));
+    vi.setSystemTime(new Date("2026-11-03T18:00:00.000Z"));
     window.dispatchEvent(new Event("focus"));
     expect(useBettingWindow().open).toBe(true);
     cleanup();
@@ -43,7 +43,7 @@ describe("betting window UI", () => {
   it("provides a terminal, actionable server error", () => {
     const error = new ApiError("BETTING_CLOSED", 400);
     expect(commandOutcome(error)).toBe("terminal");
-    expect(errorMessage(error)).toBe("Betting opens Tuesday at 10:00 a.m. ET. The betting week still ends Monday at midnight ET.");
+    expect(errorMessage(error)).toBe("Betting opens Tuesday at 10:00 a.m. PT. The betting week still ends Monday at midnight PT.");
   });
 
   it("uses the live window on the board and both builders without blocking unknown-placement retries", () => {

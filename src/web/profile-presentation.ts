@@ -31,7 +31,7 @@ const MAX_PROFILE_WEEKS = 80;
 const PROFILE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Profile weeks list every season week from Week 1 through the current Eastern
+ * Profile weeks list every season week from Week 1 through the current Pacific
  * week, plus any week carrying one of the member's bets (early tickets on
  * future-week games). Weeks are most-recent-first like the Activity selector.
  * A clock far past the season anchor keeps the most recent weeks, always
@@ -43,7 +43,7 @@ export function profileWeekOptions(betWeeks: Iterable<string>, now: Date): strin
   const anchor = weekStartOf(new Date(SEASON_WEEK1_ANCHOR));
   const elapsedWeeks = Math.floor((currentWeek.getTime() - anchor.getTime()) / PROFILE_WEEK_MS);
   // Half a week of slack before snapping absorbs DST drift so the skipped start lands
-  // inside the intended Eastern calendar week, never the one before it.
+  // inside the intended Pacific calendar week, never the one before it.
   const firstWeek = weekStartOf(new Date(anchor.getTime() + Math.max(0, elapsedWeeks - MAX_PROFILE_WEEKS + 1) * PROFILE_WEEK_MS + PROFILE_WEEK_MS / 2));
   for (let week = firstWeek, guard = 0; week.getTime() <= currentWeek.getTime() && guard < MAX_PROFILE_WEEKS; week = nextWeekStart(week), guard += 1) weeks.add(week.toISOString());
   weeks.add(currentWeek.toISOString());

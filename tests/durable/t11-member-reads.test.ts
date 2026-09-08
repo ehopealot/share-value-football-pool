@@ -196,9 +196,9 @@ describe("T11 authoritative member reads", () => {
     // Another member's unstarted selection exposes identity, safe week, and count only — no risk, terms, or legs.
     const hidden = asNonOwner.activity.wagers[0];
     expect(Object.keys(hidden).sort()).toEqual(["confirmedAt", "hiddenLegCount", "memberDisplayName", "memberId", "performanceMicros", "seasonId", "status", "type", "wagerId", "weekStart"]);
-    expect(hidden).toEqual({ wagerId: "w-m", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: "2026-03-01T00:00:00.000Z", weekStart: "2030-03-05T05:00:00.000Z", performanceMicros: "0", hiddenLegCount: 1 });
+    expect(hidden).toEqual({ wagerId: "w-m", seasonId: "s1", memberId: "m", memberDisplayName: "Mem", type: "straight", status: "open", confirmedAt: "2026-03-01T00:00:00.000Z", weekStart: "2030-03-05T08:00:00.000Z", performanceMicros: "0", hiddenLegCount: 1 });
     const own = asNonOwner.activity.wagers[1];
-    expect(own).toMatchObject({ wagerId: "w-n", type: "straight", status: "refunded", confirmedAt: "2026-03-02T00:00:00.000Z", weekStart: "2025-12-30T05:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "refunded", returnMicros: "1000000", profitMicros: "0" });
+    expect(own).toMatchObject({ wagerId: "w-n", type: "straight", status: "refunded", confirmedAt: "2026-03-02T00:00:00.000Z", weekStart: "2025-12-30T08:00:00.000Z", performanceMicros: "0", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", outcome: "refunded", returnMicros: "1000000", profitMicros: "0" });
     expect(own.settledAt).toEqual(expect.any(String));
     expect(own.legs[0]).toMatchObject({ eventId: "w-n", market: "spread", selection: "home", eventStartsAt: "2026-01-01T00:00:00.000Z" });
 
@@ -256,7 +256,7 @@ describe("T11 authoritative member reads", () => {
     expect(partial.legs.map((leg: any) => leg.eventId)).toEqual(["started-one", "started-two"]);
     expect(JSON.stringify(partial)).not.toMatch(/future-one|future-two/);
     const unstarted = nonowner.activity.wagers.find((wager: any) => wager.wagerId === "unstarted");
-    expect(unstarted).toEqual({ wagerId: "unstarted", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2099-01-27T05:00:00.000Z", performanceMicros: "0", hiddenLegCount: 2 });
+    expect(unstarted).toEqual({ wagerId: "unstarted", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "open", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2099-01-27T08:00:00.000Z", performanceMicros: "0", hiddenLegCount: 2 });
     expect(JSON.stringify(unstarted)).not.toMatch(/future-three|future-four|DraftKings|spread|home|-3/);
 
     const ownerActivity = await send(slug, { type: "ReadActivity", commandId: "activity-owner", actorId: "m" });
@@ -362,7 +362,7 @@ describe("T11 authoritative member reads", () => {
     const owner = await send(slug, { type: "ReadActivity", commandId: "owner-parlay", actorId: "m" });
     expect(owner.activity.wagers[0]).toMatchObject({ type: "parlay", acceptedOdds: 300, settledOdds: 250, outcome: "won", returnMicros: "3500000" });
     const nonowner = await send(slug, { type: "ReadActivity", commandId: "nonowner-parlay", actorId: "n" });
-    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T05:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 300, hiddenLegCount: 1 });
+    expect(nonowner.activity.wagers[0]).toEqual({ wagerId: "parlay", seasonId: "s1", memberId: "m", memberDisplayName: "Member", type: "parlay", status: "won", confirmedAt: "2026-01-01T00:00:00.000Z", weekStart: "2098-12-30T08:00:00.000Z", performanceMicros: "2500000", riskMicros: "1000000", acceptedOdds: 300, hiddenLegCount: 1 });
     expect(nonowner.activity.wagers[0]).not.toHaveProperty("settledOdds");
   }, 90_000);
 

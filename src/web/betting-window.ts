@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { bettingOpensAt, isBettingOpen, nextWeekStart, weekStartOf } from "../domain/betting-week";
 
-/** Refresh at the actual ET boundary, and after background tabs resume. Server time remains authoritative. */
+/** Refresh at the actual PT boundary, and after background tabs resume. Server time remains authoritative. */
 export function useBettingWindow(): { open: boolean; currentWeek: string } {
   const [now, setNow] = useState(() => new Date());
   const week = weekStartOf(now);

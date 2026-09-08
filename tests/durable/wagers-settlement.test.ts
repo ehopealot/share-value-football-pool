@@ -69,7 +69,7 @@ describe("PoolDO wagers and settlement", () => {
     await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]);
   });
 
-  it.each(["straight", "teaser", "parlay"] as const)("closes new %s betting until Tuesday 10am ET without breaking committed replays", async (kind) => {
+  it.each(["straight", "teaser", "parlay"] as const)("closes new %s betting until Tuesday 10am PT without breaking committed replays", async (kind) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-07T16:00:00Z"));
     const slug = await fundedPool();
@@ -87,16 +87,16 @@ describe("PoolDO wagers and settlement", () => {
     const quote = await quoteWager(slug, pending);
     const placement = placementFromQuote(pending, "quote:pending", quote);
 
-    vi.setSystemTime(new Date("2026-09-08T04:00:00Z"));
+    vi.setSystemTime(new Date("2026-09-08T07:00:00Z"));
     expect(await send(slug, committed)).toEqual(accepted);
     expect(await quoteWager(slug, pending)).toEqual(quote);
     expect(await direct(slug, placement)).toMatchObject({ code: "BETTING_CLOSED" });
     expect(await quoteWager(slug, make("new-quote"))).toMatchObject({ code: "BETTING_CLOSED" });
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT available_micros,locked_micros FROM share_account WHERE season_id='s1' AND member_id='member'")][0])).toEqual({ available_micros: "2000000", locked_micros: "1000000" });
 
-    vi.setSystemTime(new Date("2026-09-08T13:59:59.999Z"));
+    vi.setSystemTime(new Date("2026-09-08T16:59:59.999Z"));
     expect(await direct(slug, placement)).toMatchObject({ code: "BETTING_CLOSED" });
-    vi.setSystemTime(new Date("2026-09-08T14:00:00Z"));
+    vi.setSystemTime(new Date("2026-09-08T17:00:00Z"));
     expect(await direct(slug, placement)).toMatchObject({ wagerId: "pending" });
     expect(await storage(slug, (state) => [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM wager")][0])).toEqual({ count: 2 });
   }, 90_000);
