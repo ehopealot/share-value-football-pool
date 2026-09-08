@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
 import { selectionForOutcome } from "../../src/web/selection-matcher";
 import { poolCommandSchema } from "../../src/durable/pool-commands";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 let migrated = false;

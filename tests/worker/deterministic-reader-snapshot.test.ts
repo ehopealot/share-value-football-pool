@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { OddsIngestion, type IngestionProvider } from "../../src/odds/ingestion";
 import type { ProviderEvent } from "../../src/odds/types";
 import { createWorkerApp } from "../../src/worker/app";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 const origin = "https://pool.example.test";

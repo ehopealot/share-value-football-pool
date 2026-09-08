@@ -14,6 +14,9 @@ import { settleWagers } from "../../src/durable/settlement";
 import { canonicalizeWagerQuote } from "../../src/worker/offer-quotes";
 import { TheOddsApiProvider } from "../../src/odds/the-odds-api-provider";
 import type { ProviderEvent, ProviderPoll, ProviderQuota } from "../../src/odds/types";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 const db = bindings.DB;

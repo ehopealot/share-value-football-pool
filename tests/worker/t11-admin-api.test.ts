@@ -5,6 +5,9 @@ import { createWorkerApp } from "../../src/worker/app";
 import { runSettlementAlarm } from "../../src/durable/alarm";
 import type { FinalResultVersion } from "../../src/odds/result-source";
 import { parseAuditExportSuccess, buildTeaserPlacement } from "../../src/web/api";
+import { useOpenBettingClock } from "../fixtures/open-betting-clock";
+
+useOpenBettingClock();
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 let migrated = false;
