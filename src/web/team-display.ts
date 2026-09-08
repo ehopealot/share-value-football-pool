@@ -188,5 +188,44 @@ const ncaafSchoolNames: Readonly<Record<string, string>> = {
   "Youngstown St Penguins": "Youngstown St"
 };
 
-/** Uses concise school names only at the presentation boundary. */
-export const displayTeamName = (league: string, name: string): string => league === "ncaaf" ? ncaafSchoolNames[name] ?? name : name;
+/** NFL locations, with distinct abbreviations for the shared New York and Los Angeles markets. */
+const nflLocationNames: Readonly<Record<string, string>> = {
+  "Arizona Cardinals": "Arizona",
+  "Atlanta Falcons": "Atlanta",
+  "Baltimore Ravens": "Baltimore",
+  "Buffalo Bills": "Buffalo",
+  "Carolina Panthers": "Carolina",
+  "Chicago Bears": "Chicago",
+  "Cincinnati Bengals": "Cincinnati",
+  "Cleveland Browns": "Cleveland",
+  "Dallas Cowboys": "Dallas",
+  "Denver Broncos": "Denver",
+  "Detroit Lions": "Detroit",
+  "Green Bay Packers": "Green Bay",
+  "Houston Texans": "Houston",
+  "Indianapolis Colts": "Indianapolis",
+  "Jacksonville Jaguars": "Jacksonville",
+  "Kansas City Chiefs": "Kansas City",
+  "Las Vegas Raiders": "Las Vegas",
+  "Los Angeles Chargers": "LAC",
+  "Los Angeles Rams": "LAR",
+  "Miami Dolphins": "Miami",
+  "Minnesota Vikings": "Minnesota",
+  "New England Patriots": "New England",
+  "New Orleans Saints": "New Orleans",
+  "New York Giants": "NYG",
+  "New York Jets": "NYJ",
+  "Philadelphia Eagles": "Philadelphia",
+  "Pittsburgh Steelers": "Pittsburgh",
+  "San Francisco 49ers": "San Francisco",
+  "Seattle Seahawks": "Seattle",
+  "Tampa Bay Buccaneers": "Tampa Bay",
+  "Tennessee Titans": "Tennessee",
+  "Washington Commanders": "Washington"
+};
+
+/** Uses concise team names only at the presentation boundary. */
+export const displayTeamName = (league: string, name: string): string => {
+  if (league === "nfl") return nflLocationNames[name] ?? name;
+  return league === "ncaaf" ? ncaafSchoolNames[name] ?? name : name;
+};

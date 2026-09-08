@@ -1,3 +1,4 @@
+import { assertBettingOpen } from "../domain/betting-week";
 import { offerIsStale } from "../odds/ingestion";
 import { moneylineStrikeIsAvailable } from "../odds/moneyline-policy";
 import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
@@ -27,6 +28,7 @@ export type StoredOfferContext = { market: MarketName; canonicalBook: string; ho
 
 /** Builds a quote's accepted terms solely from the current canonical D1 offer. */
 export async function canonicalizeWagerQuote(db: D1Database, proposed: Placement, now = new Date()): Promise<Placement> {
+  assertBettingOpen(now);
   const proposedLegs = proposed.type === "PlaceStraightWager" ? [proposed.leg] : proposed.legs;
   const snapshot = await readPlacementSnapshot(db, proposedLegs);
   const canonicalLegs = proposedLegs.map((leg, index) => canonicalLeg(snapshot.rows[index], snapshot.ingestion, leg, now));
@@ -66,6 +68,7 @@ export function quoteRequestMatchesCanonical(submitted: { rulesetVersion: string
  * the DO only receives the D1-validated immutable proof.
  */
 export async function revalidateWagerOffers(db: D1Database, command: Placement, now = new Date()): Promise<Placement> {
+  assertBettingOpen(now);
   const legs = command.type === "PlaceStraightWager" ? [command.leg] : command.legs;
   const snapshot = await readPlacementSnapshot(db, legs);
   try {

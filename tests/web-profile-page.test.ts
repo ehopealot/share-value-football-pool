@@ -29,7 +29,8 @@ describe("member profile page", () => {
     expect(page).toContain('<tr><th scope="row">Parlays</th><td>{recordOf(["parlay"])}</td></tr>');
     expect(page).not.toContain('<th scope="row">Teaser</th>');
     expect(page).not.toContain('<th scope="row">Parlay</th>');
-    expect(page).not.toContain("refunded");
+    expect(page).toContain("Each bet counts as one pick. Refunded bets don't affect win-loss records.");
+    expect(page).not.toContain('<th scope="row">Refunded</th>');
     expect(page).toContain('<tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>');
   });
 

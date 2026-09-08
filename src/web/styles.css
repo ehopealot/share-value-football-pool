@@ -43,7 +43,8 @@ th, td { border: 1px solid var(--line); padding: var(--space-2); text-align: lef
 th { background: var(--table-gray); }
 /* Sortable standings headers present the sort control as plain header text; .standings-sort stays out of the generic blue button hover above. */
 th > button.standings-sort { all: unset; cursor: pointer; font: inherit; }
-th > button.standings-sort:hover { text-decoration: underline; }
+/* Mark the active column without changing header widths or showing direction. */
+th[aria-sort="ascending"] > button.standings-sort, th[aria-sort="descending"] > button.standings-sort { text-decoration: underline; }
 .primary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--orange); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #7d3200; cursor: pointer; }
 input, select { max-width: 100%; padding: 0.35rem; border: 1px solid var(--line); border-radius: 0; font: inherit; background: #fff; }
 label { display: inline-flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) var(--space-2) var(--space-2) 0; }
@@ -112,6 +113,18 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .parlay-advisory { margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--line); background: #edf1f4; }
 .bet-slip-error { min-height: 1.45rem; margin: var(--space-1) 0 0; color: #9b1c1c; font-weight: 700; }
 .main-content:has(.standings-page) { max-width: none; }
+/* Mobile standings stay more spacious than the Activity / My Bets tables. */
+@media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }
+.corrections-page td { overflow-wrap: anywhere; vertical-align: top; }
+.corrections-page .activity-leg-push { color: var(--ink); }
+.correction-wager-meta, .correction-wager-id, .correction-wager-leg > small { display: block; }
+.correction-wager-summary { min-width: 12rem; }
+.correction-wager-leg + .correction-wager-leg { margin-top: 0.35rem; }
+.correction-wager-id { margin-top: 0.35rem; }
+@media (max-width: 600px) { .corrections-page table { font-size: 0.875rem; } .corrections-page th, .corrections-page td { padding: 0.35rem; } .corrections-page .table-scroll button { font-size: inherit; padding: 0.35rem; white-space: normal; } }
+.admin-member-email { white-space: nowrap; }
+.admin-members-table .admin-member-action { max-width: 7.5rem; min-height: 2.25rem; padding: 0.35rem 0.5rem; white-space: normal; line-height: 1.2; }
+@media (max-width: 600px) { .admin-members-table { font-size: 0.875rem; } .admin-members-table th, .admin-members-table td { padding: 0.35rem; } .admin-members-table .admin-member-action { min-height: 44px; } }
 .secondary-action { display: inline-block; padding: 0.55rem 0.8rem; background: var(--blue); color: #fff; font: inherit; font-weight: 700; text-decoration: none; border: 1px solid #003f7d; }
 .share-order-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
 .share-order-form label { justify-content: flex-end; margin: 0; }

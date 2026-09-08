@@ -33,10 +33,11 @@ describe("Activity page", () => {
   });
 
   it("colors each selected leg from its own grade and preserves hidden tickets", () => {
-    expect(source).toContain('formatActivityLeg');
-    expect(source).toContain('activityLegGradeClass(leg.grade)');
-    expect(source).toContain('className={gradeClass}');
-    expect(source).toContain('<strong key={index}>{segment.text}</strong>');
+    const sharedLine = readFileSync(resolve(import.meta.dirname, "../src/web/components/WagerLine.tsx"), "utf8");
+    expect(source).toContain('import { WagerLine } from "../components/WagerLine"');
+    expect(sharedLine).toContain('formatActivityLeg');
+    expect(sharedLine).toContain('className={activityLegGradeClass(leg.grade)}');
+    expect(sharedLine).toContain('<strong key={index}>{segment.text}</strong>');
     expect(source).toContain('Selection hidden until game time.');
   });
 

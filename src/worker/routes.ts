@@ -144,7 +144,23 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       return c.json(ReadSeasonHistory.parse(await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id, seasonId })));
     }
     const result = await router.send(slug, { type, commandId: crypto.randomUUID(), actorId: user.id });
-    const schema = type === "ReadPoolView" ? ReadPoolView : type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : ReadMyWagers;
+    if (type === "ReadPoolView") {
+      const view = ReadPoolView.parse(result);
+      // Email addresses are fetched only after the PoolDO proves this reader is the commissioner.
+      if (view.currentMember.role !== "commissioner") return c.json(ReadPoolView.parse({ ...view, members: view.members.map(({ email: _email, ...member }) => member) }));
+      const emailByMemberId = new Map<string, string>();
+      const memberIds = view.members.map((member) => member.memberId);
+      for (let offset = 0; offset < memberIds.length; offset += recipientChunkSize) {
+        const ids = memberIds.slice(offset, offset + recipientChunkSize);
+        const users = await dependencies.db.prepare(`SELECT id, email FROM user WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; email: string }>();
+        for (const member of users.results) emailByMemberId.set(member.id, member.email);
+      }
+      return c.json(ReadPoolView.parse({ ...view, members: view.members.map((member) => {
+        const email = emailByMemberId.get(member.memberId);
+        return email ? { ...member, email } : member;
+      }) }));
+    }
+    const schema = type === "ReadStandings" ? ReadStandings : type === "ReadActivity" ? ReadActivity : ReadMyWagers;
     return c.json(schema.parse(result));
   });
   app.get("/api/p/:slug/view", read("ReadPoolView"));

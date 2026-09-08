@@ -66,7 +66,7 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
         <tr><th scope="row">Teasers</th><td>{recordOf(["teaser"])}</td></tr>
         <tr><th scope="row">Parlays</th><td>{recordOf(["parlay"])}</td></tr>
         <tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>
-      </tbody></table></div><p className="profile-record-note">Each bet counts as one pick.</p></section>
+      </tbody></table></div><p className="profile-record-note">Each bet counts as one pick. Refunded bets don't affect win-loss records.</p></section>
       <section><h2>Bets</h2>
         <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         {inProcess.length + settled.length > 0 ? <>

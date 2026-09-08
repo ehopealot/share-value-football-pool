@@ -108,6 +108,27 @@ describe("T11 member read boundaries over the Worker API", () => {
     expect((await app({ id: "stranger", name: "Stranger" }).fetch(request(`/api/p/${slug}/standings`, undefined, "GET"))).status).toBe(403);
   }, 120_000);
 
+  it("includes member emails for commissioner reads but omits them for ordinary members", async () => {
+    const poolId = `t11-member-emails-${crypto.randomUUID()}`; const slug = "t11-member-emails-pool";
+    await setupPool(poolId, slug);
+    // Durable membership can outlive its auth row; that member must not make the whole directory read fail.
+    await command(poolId, { type: "JoinPool", commandId: `join-missing-${poolId}`, actorId: "missing-auth-user", displayName: "Missing auth user", password: "correct-password" });
+
+    const commissionerResponse = await app({ id: "owner", name: "Owner" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"));
+    expect(commissionerResponse.status).toBe(200);
+    const commissionerView = await commissionerResponse.json() as any;
+    expect(commissionerView.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ memberId: "owner", email: "owner-t11@example.test" }),
+      expect.objectContaining({ memberId: "member", email: "member-t11@example.test" })
+    ]));
+    expect(commissionerView.members.find((entry: { memberId: string }) => entry.memberId === "missing-auth-user")).not.toHaveProperty("email");
+
+    const memberResponse = await app({ id: "member", name: "Member" }).fetch(request(`/api/p/${slug}/view`, undefined, "GET"));
+    expect(memberResponse.status).toBe(200);
+    const memberView = await memberResponse.json() as any;
+    for (const entry of memberView.members) expect(entry).not.toHaveProperty("email");
+  }, 120_000);
+
   it("keeps legacy winning settlements without recorded odds available in export and history", async () => {
     const poolId = `t11-legacy-settled-odds-${crypto.randomUUID()}`; const slug = "t11-legacy-settled-odds-pool";
     await setupPool(poolId, slug);

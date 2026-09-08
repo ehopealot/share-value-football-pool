@@ -11,6 +11,7 @@ describe("ReadPoolView", () => {
       commissioner: { seasonOrders: [] }
     };
     expect(ReadPoolView.parse(view)).toEqual(view);
+    expect(ReadPoolView.parse({ ...view, members: [{ ...view.members[0], email: "owner@example.test" }] }).members[0]?.email).toBe("owner@example.test");
     expect(ReadPoolView.safeParse({ ...view, currentMember: { ...view.currentMember, hasUnreadBoard: undefined } }).success).toBe(false);
     expect(ReadPoolView.safeParse({ ...view, pool: { ...view.pool, commissionerNotice: undefined } }).success).toBe(false);
     expect(ReadPoolView.safeParse({ ...view, pool: { ...view.pool, commissionerRules: undefined } }).success).toBe(false);

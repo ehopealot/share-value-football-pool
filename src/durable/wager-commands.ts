@@ -1,3 +1,4 @@
+import { assertBettingOpen } from "../domain/betting-week";
 import { WHOLE_SHARE_MICROS, parseIntegerText } from "../domain/fixed-point";
 import { adjustTeaserLine, validateTeaser } from "../domain/grading";
 import { teaserOdds, TEASER_RULESET_ID } from "../domain/teaser-table";
@@ -49,6 +50,7 @@ function assertSideBetLimit(sql: Sql, command: Placement, legs: WagerLeg[], maxS
 
 /** Locks whole shares and records every accepted provider/offer term before any result is available. */
 export function placeWager(sql: Sql, command: Placement): { wagerId: string } {
+  assertBettingOpen(new Date());
   const risk = parseIntegerText(command.riskMicros);
   if (risk < WHOLE_SHARE_MICROS || risk % WHOLE_SHARE_MICROS !== 0n) throw new Error("WHOLE_SHARE_RISK_REQUIRED");
   const season = first(sql, "SELECT season.state, pool.max_side_bet_micros FROM season JOIN pool ON 1 = 1 WHERE season.id = ?", command.seasonId);
