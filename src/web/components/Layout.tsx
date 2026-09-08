@@ -92,7 +92,7 @@ export function Layout({ children }: LayoutProps) {
   }, [slug, refresh, poolViewRefresh, viewLoads]);
   const logout = async () => { await api.signOut(); setSignedIn(false); invalidateSession(); navigate("/"); };
   return <div className="site-shell">
-    <header className="masthead"><p className="site-name">Office Pool Reborn</p></header>
+    <header className="masthead"><p className="site-name">Yourfootballpool</p></header>
     {signedIn && view && slug && view.pool.commissionerNotice !== null && <CommissionerNotice notice={view.pool.commissionerNotice}/>}
     <nav aria-label="Primary navigation" className="nav-bar"><Link to="/">Home</Link>{signedIn === undefined ? null : signedIn ? <button className="nav-button" onClick={logout}>Log out</button> : <><Link to="/login">Log in</Link><Link to="/sign-up">Create account</Link></>}{signedIn && view && slug && <><span aria-hidden="true">•</span><PoolNavigation slug={slug} view={view}/></>}</nav>
     <main className="main-content">{children}</main>

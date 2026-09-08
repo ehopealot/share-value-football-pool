@@ -18,7 +18,7 @@ The custom-domain binding requires an active Cloudflare zone and no conflicting 
 ## Prerequisites
 
 1. Create/configure a managed Turnstile widget for `officepool.football` before building. Register `localhost` and `127.0.0.1` only for local development; production verification requires the `officepool.football` hostname and the `submit` action. Its **site key** is public; its secret is not.
-2. Confirm the Resend sender `Office Pool Reborn <noreply@officepool.football>` is verified.
+2. Confirm the Resend sender `Yourfootballpool <noreply@officepool.football>` is verified.
 3. Use the repository-pinned Wrangler executable (`./node_modules/.bin/wrangler`) for normal deployment commands.
 4. Do not put any production value in `.dev.vars`, `wrangler.jsonc`, or source control.
 

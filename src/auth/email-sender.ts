@@ -24,14 +24,14 @@ function escapeHtml(value: string): string {
 
 function emailContent(message: EmailMessage): { subject: string; text: string; html: string } {
   const verification = message.kind === "verification";
-  const subject = verification ? "Verify your Office Pool Reborn email" : "Reset your Office Pool Reborn password";
-  const instruction = verification ? "Verify your email address" : "Reset your Office Pool Reborn password";
+  const subject = verification ? "Verify your Yourfootballpool email" : "Reset your Yourfootballpool password";
+  const instruction = verification ? "Verify your email address" : "Reset your Yourfootballpool password";
   const linkLabel = verification ? "Verify email address" : "Reset password";
-  const fallback = verification ? "If you did not create an Office Pool Reborn account, you can ignore this email." : "If you did not request a password reset, you can ignore this email.";
+  const fallback = verification ? "If you did not create a Yourfootballpool account, you can ignore this email." : "If you did not request a password reset, you can ignore this email.";
   return {
     subject,
-    text: `${instruction} for Office Pool Reborn:\n\n${message.url}\n\n${fallback}`,
-    html: `<p>${instruction} for <strong>Office Pool Reborn</strong>.</p><p><a href="${escapeHtml(message.url)}">${linkLabel}</a></p><p>${fallback}</p>`
+    text: `${instruction} for Yourfootballpool:\n\n${message.url}\n\n${fallback}`,
+    html: `<p>${instruction} for <strong>Yourfootballpool</strong>.</p><p><a href="${escapeHtml(message.url)}">${linkLabel}</a></p><p>${fallback}</p>`
   };
 }
 

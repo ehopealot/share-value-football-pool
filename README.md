@@ -20,7 +20,7 @@ Copy `.dev.vars.example` to `.dev.vars` in the canonical Git-common checkout and
 
 ### Production secrets
 
-`BETTER_AUTH_SECRET` and `RESEND_API_KEY` are mandatory before the production Worker serves app or browser traffic. The independently token-gated settlement service route remains available without them. Auth email is sent through Resend from `Office Pool Reborn <noreply@officepool.football>`; the API key is a Worker secret, never a browser variable.
+`BETTER_AUTH_SECRET` and `RESEND_API_KEY` are mandatory before the production Worker serves app or browser traffic. The independently token-gated settlement service route remains available without them. Auth email is sent through Resend from `Yourfootballpool <noreply@officepool.football>`; the API key is a Worker secret, never a browser variable.
 
 `POOL_COMMAND_AUTHENTICATOR_KEY` is mandatory in production. It authenticates password-bearing command fingerprints without storing a password verifier in command history; the Worker and PoolDO fail closed if it is absent. Set it as a Cloudflare secret to an independently generated value with at least 32 random bytes (for example, `openssl rand -base64 32`), never a password or committed configuration value. Rotate it only with a migration strategy that preserves verification of retained idempotency records.
 
