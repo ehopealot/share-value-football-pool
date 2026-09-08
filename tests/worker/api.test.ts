@@ -28,6 +28,21 @@ beforeEach(async () => {
 });
 
 describe("later wager and member HTTP API", () => {
+  it("preserves Hono's unhandled response while recording one safe category", async () => {
+    const reported: string[] = [];
+    const app = createWorkerApp({
+      db: bindings.DB,
+      pools: bindings.POOL_DO,
+      currentUser: async () => null,
+      authHandler: async () => { throw new Error("secret-bearing unexpected route failure"); },
+      reportFault: (category) => reported.push(category)
+    });
+    const response = await app.fetch(new Request(`${origin}/api/auth/test`, { method: "POST" }));
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Internal Server Error");
+    expect(reported).toEqual(["hono-unhandled-route-failure"]);
+  });
+
   it("reserves API and internal roots from SPA fallback", async () => {
     const assets = { fetch: vi.fn(async () => new Response("SPA")) };
     const app = createWorkerApp({

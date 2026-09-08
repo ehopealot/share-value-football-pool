@@ -44,10 +44,15 @@ const productionFiles = requireFiles(productionRoot);
 const localFiles = requireFiles(localRoot);
 const productionManifest = productionFiles.find((file) => relative(productionRoot, file).replaceAll("\\", "/") === "wrangler.json");
 if (!productionManifest || !productionFiles.some((file) => file.endsWith(".js"))) throw new Error("production Worker manifest/bundle is missing");
-const assetsDirectory = JSON.parse(readFileSync(productionManifest, "utf8")).assets?.directory;
+const generatedConfig = JSON.parse(readFileSync(productionManifest, "utf8"));
+const assetsDirectory = generatedConfig.assets?.directory;
 if (typeof assetsDirectory !== "string") throw new Error("production Worker manifest is missing its client assets directory");
+if (generatedConfig.upload_source_maps === true && generatedConfig.version_metadata?.binding !== "CF_VERSION_METADATA") throw new Error("production Worker manifest is missing CF_VERSION_METADATA binding");
 const clientRoot = resolve(productionRoot, assetsDirectory);
 const clientFiles = requireFiles(clientRoot);
+if (clientFiles.some((file) => file.endsWith(".map"))) throw new Error("production artifact contains public browser source map");
+const workerMaps = productionFiles.filter((file) => file.endsWith(".map"));
+if (generatedConfig.upload_source_maps === true && workerMaps.length === 0) throw new Error("production artifact is missing Worker source maps required by upload_source_maps");
 for (const [root, files] of [[productionRoot, productionFiles], [clientRoot, clientFiles]]) {
   for (const file of files) {
     const path = relative(root, file).replaceAll("\\", "/");

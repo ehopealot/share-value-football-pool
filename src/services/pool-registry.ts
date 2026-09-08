@@ -1,5 +1,6 @@
 import { authenticatePoolSecret } from "../security/pool-password";
-import type { InitializePoolInput, PoolCommandClient } from "./pool-command-client";
+import { AuthoritativePoolInitializationError, PoolInitializationDecodeError, PoolInitializationProtocolError, PoolInitializationTransportError, type InitializePoolInput, type PoolCommandClient } from "./pool-command-client";
+import { reportSafeFault } from "../observability/sentry-server";
 
 export interface RegistryRecord {
   poolId: string;
@@ -21,6 +22,8 @@ export type CreatePoolInput = {
 };
 type RegistryRow = { pool_id: string; normalized_slug: string; creator_id: string; command_id: string; status: RegistryRecord["status"]; last_error: string | null };
 type ResponseRow = { normalized_slug: string; creator_id: string; initialization_fingerprint: string; response_json: string };
+/** Internal marker preserves message while preventing route-level duplicate reporting. */
+export class ReportedRegistryFault extends Error {}
 
 const initializationFingerprint = (input: Required<CreatePoolInput>, authenticatorKey: string) =>
   authenticatePoolSecret(JSON.stringify({ slug: normalizeSlug(input.slug), creatorId: input.creatorId, creatorName: input.creatorName, poolName: input.poolName, password: input.password }), input.idempotencyKey, authenticatorKey);
@@ -91,8 +94,18 @@ export class PoolRegistry {
       return ready;
     } catch (error) {
       const failed = { ...record, status: "failed" as const, lastError: error instanceof Error ? error.message : "Pool initialization failed." };
-      await this.db.prepare("UPDATE pool_registry SET status = 'failed', last_error = ? WHERE pool_id = ?").bind(failed.lastError, record.poolId).run();
-      await this.persistResponse(failed);
+      try {
+        await this.db.prepare("UPDATE pool_registry SET status = 'failed', last_error = ? WHERE pool_id = ?").bind(failed.lastError, record.poolId).run();
+        await this.persistResponse(failed);
+      } catch (finalizationError) {
+        reportSafeFault("registry-initialize-finalization-failure");
+        throw new ReportedRegistryFault(finalizationError instanceof Error ? finalizationError.message : "Pool initialization failed.");
+      }
+      if (error instanceof PoolInitializationTransportError) reportSafeFault("registry-initialize-transport-failure");
+      else if (error instanceof PoolInitializationDecodeError) reportSafeFault("registry-initialize-decode-failure");
+      else if (error instanceof PoolInitializationProtocolError) reportSafeFault("registry-initialize-protocol-failure");
+      // A non-OK PoolDO response is authoritative business provenance, not infrastructure telemetry.
+      else if (!(error instanceof AuthoritativePoolInitializationError)) reportSafeFault("registry-initialize-finalization-failure");
       return failed;
     }
   }

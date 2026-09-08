@@ -22,4 +22,18 @@ describe("real D1-to-PoolDO creation saga", () => {
     expect(created).toMatchObject({ status: "ready", commandVersion: "1" });
     expect(await registry.create(input)).toEqual(created);
   }, 30_000);
+
+  it.each([
+    [new Response(JSON.stringify({ code: "POOL_ALREADY_INITIALIZED" }), { status: 400 }), "POOL_ALREADY_INITIALIZED"],
+    [new Response("null", { status: 400 }), "Cannot read properties of null (reading 'code')"],
+    [new Response(JSON.stringify({ code: 42 }), { status: 400 }), "42"],
+    [new Response(JSON.stringify({}), { status: 200 }), "POOL_INITIALIZATION_FAILED"]
+  ])("preserves failed creation response for authority and malformed-success provenance", async (response, expectedError) => {
+    const pools = { idFromName: (name: string) => name, get: () => ({ fetch: async () => response.clone() }) } as unknown as DurableObjectNamespace;
+    const registry = new PoolRegistry(bindings.DB, new DurablePoolCommandClient(pools), bindings.POOL_COMMAND_AUTHENTICATOR_KEY);
+    const input = { slug: `failed-saga-${crypto.randomUUID()}`, creatorId: "owner", creatorName: "Owner", poolName: "Saga Pool", password: "correct-password", idempotencyKey: crypto.randomUUID() };
+    const failed = await registry.create(input);
+    expect(failed).toMatchObject({ status: "failed", lastError: expectedError });
+    expect(await registry.create(input)).toEqual(failed);
+  }, 30_000);
 });

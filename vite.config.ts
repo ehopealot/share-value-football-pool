@@ -1,4 +1,5 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { sharedDevStatePath } from "./scripts/dev-state.ts";
@@ -26,11 +27,14 @@ export default defineConfig(({ command }) => {
   const productionWorkerConfig = process.env.OFFICE_POOL_REBORN_WORKER_CONFIG;
   if (productionBuild && !productionWorkerConfig) throw new Error("OFFICE_POOL_REBORN_WORKER_CONFIG is required for a production build");
   const workerConfigPath = workerConfigPathFor({ command, productionWorkerConfig });
+  const sentrySourceMaps = productionBuild && process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
+    ? sentryVitePlugin({ org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT, authToken: process.env.SENTRY_AUTH_TOKEN, telemetry: false, errorHandler: () => { throw new Error("SENTRY_SOURCE_MAP_UPLOAD_FAILED"); }, sourcemaps: { filesToDeleteAfterUpload: ["dist/client/**/*.map"] } })
+    : undefined;
   return {
     // E2E builds use an explicit loopback-safe process environment rather than root dotenv files.
     envDir: viteEnvDir(e2eBuild, productionBuild),
     // Build output is deployable, so never serialize ignored local Worker secrets into it.
-    plugins: [react(), cloudflare({ ...(workerConfigPath ? { configPath: workerConfigPath } : {}), persistState: persistenceStateFor(command), ...(command === "build" ? { config: { secrets: { required: [] } } } : {}) })],
+    plugins: [react(), cloudflare({ ...(workerConfigPath ? { configPath: workerConfigPath } : {}), persistState: persistenceStateFor(command), ...(command === "build" ? { config: { secrets: { required: [] } } } : {}) }), ...(sentrySourceMaps ? [sentrySourceMaps] : [])],
     build: {
       minify: false,
       sourcemap: true

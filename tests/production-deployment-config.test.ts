@@ -8,6 +8,7 @@ type ProductionConfig = {
   routes?: Array<{ pattern: string; custom_domain: boolean }>;
   logpush?: boolean;
   upload_source_maps?: boolean;
+  version_metadata?: { binding: string };
   observability?: {
     enabled: boolean;
     head_sampling_rate?: number;
@@ -25,6 +26,7 @@ describe("production deployment configuration", () => {
     expect(config.workers_dev).toBe(false);
     expect(config.routes).toEqual([{ pattern: "officepool.football", custom_domain: true }]);
     expect(config.upload_source_maps).toBe(true);
+    expect(config.version_metadata).toEqual({ binding: "CF_VERSION_METADATA" });
     expect(config.logpush).toBe(true);
     expect(config.observability).toEqual({
       enabled: true,

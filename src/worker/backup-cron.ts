@@ -1,3 +1,5 @@
+import { reportSafeFault } from "../observability/sentry-server";
+
 const BACKUP_FORMAT = "share-value-pool-backup-aes-gcm-v1";
 const keyPattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
@@ -29,7 +31,7 @@ export async function encryptBackup(value: unknown, rawKey: Uint8Array): Promise
   return { format: BACKUP_FORMAT, algorithm: "AES-GCM", nonce: bytesToBase64(nonce), ciphertext: bytesToBase64(new Uint8Array(ciphertext)) };
 }
 
-export type BackupDependencies = { db: D1Database; pools: DurableObjectNamespace; bucket: R2Bucket; encryptionKey: string; backupServiceToken?: string };
+export type BackupDependencies = { db: D1Database; pools: DurableObjectNamespace; bucket: R2Bucket; encryptionKey: string; backupServiceToken?: string; report?: (category: "backup-export-non-ok" | "backup-item-exception" | "backup-run-failure") => void };
 
 /**
  * Bounded infrastructure-only backup. Individual pools may fail without
@@ -45,19 +47,24 @@ export async function backupPools(dependencies: BackupDependencies): Promise<{ a
   if (!result.results.length && after) result = await dependencies.db.prepare("SELECT pool_id FROM pool_registry WHERE status = 'ready' ORDER BY pool_id LIMIT 100").all<{ pool_id: string }>();
   let stored = 0;
   let lastAttempted: string | null = null;
+  let exportNonOk = false;
+  let itemFailure = false;
   for (const row of result.results) {
     lastAttempted = row.pool_id;
     try {
       const response = await dependencies.pools.get(dependencies.pools.idFromName(row.pool_id)).fetch("https://pool.internal/internal/audit-export", { headers: { "x-backup-service-token": dependencies.backupServiceToken } });
-      if (!response.ok) continue;
+      if (!response.ok) { exportNonOk = true; continue; }
       const envelope = await encryptBackup(await response.json(), rawKey);
       await dependencies.bucket.put(`${row.pool_id}/audit-${new Date().toISOString()}-${crypto.randomUUID()}.json.aesgcm`, JSON.stringify(envelope), { httpMetadata: { contentType: "application/json" } });
       stored++;
     } catch {
+      itemFailure = true;
       // Backup failures are intentionally bounded and silent to avoid leaking data or secrets.
     }
   }
   if (lastAttempted !== null) await dependencies.db.prepare("INSERT INTO backup_cursor (name, last_pool_id) VALUES ('scheduled', ?) ON CONFLICT(name) DO UPDATE SET last_pool_id = excluded.last_pool_id").bind(lastAttempted).run();
+  if (exportNonOk) (dependencies.report ?? reportSafeFault)("backup-export-non-ok");
+  if (itemFailure) (dependencies.report ?? reportSafeFault)("backup-item-exception");
   return { attempted: result.results.length, stored };
 }
 
@@ -79,5 +86,6 @@ export async function runBackupCron(env: BackupDependencies): Promise<void> {
     if (result.stored < result.attempted) logBackupFailure("partial_failure", result);
   } catch {
     logBackupFailure("run_failure");
+    (env.report ?? reportSafeFault)("backup-run-failure");
   }
 }

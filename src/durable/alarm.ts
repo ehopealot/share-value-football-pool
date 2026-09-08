@@ -1,5 +1,6 @@
 import { D1ResultSource, type FinalResultVersion, type ResultSource } from "../odds/result-source";
 import { providerResultIdentity, settleWagers } from "./settlement";
+import { reportSafeFault } from "../observability/sentry-server";
 type Row = Record<string, SqlStorageValue>;
 const FINAL_15_MINUTES = 15 * 60 * 1000;
 const FINAL_24_HOURS = 24 * 60 * 60 * 1000;
@@ -18,12 +19,25 @@ const normalPollDelay = (eventStartsAt: SqlStorageValue, now: number) => {
 };
 
 /** Reconciles due event lifecycles and retains terminal snapshots for multi-leg tickets. */
-export async function runSettlementAlarm(state: DurableObjectState, db: D1Database, source: ResultSource = new D1ResultSource(db), now: number | AlarmInvocationInfo = Date.now()): Promise<number | null> {
+export async function runSettlementAlarm(state: DurableObjectState, db: D1Database, source: ResultSource = new D1ResultSource(db), now: number | AlarmInvocationInfo = Date.now(), report: (category: "settlement-provider-source-failure" | "settlement-internal-state-or-invariant-failure", stage: string) => void = (category, stage) => reportSafeFault(category, "durable-object", stage)): Promise<number | null> {
   // Cloudflare may invoke an alarm handler with implementation metadata; never let that turn a lifecycle alarm into an invalid timestamp.
   now = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
+  const reportedInternalCategories = new Set<string>();
+  const reportCaught = (failedStage: string, originalAttempts: readonly number[], source: boolean) => {
+    if (source) {
+      if (!originalAttempts.some((attempts) => attempts + 1 === 1 || attempts + 1 >= MAX_PROVIDER_ERROR_ATTEMPTS)) return;
+      report("settlement-provider-source-failure", failedStage);
+      return;
+    }
+    if (reportedInternalCategories.has(failedStage)) return;
+    reportedInternalCategories.add(failedStage);
+    report("settlement-internal-state-or-invariant-failure", failedStage);
+  };
   const discoveryDue = [...state.storage.sql.exec<Row>("SELECT r.season_id, r.attempts, r.error_attempts FROM season_super_bowl_reconciliation r JOIN season s ON s.id = r.season_id AND s.state = 'active' LEFT JOIN season_super_bowl sb ON sb.season_id = r.season_id WHERE sb.season_id IS NULL AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at", at(now))];
+  let discoveryStage = "super-bowl-source-read";
   if (discoveryDue.length) try {
     const candidate = (await source.getScheduledSuperBowls?.() ?? [])[0];
+    discoveryStage = "super-bowl-reconciliation-write";
     await state.storage.transaction(async () => {
       for (const lifecycle of discoveryDue) {
         if (candidate) {
@@ -33,6 +47,8 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
       }
     });
   } catch (error) {
+    const failedStage = discoveryStage;
+    discoveryStage = "super-bowl-retry-write";
     await state.storage.transaction(async () => {
       for (const lifecycle of discoveryDue) {
         const errors = Number(lifecycle.error_attempts) + 1;
@@ -40,22 +56,28 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
         state.storage.sql.exec("UPDATE season_super_bowl_reconciliation SET error_attempts = ?, next_attempt_at = ?, last_error = ? WHERE season_id = ?", exhausted ? 0 : errors, at(now + (exhausted ? 6 * 60 * 60 * 1000 : retryDelay(errors))), exhausted ? "SUPER_BOWL_PROVIDER_RETRIES_EXHAUSTED_RECOVERING" : error instanceof Error ? error.message.slice(0, 200) : "RESULT_SOURCE_FAILED", lifecycle.season_id);
       }
     });
+    reportCaught(failedStage, discoveryDue.map((lifecycle) => Number(lifecycle.error_attempts)), failedStage === "super-bowl-source-read");
   }
 
   const due = [...state.storage.sql.exec<Row>("SELECT event_id, event_starts_at, phase, attempts, error_attempts, final_observed_at FROM event_reconciliation WHERE phase <> 'complete' AND next_attempt_at <= ? ORDER BY next_attempt_at", at(now))];
+  let resultStage = "result-source-read";
   if (due.length) try {
     const dueIds = due.map((r) => String(r.event_id));
     const results = await source.getFinalResults(dueIds);
     const byEvent = new Map(results.map((r) => [r.eventId, r]));
+    resultStage = "result-lifecycle-write";
     await state.storage.transaction(async () => {
       for (const result of results) if (terminal(result)) state.storage.sql.exec("INSERT OR REPLACE INTO event_result_snapshot (event_id, result_json, correction_version, observed_at) VALUES (?, ?, ?, ?)", result.eventId, JSON.stringify(result), result.correctionVersion, at(now));
+      resultStage = "result-snapshot-parse";
       const snapshotRows = [...state.storage.sql.exec<Row>("SELECT result_json, observed_at FROM event_result_snapshot")];
       const snapshots = snapshotRows.map((r) => JSON.parse(String(r.result_json)) as FinalResultVersion);
       const observedAt = new Map(snapshotRows.map((row) => {
         const result = JSON.parse(String(row.result_json)) as FinalResultVersion;
         return [providerResultIdentity(result), String(row.observed_at)];
       }));
+      resultStage = "result-settle-wagers";
       settleWagers(state.storage.sql, snapshots, observedAt);
+      resultStage = "result-lifecycle-write";
       for (const lifecycle of due) {
         const result = byEvent.get(String(lifecycle.event_id));
         if (!terminal(result)) {
@@ -69,6 +91,8 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
       }
     });
   } catch (error) {
+    const failedStage = resultStage;
+    resultStage = "result-retry-write";
     await state.storage.transaction(async () => {
       for (const lifecycle of due) {
         const errors = Number(lifecycle.error_attempts) + 1;
@@ -77,6 +101,7 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
         state.storage.sql.exec("UPDATE event_reconciliation SET error_attempts = ?, next_attempt_at = ?, last_error = ? WHERE event_id = ?", exhausted ? 0 : errors, at(now + (exhausted ? normalPollDelay(lifecycle.event_starts_at, now) : retryDelay(errors))), exhausted ? "RESULT_PROVIDER_RETRIES_EXHAUSTED_RECOVERING" : error instanceof Error ? error.message.slice(0, 200) : "RESULT_SOURCE_FAILED", lifecycle.event_id);
       }
     });
+    reportCaught(failedStage, due.map((lifecycle) => Number(lifecycle.error_attempts)), failedStage === "result-source-read");
   }
   const next = [...state.storage.sql.exec<Row>("SELECT next_attempt_at FROM (SELECT next_attempt_at FROM event_reconciliation WHERE phase <> 'complete' AND next_attempt_at IS NOT NULL UNION ALL SELECT r.next_attempt_at FROM season_super_bowl_reconciliation r JOIN season s ON s.id = r.season_id AND s.state = 'active' LEFT JOIN season_super_bowl sb ON sb.season_id = r.season_id WHERE sb.season_id IS NULL AND r.next_attempt_at IS NOT NULL) ORDER BY next_attempt_at LIMIT 1")][0];
   return next ? new Date(String(next.next_attempt_at)).getTime() : null;

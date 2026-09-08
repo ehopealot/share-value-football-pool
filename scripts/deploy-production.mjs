@@ -19,15 +19,22 @@ export function deployProduction(options = {}) {
   const wrangler = resolve(cwd, "node_modules", ".bin", "wrangler");
 
   const buildEnvironment = nonPublishingCloudflareEnvironment(environment);
+  const localVerificationEnvironment = { ...buildEnvironment };
+  delete localVerificationEnvironment.SENTRY_AUTH_TOKEN;
+  delete localVerificationEnvironment.SENTRY_ORG;
+  delete localVerificationEnvironment.SENTRY_PROJECT;
   const deployEnvironment = {
     ...withoutWorkerSecrets(withoutCloudflareCredentials(environment, environment.CI === "true")),
     CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
     CLOUDFLARE_INCLUDE_PROCESS_ENV: "false",
   };
+  delete deployEnvironment.SENTRY_AUTH_TOKEN;
+  delete deployEnvironment.SENTRY_ORG;
+  delete deployEnvironment.SENTRY_PROJECT;
 
   buildProduction({ cwd, environment: buildEnvironment });
-  run(spawnSync, wrangler, ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], { cwd, env: buildEnvironment });
-  run(spawnSync, process.execPath, [resolve(cwd, "scripts", "verify-production-artifact.mjs")], { cwd, env: buildEnvironment });
+  run(spawnSync, wrangler, ["deploy", "--dry-run", "--outdir", "dist-local", "--config", "wrangler.local.jsonc"], { cwd, env: localVerificationEnvironment });
+  run(spawnSync, process.execPath, [resolve(cwd, "scripts", "verify-production-artifact.mjs")], { cwd, env: localVerificationEnvironment });
   run(spawnSync, wrangler, ["deploy", "--keep-vars", "--config", "dist/office_pool_reborn/wrangler.json"], { cwd, env: deployEnvironment });
 }
 

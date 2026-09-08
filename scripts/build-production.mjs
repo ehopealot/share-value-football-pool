@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { nonPublishingCloudflareEnvironment } from "./cloudflare-credentials.mjs";
 import { isDirectExecution } from "./direct-entry.mjs";
+import { removeBrowserSourceMaps } from "./sentry-source-maps.mjs";
 
 const require = createRequire(import.meta.url);
 const turnstileSiteKey = /^0x[A-Za-z0-9_-]{20,128}$/;
@@ -44,7 +45,7 @@ export function productionBuildEnvironment(environment = process.env, workerConf
     OFFICE_POOL_REBORN_PRODUCTION_BUILD: "true",
     ...(workerConfigPath ? { OFFICE_POOL_REBORN_WORKER_CONFIG: workerConfigPath } : {})
   };
-  for (const name of Object.keys(result)) if (name.startsWith("VITE_") && name !== "VITE_TURNSTILE_SITE_KEY") delete result[name];
+  for (const name of Object.keys(result)) if (name.startsWith("VITE_") && name !== "VITE_TURNSTILE_SITE_KEY" && name !== "VITE_SENTRY_DSN") delete result[name];
   return result;
 }
 
@@ -62,6 +63,9 @@ export function buildProduction(options = {}) {
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`production build exited ${result.status ?? "unknown"}`);
   } finally {
+    // Sentry upload deletes browser maps when configured; no-auth and failed builds must withhold them too.
+    const manifest = join(cwd, "dist", "office_pool_reborn", "wrangler.json");
+    if (existsSync(manifest)) removeBrowserSourceMaps(manifest);
     isolated.dispose();
   }
 }

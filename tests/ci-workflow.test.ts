@@ -43,6 +43,7 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(ci).toMatch(/node-version:\s*["']?24\.20\.0["']?/);
     expect(ci).toContain("npm ci");
     expect(ci).toContain("npm test -- --maxWorkers=5");
+    expect(packageManifest.scripts.test).toContain("--project=node --project=workers --project=web");
     expect(ci).toContain("npm run typecheck");
     expect(ci).toContain("git rev-parse --verify HEAD^");
     expect(ci).toContain("git diff --check HEAD^ HEAD");
@@ -104,7 +105,7 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(preflightIndex).toBeLessThan(migrationIndex);
     const preflight = deploy.slice(preflightIndex, migrationIndex);
     expect(preflight).toMatch(/if: steps\.freshness\.outputs\.deploy == ['"]true['"]/);
-    expect(preflight).toMatch(/env:\n\s+CI:\s*["']?true["']?\n\s+VITE_TURNSTILE_SITE_KEY:\s*\$\{\{ vars\.VITE_TURNSTILE_SITE_KEY \}\}/);
+    expect(preflight).toMatch(/env:\n\s+CI:\s*["']?true["']?\n\s+VITE_TURNSTILE_SITE_KEY:\s*\$\{\{ vars\.VITE_TURNSTILE_SITE_KEY \}\}\n\s+VITE_SENTRY_DSN:\s*\$\{\{ vars\.VITE_SENTRY_DSN \}\}/);
     expect(preflight).not.toMatch(secretReference);
     const buildIndex = preflight.indexOf("npm run build:production");
     const localBuildIndex = preflight.indexOf("npm run build:local");

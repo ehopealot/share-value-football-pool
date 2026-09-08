@@ -15,6 +15,7 @@ import { shapeActivityWagers, shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
+import { createSentryReporter, reportSafeFaultForEnv } from "../observability/sentry-server";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -51,6 +52,9 @@ const requestFingerprint = (command: PoolCommand, commandAuthenticatorKey?: stri
   return canonical(command);
 };
 /** Pre-announcement post commands remain replayable for the processed-command retention window. */
+const expectedCommandCodes = new Set([
+  "INVALID_COMMAND", "POOL_NOT_INITIALIZED", "POOL_ALREADY_INITIALIZED", "COMMAND_AUTHENTICATOR_UNAVAILABLE", "IDEMPOTENCY_CONFLICT", "SUSPENDED", "JOIN_DENIED", "FORBIDDEN", "SIDE_BET_LIMIT", "ORDER_QUOTE_STALE", "LINE_CHANGED", "BETTING_CLOSED", "INVALID_QUOTE", "QUOTE_NOT_FOUND", "INVALID_PLACEMENT_REPLAY_PROBE", "SEASON_NOT_ACTIVE", "SEASON_NOT_DRAFT", "SEASON_NOT_CLOSED", "SEASON_CLOSED", "MEMBER_NOT_FOUND", "WAGER_NOT_FOUND", "WAGER_NOT_STARTED", "MARKET_LOCKED", "WHOLE_SHARE_RISK_REQUIRED", "INSUFFICIENT_SHARES", "INVALID_WAGER_LEG", "INVALID_TEASER_TERMS", "INVALID_PARLAY_TERMS", "INVALID_OFFER_SNAPSHOT", "MARKET_UNAVAILABLE", "OVERLAPPING_SEASON", "INVALID_POOL_NAME", "CANNOT_SUSPEND_COMMISSIONER", "SUPER_BOWL_NOT_CANONICAL", "ORDER_ALREADY_REVERSED", "ORDER_REVERSAL_INSUFFICIENT_AVAILABLE_SHARES", "MESSAGE_BOARD_POST_NOT_FOUND", "MESSAGE_BOARD_REPLY_NOT_ALLOWED"
+]);
 const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "CreateMessageBoardPost" }>) => {
   const { announcement: _announcement, ...legacy } = command;
   return canonical(legacy);
@@ -61,8 +65,8 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
  * projections never authorize commands or drive accounting; alarms read D1
  * provider evidence for settlement.
  */
-export class PoolDO {
-  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
+export class PoolDOBase {
+  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage>; SENTRY_DSN?: string; SENTRY_TEST_TRANSPORT?: import("@sentry/cloudflare").CloudflareOptions["transport"]; SENTRY_TEST_FLUSHES?: Promise<unknown>[] }) {
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
     this.state.storage.transactionSync(() => {
       migrateAdditivePoolStorage(this.state.storage.sql);
@@ -89,10 +93,12 @@ export class PoolDO {
       return Response.json({ ok: true });
     }
     if (request.method !== "POST") return new Response("Not found", { status: 404 });
+    let commandCommitted = false;
     try {
       const parsed = poolCommandSchema.safeParse(await request.json());
       if (!parsed.success) throw new Error("INVALID_COMMAND");
       const result = await this.state.storage.transaction(async () => this.execute(parsed.data));
+      commandCommitted = true;
       // Defer post-commit outbox draining very briefly so a request cannot race its own alarm; settlement then replaces this with the earliest lifecycle deadline.
       if (shouldEnqueueOutbox(parsed.data)) await this.state.storage.setAlarm(Date.now() + outboxDrainGraceMs);
       return Response.json(result);
@@ -101,7 +107,9 @@ export class PoolDO {
       if (error instanceof OrderQuoteStaleError) {
         return Response.json({ code: error.message, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, replacement: { ...error.terms, priceMicros: error.quote.priceMicros.toString(), commandVersion: error.quote.commandVersion, sharesMicros: error.quote.sharesMicros.toString(), valueMicros: error.quote.valueMicros.toString() } }, { status: 400 });
       }
-      return Response.json({ code: error instanceof Error ? error.message : "COMMAND_FAILED" }, { status: 400 });
+      const code = error instanceof Error ? error.message : "COMMAND_FAILED";
+      if (commandCommitted || !(error instanceof Error) || !expectedCommandCodes.has(code)) reportSafeFaultForEnv(this.env, commandCommitted ? "pool-post-commit-alarm-schedule-failure" : "pool-command-unexpected", "durable-object", undefined, (promise) => this.state.waitUntil(promise));
+      return Response.json({ code }, { status: 400 });
     }
   }
 
@@ -454,12 +462,18 @@ export class PoolDO {
   }
 
   protected async alarm(currentTime: number | AlarmInvocationInfo = Date.now()): Promise<void> {
-    const settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime) : null;
-    await drainOutbox(this.state, this.env.POOL_EVENTS, new Date(), this.env.DB);
-    const outboxDeadline = this.env.POOL_EVENTS ? nextOutboxAttempt(this.state) : null;
-    const deadlines = [settlementDeadline, outboxDeadline].filter((deadline): deadline is number => deadline !== null && Number.isFinite(deadline));
-    // Queue retries are never allowed to replace or delay result coverage.
-    if (deadlines.length) await this.state.storage.setAlarm(Math.min(...deadlines));
+    const report = createSentryReporter(this.env, (promise) => this.state.waitUntil(promise));
+    try {
+      const settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime, (category, stage) => report(category, "durable-object", stage)) : null;
+      await drainOutbox(this.state, this.env.POOL_EVENTS, new Date(), this.env.DB, (category) => report(category, "durable-object"));
+      const outboxDeadline = this.env.POOL_EVENTS ? nextOutboxAttempt(this.state) : null;
+      const deadlines = [settlementDeadline, outboxDeadline].filter((deadline): deadline is number => deadline !== null && Number.isFinite(deadline));
+      // Queue retries are never allowed to replace or delay result coverage.
+      if (deadlines.length) await this.state.storage.setAlarm(Math.min(...deadlines));
+    } catch (error) {
+      report("durable-alarm-escaping-failure", "durable-object");
+      throw error;
+    }
   }
 
   /** Deliberately minimal service-only snapshot for repairable D1 directory projections. */
@@ -550,3 +564,6 @@ export class PoolDO {
     return { commandVersion, pool: { poolId: String(pool.id), slug: String(pool.slug), name: String(pool.name), commissionerId: String(pool.commissioner_id), signupsOpen: Boolean(pool.signups_open), maxSideBetMicros: String(pool.max_side_bet_micros), commissionerNotice: pool.commissioner_notice === null || pool.commissioner_notice === undefined ? null : String(pool.commissioner_notice), commissionerRules: pool.commissioner_rules === null || pool.commissioner_rules === undefined ? null : String(pool.commissioner_rules) }, activeSeason: summary(active), nextDraftSeason: summary(draft), latestClosedSeason: summary(closed), currentMember: { memberId: actorId, role: currentRole, seasonBalances, hasUnreadBoard }, members, commissioner: currentRole === "commissioner" ? { seasonOrders } : null };
   }
 }
+
+/** PoolDO remains unwrapped: Sentry's Durable Object wrapper writes trace-link storage even with tracing disabled. */
+export const PoolDO = PoolDOBase;

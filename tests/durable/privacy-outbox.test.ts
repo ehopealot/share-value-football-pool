@@ -1,5 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { drainOutbox, enqueueOutbox, type PoolOutboxMessage } from "../../src/durable/outbox";
 import { poolOutboxMessage } from "../../src/contracts/commands";
 
@@ -18,7 +18,7 @@ const send = async (slug: string, command: any): Promise<Record<string, unknown>
   return post({ type: command.type, commandId: command.commandId, actorId: command.actorId, wagerId: command.wagerId, quoteKey, quotedCommandVersion: String(quote.commandVersion), seasonId: quote.seasonId, riskMicros: quote.riskMicros, acceptedOdds: quote.acceptedOdds, rulesetVersion: quote.rulesetVersion, ...(command.type === "PlaceStraightWager" ? { leg: quote.leg } : { ...(command.type === "PlaceTeaserWager" ? { teaserPoints: quote.teaserPoints } : {}), legs: quote.legs }) });
 };
 const stateFor = <T>(slug: string, callback: (state: DurableObjectState) => T) => runInDurableObject(pools.get(pools.idFromName(slug)), (_instance, state) => callback(state));
-const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const future = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
 async function poolWithHiddenTicket(slug = `privacy-${crypto.randomUUID()}`) {
   await send(slug, { type: "InitializePool", commandId: "init", poolId: slug, slug, poolName: "Privacy", creatorId: "owner", creatorName: "Owner", password: "correct-password" });
@@ -28,11 +28,13 @@ async function poolWithHiddenTicket(slug = `privacy-${crypto.randomUUID()}`) {
   await send(slug, { type: "OpenSeason", commandId: "open", actorId: "owner", seasonId: "s1" });
   const quote = await send(slug, { type: "QuoteShareOrder", commandId: "quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" });
   await send(slug, { type: "ExecuteShareOrder", commandId: "fund", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "fund member" });
-  expect(await send(slug, { type: "PlaceStraightWager", commandId: "place", actorId: "member", wagerId: "w1", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "private-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "offer-v1", canonicalOfferProof: { offerId: "private-event:spread:home", eventId: "private-event", offerVersion: "offer-v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3.5 }, market: "spread", selection: "home", originalLine: -3.5, originalOdds: -110, eventStartsAt: future } })).toMatchObject({ wagerId: "w1" });
+  expect(await send(slug, { type: "PlaceStraightWager", commandId: "place", actorId: "member", wagerId: "w1", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "private-event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "offer-v1", canonicalOfferProof: { offerId: "private-event:spread:home", eventId: "private-event", offerVersion: "offer-v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3.5 }, market: "spread", selection: "home", originalLine: -3.5, originalOdds: -110, eventStartsAt: future() } })).toMatchObject({ wagerId: "w1" });
   return slug;
 }
 
 describe("PoolDO privacy and committed outbox", () => {
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-09-08T17:00:00.000Z")); });
+  afterEach(() => vi.useRealTimers());
   it("redacts every unstarted selection for nonowners, including the commissioner", async () => {
     const slug = await poolWithHiddenTicket();
     const owner = await send(slug, { type: "ReadWagers", commandId: "owner-read", actorId: "member" });
@@ -85,7 +87,7 @@ describe("PoolDO privacy and committed outbox", () => {
     const slug = await poolWithHiddenTicket();
     const quote = await send(slug, { type: "QuoteShareOrder", commandId: "parlay-funding-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000" });
     await send(slug, { type: "ExecuteShareOrder", commandId: "parlay-funding", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "1000000", quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "fund parlay" });
-    const parlayLeg = (eventId: string) => ({ eventId, league: "nfl", canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:spread:home`, eventId, offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: -3, originalOdds: -110, eventStartsAt: future, homeTeam: "Home", awayTeam: "Away" });
+    const parlayLeg = (eventId: string) => ({ eventId, league: "nfl", canonicalBook: "DraftKings", retrievedAt: new Date().toISOString(), policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:spread:home`, eventId, offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: -110, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: -3, originalOdds: -110, eventStartsAt: future(), homeTeam: "Home", awayTeam: "Away" });
     expect(await send(slug, { type: "PlaceParlayWager", commandId: "private-parlay-place", actorId: "member", wagerId: "private-parlay", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 300, rulesetVersion: "PARLAY_2026_V1", legs: [parlayLeg("private-parlay-one"), parlayLeg("private-parlay-two")] })).toMatchObject({ wagerId: "private-parlay" });
     const sent: PoolOutboxMessage[] = [];
     await stateFor(slug, async (state) => {
