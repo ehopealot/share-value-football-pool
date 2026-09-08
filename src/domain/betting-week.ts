@@ -18,6 +18,15 @@ export function nextWeekStart(weekStart: Date): Date {
   shifted.setUTCDate(shifted.getUTCDate() + 7);
   return new Date(etMidnightUtc(shifted.toISOString().slice(0, 10)));
 }
+/** Betting opens Tuesday at 10am ET; week identities still turn over at midnight ET. */
+export const bettingOpensAt = (date: Date): Date => new Date(weekStartOf(date).getTime() + 10 * 60 * 60 * 1000);
+// US daylight-saving changes occur on Sundays, never between Tuesday midnight and 10am.
+export const isBettingOpen = (date: Date): boolean => date.getTime() >= bettingOpensAt(date).getTime();
+export const BETTING_CLOSED_MESSAGE = "Betting opens Tuesday at 10:00 a.m. ET. The betting week still ends Monday at midnight ET.";
+export function assertBettingOpen(date: Date): void {
+  if (!isBettingOpen(date)) throw new Error("BETTING_CLOSED");
+}
+
 /** Membership compares canonical Eastern week identities so daylight-saving weeks are calendar weeks. */
 export const inWeek = (startsAt: string, weekStart: string): boolean => weekStartOf(new Date(startsAt)).toISOString() === weekStart;
 export const weekNumberLabel = (weekStart: string): string => { const number = Math.floor((new Date(weekStart).getTime() - SEASON_WEEK1_ANCHOR) / (7 * 24 * 60 * 60 * 1000)) + 1; return number >= 1 ? `Week ${number}` : "Preseason"; };

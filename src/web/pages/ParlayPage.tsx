@@ -12,6 +12,8 @@ import { parlayRiskError } from "../selection-tray";
 import { ticketReturns } from "../wager-presentation";
 import { Layout } from "../components/Layout";
 import { PageGeneration, type PageGenerationTicket } from "../page-generation";
+import { useBettingWindow } from "../betting-window";
+import { BETTING_CLOSED_MESSAGE, isBettingOpen } from "../../domain/betting-week";
 
 export type ParlaySemantic = { legs: ParlayLeg[]; risk: string; quoteKey: string; wagerId: string };
 type ParlayReview = { tag: "reviewing"; request: ParlaySemantic; quote: any; mutationKey: string };
@@ -77,6 +79,7 @@ export function ParlayPageRoute() {
 }
 
 export function ParlayPage() {
+  const { open: bettingOpen } = useBettingWindow();
   const { slug = "" } = useParams(); const nav = useNavigate(); const [view, setView] = useState<any>(); const [state, setState] = useState<State>(() => ({ tag: "editing", editor: fresh([]) })); const [error, setError] = useState(""); const errorRef = useRef<HTMLParagraphElement>(null); const generations = useRef(new ParlayPageGeneration());
   useEffect(() => {
     const ticket = generations.current.start(slug);
@@ -101,6 +104,7 @@ export function ParlayPage() {
     setError(transition.error);
   };
   const review = async () => {
+    if (!isBettingOpen(new Date())) return setError(BETTING_CLOSED_MESSAGE);
     if (!editor || !view?.activeSeason?.id) return;
     const validation = parlayRiskError(editor.risk, { maxSideBetMicros: view.pool.maxSideBetMicros, availableMicros: balance?.availableMicros });
     if (validation) return setError(validation);
@@ -141,11 +145,11 @@ export function ParlayPage() {
   };
   if (reviewed) {
     const placementUnknown = reviewed.tag === "placement-unknown";
-    return <Layout><Confirmation snapshot={{ kind: "parlay", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place parlay"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
+    return <Layout>{!bettingOpen && <p role="status" className="state-notice">{BETTING_CLOSED_MESSAGE}</p>}<Confirmation snapshot={{ kind: "parlay", quote: reviewed.quote }} /><div className="confirmation-actions"><button className="primary-action" disabled={pending || (!bettingOpen && !placementUnknown)} onClick={() => void place()}>{pending ? "Confirming…" : placementUnknown ? "Retry placement" : "Place parlay"}</button>{!placementUnknown && <button disabled={pending} onClick={() => returnToEditor(reviewed.request)}>Edit terms</button>}</div>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}</Layout>;
   }
   if (state.tag === "quoting") return <Layout><h1>Reviewing parlay wager</h1><p role="status">Getting current odds…</p><p>{state.request.legs.length}-leg parlay · Risk {state.request.risk || "0"}</p></Layout>;
   const odds = editor && parlayAdvisoryOdds(editor.legs);
   const payout = odds !== undefined && editor && /^\d+$/.test(editor.risk) && BigInt(editor.risk) > 0n ? ticketReturns((BigInt(editor.risk) * MICROS_PER_UNIT).toString(), odds).total : undefined;
   const invalid = !editor || editor.legs.length < 2 || editor.legs.length > 6 ? "Choose two to six legs." : riskError;
-  return <Layout><h1>Parlay builder</h1><p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<ParlayLegTable legs={editor!.legs} onRemove={(index) => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }} />{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={!!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>Review parlay wager</button></div></Layout>;
+  return <Layout><h1>Parlay builder</h1>{!bettingOpen && <p role="status" className="state-notice">{BETTING_CLOSED_MESSAGE}</p>}<p>Select two to six offers on the <Link to={`/p/${slug}/odds`}>odds board</Link>.</p>{error && <p ref={errorRef} role="alert" tabIndex={-1} className="error-summary">{error}</p>}<ParlayLegTable legs={editor!.legs} onRemove={(index) => { const legs = editor!.legs.filter((_, legIndex) => legIndex !== index); writeParlaySlip(slug, legs); edit({ ...editor!, legs }); }} />{invalid && <p role="alert" className="bet-slip-error">{invalid}</p>}{odds !== undefined && <p className="parlay-advisory"><strong>Advisory current-board estimate:</strong> {formatAmericanOdds(odds)} · <strong>Estimated payout:</strong> {payout ?? "Enter a risk"}. Review terms are authoritative.</p>}<div className="parlay-risk-actions"><label htmlFor="parlay-risk">Risk in whole shares <input id="parlay-risk" type="number" min="1" step="1" value={editor!.risk} onChange={(e) => edit({ ...editor!, risk: e.target.value })} /></label><button className="primary-action parlay-review-action" disabled={!bettingOpen || !!invalid || !editor!.risk || !view?.activeSeason?.id} onClick={() => void review()}>Review parlay wager</button></div></Layout>;
 }
