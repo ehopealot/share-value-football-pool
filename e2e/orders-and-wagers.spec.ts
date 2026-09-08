@@ -673,10 +673,10 @@ test("placement confirmation ingests live provider odds and preserves fail-open 
     await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
   };
 
-  await configureRefresh("unchanged");
-  await reviewAwaySpread();
   const quotedBoard = await page.evaluate(async (slug) => (await (await fetch(`/api/p/${slug}/odds`)).json()) as { offers: Array<{ eventId: string; market: string; offerVersion: string; retrievedAt: string }> }, pool.slug);
   const quotedSpread = quotedBoard.offers.find((offer) => offer.eventId === "local-nfl-upcoming" && offer.market === "spread");
+  await configureRefresh("unchanged");
+  await reviewAwaySpread();
   expect(await refreshStatus()).toEqual({ calls: 0, mode: "unchanged", pending: true });
   await page.getByRole("button", { name: "Place 1 wager" }).click();
   await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
