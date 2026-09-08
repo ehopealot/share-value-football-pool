@@ -24,7 +24,7 @@ The product succeeds when a private group can create and join a reusable pool, r
 
 ## Positioning
 
-Unlike a pick'em pool, each member manages a virtual share position against a paper sportsbook. Winning wagers create shares, losing wagers destroy shares, and the common share price rises or falls with the pool's outstanding float. Commissioner-issued share orders execute at the current price without moving that price.
+Unlike a pick'em pool, each member manages a virtual share position against a paper sportsbook. Winning wagers create shares, losing wagers destroy shares, and the common share price rises or falls with the pool's outstanding float. Commissioner-issued share orders execute at the current price without moving that price, or at a commissioner-selected fixed $1 entry price for late joiners.
 
 ## Operating Context
 

@@ -44,7 +44,18 @@ const seedCurrentPrice = (slug: string, notionalMicros: string) => storage(slug,
 describe("PoolDO share orders", () => {
   it("persists account/cache/journal equality through execute, replay, and reversal", async () => {
     const slug = await activePool();
-    const quote = await send(slug, { type: "QuoteShareOrder", commandId: "quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000" });
+    const quoteRequest = { type: "QuoteShareOrder", commandId: "quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000" };
+    const quote = await send(slug, quoteRequest);
+    await storage(slug, (state) => {
+      const row = [...state.storage.sql.exec<{ request_json: string; response_json: string }>("SELECT request_json, response_json FROM processed_command WHERE id = 'quote'")][0]!;
+      const legacyRequest = JSON.parse(row.request_json) as Record<string, unknown>;
+      const legacyResponse = JSON.parse(row.response_json) as Record<string, unknown>;
+      delete legacyRequest.lockPriceAtOneDollar;
+      delete legacyResponse.lockPriceAtOneDollar;
+      delete legacyResponse.currentPriceMicros;
+      state.storage.sql.exec("UPDATE processed_command SET request_json = ?, response_json = ? WHERE id = 'quote'", JSON.stringify(legacyRequest), JSON.stringify(legacyResponse));
+    });
+    expect(await send(slug, quoteRequest)).toEqual(quote);
     const execute: PoolCommand = { type: "ExecuteShareOrder", commandId: "order", actorId: "owner", seasonId: "s1", memberId: "member", mode: "value", amountMicros: "5000000", lockPriceAtOneDollar: false, quote: { priceMicros: String(quote.priceMicros), commandVersion: String(quote.commandVersion) }, reason: "initial virtual shares" };
     const executed = await send(slug, execute);
     expect(executed).toMatchObject({ sharesMicros: "5000000", valueMicros: "5000000" });

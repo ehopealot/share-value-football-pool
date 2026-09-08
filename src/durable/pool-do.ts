@@ -55,7 +55,7 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
   const { announcement: _announcement, ...legacy } = command;
   return canonical(legacy);
 };
-const legacyShareOrderRequestFingerprint = (command: Extract<PoolCommand, { type: "ExecuteShareOrder" }>) => {
+const legacyShareOrderRequestFingerprint = (command: Extract<PoolCommand, { type: "QuoteShareOrder" | "ExecuteShareOrder" }>) => {
   const { lockPriceAtOneDollar: _lockPriceAtOneDollar, ...legacy } = command;
   return canonical(legacy);
 };
@@ -118,9 +118,11 @@ export class PoolDO {
     const isRead = isReadCommand(command);
     if (previous && !isRead) {
       const legacyPostReplay = command.type === "CreateMessageBoardPost" && !command.announcement && previous.request_json === legacyPostRequestFingerprint(command);
-      const legacyShareOrderReplay = command.type === "ExecuteShareOrder" && !command.lockPriceAtOneDollar && previous.request_json === legacyShareOrderRequestFingerprint(command);
+      const legacyShareOrderReplay = (command.type === "QuoteShareOrder" || command.type === "ExecuteShareOrder") && !command.lockPriceAtOneDollar && previous.request_json === legacyShareOrderRequestFingerprint(command);
       if (previous.type !== command.type || previous.actor_id !== actorId(command) || (previous.request_json !== requestFingerprint(command, commandAuthenticatorKey) && !legacyPostReplay && !legacyShareOrderReplay)) throw new Error("IDEMPOTENCY_CONFLICT");
       const response = JSON.parse(String(previous.response_json)) as Record<string, unknown>;
+      // Legacy quote responses predate the explicit unlocked mode and current-price comparison fields.
+      if (command.type === "QuoteShareOrder" && legacyShareOrderReplay) return { ...response, currentPriceMicros: response.priceMicros, lockPriceAtOneDollar: false } as unknown as PoolCommandResult;
       // External notifications need to distinguish newly committed actions from idempotent replays.
       if (command.type === "CreateMessageBoardPost") return { ...response, ...(typeof response.postId === "string" ? {} : { isAnnouncement: false }), replayed: true } as unknown as PoolCommandResult;
       if (command.type === "ReplyToMessageBoardPost") return { ...response, replayed: true } as unknown as PoolCommandResult;
