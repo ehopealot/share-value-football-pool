@@ -19,8 +19,8 @@ describe("Yourfootballpool branding", () => {
     const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as { name: string };
     const wrangler = JSON.parse(readFileSync(resolve(root, "wrangler.jsonc"), "utf8")) as { name: string };
 
-    expect(rendered).toContain("Yourfootballpool");
-    expect(html).toContain("<title>Yourfootballpool</title>");
+    expect(rendered).toContain('<p class="site-name">Yourfootballpool.com</p>');
+    expect(html).toContain("<title>Yourfootballpool.com</title>");
     expect(manifest.name).toBe("office-pool-reborn");
     expect(wrangler.name).toBe("office-pool-reborn");
   });
