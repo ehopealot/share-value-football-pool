@@ -77,7 +77,8 @@ describe("Standings week picker", () => {
     const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
     expect(styles).toContain(".standings-weekly-table { width: 100%; table-layout: fixed; }");
     expect(styles).toContain(".standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { overflow-wrap: anywhere; }");
-    expect(styles).toContain(".standings-weekly-table td:nth-child(3), .standings-weekly-table td:nth-child(4) { white-space: nowrap;");
+    expect(styles).toContain(".standings-weekly-table td:nth-child(3), .standings-weekly-table td:nth-child(4) { white-space: normal; overflow-wrap: anywhere;");
+    expect(styles).toContain(".standings-weekly-table th:nth-child(3), .standings-weekly-table th:nth-child(4) { text-align: right; }");
   });
 
   it("renders All weeks first and initializes the picker to it", () => {

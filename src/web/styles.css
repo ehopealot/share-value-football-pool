@@ -124,7 +124,8 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
   .standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { width: 39%; }
   .standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { overflow-wrap: anywhere; }
   .standings-weekly-table th:nth-child(3), .standings-weekly-table td:nth-child(3), .standings-weekly-table th:nth-child(4), .standings-weekly-table td:nth-child(4) { width: 25%; }
-  .standings-weekly-table td:nth-child(3), .standings-weekly-table td:nth-child(4) { white-space: nowrap; text-align: right; font-size: clamp(0.68rem, 3vw, 0.875rem); font-variant-numeric: tabular-nums; letter-spacing: -0.025em; }
+  .standings-weekly-table th:nth-child(3), .standings-weekly-table th:nth-child(4) { text-align: right; }
+  .standings-weekly-table td:nth-child(3), .standings-weekly-table td:nth-child(4) { white-space: normal; overflow-wrap: anywhere; text-align: right; font-size: clamp(0.68rem, 3vw, 0.875rem); font-variant-numeric: tabular-nums; letter-spacing: -0.025em; }
 }
 .corrections-page td { overflow-wrap: anywhere; vertical-align: top; }
 .corrections-page .activity-leg-push { color: var(--ink); }
