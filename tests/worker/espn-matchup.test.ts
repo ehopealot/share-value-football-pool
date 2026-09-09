@@ -2,6 +2,7 @@ import { applyD1Migrations, env } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
+import { RateLimiter } from "../../src/security/rate-limit";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 const origin = "https://pool.example.test";
@@ -56,6 +57,20 @@ describe("matchup details HTTP boundary", () => {
     const callsAfterFirst = fetcher.mock.calls.length;
     expect((await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/${activeEvent.id}`))).status).toBe(200);
     expect(fetcher).toHaveBeenCalledTimes(callsAfterFirst);
+  }, 90_000);
+
+  it("rate limits repeated member lookup requests before they amplify ESPN traffic", async () => {
+    const poolId = `limited-matchup-${crypto.randomUUID()}`; const slug = `limited-matchup-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug); await insertEvent();
+    const fetcher = espnFetcher();
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), matchupFetcher: fetcher, matchupDetailsLimiter: new RateLimiter(1, 60_000) });
+
+    expect((await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/${activeEvent.id}`))).status).toBe(200);
+    const calls = fetcher.mock.calls.length;
+    const limited = await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/${activeEvent.id}`));
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toEqual({ code: "RATE_LIMITED" });
+    expect(fetcher).toHaveBeenCalledTimes(calls);
   }, 90_000);
 
   it("does not expose a previous-week event even when its opaque event id is known", async () => {

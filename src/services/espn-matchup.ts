@@ -36,6 +36,8 @@ const teamAliasGroups = [
   ["Massachusetts Minutemen", "UMass Minutemen"],
   ["Miami Ohio RedHawks", "Miami OH RedHawks", "Miami (OH) RedHawks"],
   ["North Carolina State Wolfpack", "NC State Wolfpack"],
+  ["Pittsburgh Panthers", "Pitt Panthers"],
+  ["Florida International Panthers", "FIU Panthers"],
   ["Washington Football Team", "Washington Commanders"]
 ] as const;
 const canonicalAlias = new Map(teamAliasGroups.flatMap((group) => group.map((name) => [normalized(name), normalized(group[0])] as const)));
@@ -45,6 +47,13 @@ const gameDate = (startsAt: string): string | undefined => {
   const date = new Date(startsAt);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString().slice(0, 10);
 };
+/** ESPN groups late US games under the preceding local slate, so include both adjacent UTC days. */
+const scoreboardDateRange = (startsAt: string): string | undefined => {
+  const kickoff = new Date(startsAt);
+  if (Number.isNaN(kickoff.getTime())) return undefined;
+  const priorDay = new Date(kickoff.getTime() - 24 * 60 * 60 * 1000);
+  return [priorDay, kickoff].map((date) => date.toISOString().slice(0, 10).replaceAll("-", "")).join("-");
+};
 const cacheName = (name: string) => canonicalTeamName(name).replace(/ /g, "-");
 
 /** The cache identity includes every canonical source field that determines the ESPN game lookup. */
@@ -53,6 +62,11 @@ export const matchupCacheRequest = (input: EspnMatchupInput): Request => {
   return new Request(`https://espn-matchup-cache.invalid/${input.league}/${date}/${encodeURIComponent(`${cacheName(input.awayTeam)}__${cacheName(input.homeTeam)}`)}`);
 };
 
+const httpsUrl = (value: unknown): string | undefined => {
+  const url = asText(value);
+  if (!url) return undefined;
+  try { return new URL(url).protocol === "https:" ? url : undefined; } catch { return undefined; }
+};
 const recordSummary = (competitor: JsonObject): string | undefined => {
   const records = asArray(competitor.records) ?? [];
   for (const entry of records) {
@@ -64,9 +78,9 @@ const recordSummary = (competitor: JsonObject): string | undefined => {
 };
 const readCompetitor = (value: unknown): EspnCompetitor | undefined => {
   const competitor = asObject(value); const team = competitor && asObject(competitor.team);
-  const homeAway = competitor && asText(competitor.homeAway); const id = team && asText(team.id); const displayName = team && asText(team.displayName);
+  const homeAway = competitor && asText(competitor.homeAway); const id = team && asText(team.id); const displayName = team && asText(team.displayName); const logo = team && httpsUrl(team.logo);
   if (!competitor || !team || (homeAway !== "home" && homeAway !== "away") || !id || !displayName) return undefined;
-  return { homeAway, team: { id, displayName, ...(asText(team.logo) ? { logo: asText(team.logo) } : {}) }, ...(recordSummary(competitor) ? { record: recordSummary(competitor) } : {}) };
+  return { homeAway, team: { id, displayName, ...(logo ? { logo } : {}) }, ...(recordSummary(competitor) ? { record: recordSummary(competitor) } : {}) };
 };
 
 /** Returns an event only when exactly one ESPN candidate has the requested UTC date and both named sides. */
@@ -149,9 +163,9 @@ const cachedRecentResults = (value: unknown): EspnRecentResult[] | undefined => 
 const cachedTeam = (value: unknown): EspnMatchupTeam | undefined => {
   const team = asObject(value); const name = team && asText(team.name); const recentResults = team && cachedRecentResults(team.recentResults);
   if (!team || !name || !recentResults) return undefined;
-  const record = asText(team.record); const logo = asText(team.logo);
+  const record = asText(team.record); const logo = httpsUrl(team.logo);
   if (team.record !== undefined && !record) return undefined;
-  if (team.logo !== undefined && (!logo || !logo.startsWith("https://"))) return undefined;
+  if (team.logo !== undefined && !logo) return undefined;
   return { name, ...(record ? { record } : {}), ...(logo ? { logo } : {}), recentResults };
 };
 const cachedMatchup = (value: unknown): EspnMatchup | undefined => {
@@ -182,9 +196,9 @@ export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: E
   const key = matchupCacheRequest(input); const fromCache = await readCache(dependencies.cache, key);
   if (fromCache) return { status: "ok", matchup: fromCache };
   const fetcher = dependencies.fetcher ?? fetch;
-  const date = gameDate(input.startsAt);
-  if (!date) return { status: "not-found" };
-  const scoreboard = await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/scoreboard?dates=${date.replaceAll("-", "")}`);
+  const date = gameDate(input.startsAt); const dates = scoreboardDateRange(input.startsAt);
+  if (!date || !dates) return { status: "not-found" };
+  const scoreboard = await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/scoreboard?dates=${dates}`);
   if (!scoreboard || !asArray(asObject(scoreboard)?.events)) return { status: "upstream-unavailable" };
   const event = findEspnEvent(scoreboard, input);
   if (!event) return { status: "not-found" };
@@ -203,6 +217,7 @@ export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: E
     home: { name: event.home.team.displayName, ...(event.home.record ? { record: event.home.record } : {}), ...(event.home.team.logo ? { logo: event.home.team.logo } : {}), recentResults: scheduleResults(homeSchedule, event.home.team.id, input.startsAt) },
     seasonStats
   };
-  await writeCache(dependencies.cache, key, matchup);
+  // Keep the score/record view available during a partial ESPN outage, but retry it rather than caching an empty details page.
+  if (awayStats || homeStats || awaySchedule || homeSchedule) await writeCache(dependencies.cache, key, matchup);
   return { status: "ok", matchup };
 }

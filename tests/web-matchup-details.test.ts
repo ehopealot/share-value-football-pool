@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { MatchupDetails } from "../src/web/pages/MatchupDetailsPage";
+import { MatchupDetails, matchupUnavailableMessage } from "../src/web/pages/MatchupDetailsPage";
+import { ApiError } from "../src/web/api";
 import { OddsBoardTable, matchupDetailsAvailable, type GameRow } from "../src/web/pages/OddsPage";
 
 const game: GameRow = { eventId: "atl-pit", league: "nfl", startsAt: "2026-09-13T17:00:00.000Z", awayTeam: "Atlanta Falcons", homeTeam: "Pittsburgh Steelers", markets: { spread: {}, total: {}, moneyline: {} } };
@@ -37,6 +38,10 @@ describe("in-app matchup details", () => {
     expect(html).toContain('<th scope="col">Atlanta Falcons</th>');
     expect(html).toContain('<h2>Recent results</h2>');
     expect(html).toContain("W 24-17");
+  });
+
+  it("uses a truthful unavailable message when ESPN cannot match a current-week game", () => {
+    expect(matchupUnavailableMessage(new ApiError("MATCHUP_NOT_AVAILABLE", 404))).toBe("Matchup details aren't available for this game.");
   });
 
   it("keeps mobile matchup links and the detail comparison within the existing touch-friendly visual system", () => {

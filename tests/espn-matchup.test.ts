@@ -69,6 +69,18 @@ describe("ESPN matchup lookup", () => {
     expect(cache.entries.get(matchupCacheRequest(input).url)).toBeDefined();
   });
 
+  it("queries the preceding UTC day through kickoff day so late US slates are discoverable", async () => {
+    const lateGame = { ...input, startsAt: "2025-09-08T00:20:00.000Z" };
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) return responseFor({ events: value.includes("dates=20250907-20250908") ? [game({ date: lateGame.startsAt })] : [] });
+      return responseFor({ results: { stats: { categories: [] } }, events: [] });
+    });
+
+    await expect(lookupEspnMatchup(lateGame, { fetcher })).resolves.toMatchObject({ status: "ok", matchup: { startsAt: lateGame.startsAt } });
+    expect(fetcher.mock.calls[0]![0]).toContain("dates=20250907-20250908");
+  });
+
   it("reads the cached blob before requesting ESPN and keys it by league, both teams, and game date", async () => {
     const cache = new MemoryCache();
     await lookupEspnMatchup(input, { fetcher: successfulFetcher(), cache });
@@ -106,6 +118,19 @@ describe("ESPN matchup lookup", () => {
     expect((await lookupEspnMatchup({ ...college, awayTeam: "USC Trojans", homeTeam: "Pittsburgh Steelers" }, { fetcher })).status).toBe("not-found");
   });
 
+  it("supports verified Pitt and FIU aliases without loosening the exact-side gate", async () => {
+    const college: EspnMatchupInput = { league: "ncaaf", startsAt: input.startsAt, awayTeam: "Pitt Panthers", homeTeam: "FIU Panthers" };
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).includes("scoreboard")) return responseFor({ results: { stats: { categories: [] } }, events: [] });
+      return responseFor({ events: [game({ competitions: [{ competitors: [
+        { homeAway: "away", team: team("away", "Pittsburgh Panthers"), records: [] },
+        { homeAway: "home", team: team("home", "Florida International Panthers"), records: [] }
+      ] }] })] });
+    });
+
+    await expect(lookupEspnMatchup(college, { fetcher })).resolves.toMatchObject({ status: "ok", matchup: { away: { name: "Pittsburgh Panthers" }, home: { name: "Florida International Panthers" } } });
+  });
+
   it("never selects an ambiguous or reversed ESPN event", async () => {
     const fetcher = vi.fn(async () => responseFor({ events: [game(), game()] }));
     const reversed = vi.fn(async () => responseFor({ events: [game({ competitions: [{ competitors: [
@@ -115,6 +140,31 @@ describe("ESPN matchup lookup", () => {
 
     await expect(lookupEspnMatchup(input, { fetcher })).resolves.toEqual({ status: "not-found" });
     await expect(lookupEspnMatchup(input, { fetcher: reversed })).resolves.toEqual({ status: "not-found" });
+  });
+
+  it("does not cache a hollow matchup when every optional ESPN team request fails", async () => {
+    const cache = new MemoryCache();
+    const fetcher = vi.fn(async (url: string | URL | Request) => String(url).includes("scoreboard") ? responseFor({ events: [game()] }) : responseFor({ message: "down" }, { status: 503 }));
+
+    await expect(lookupEspnMatchup(input, { fetcher, cache })).resolves.toMatchObject({ status: "ok", matchup: { away: { record: "1-0" }, home: { record: "0-1" }, seasonStats: [], } });
+    expect(cache.entries.get(matchupCacheRequest(input).url)).toBeUndefined();
+  });
+
+  it("omits non-HTTPS fresh ESPN logos before they reach the browser or cache", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("scoreboard")) return responseFor({ events: [game({ competitions: [{ competitors: [
+        { homeAway: "away", team: { ...team("away", "Atlanta Falcons"), logo: "http://images.example/away.png" }, records: [] },
+        { homeAway: "home", team: { ...team("home", "Pittsburgh Steelers"), logo: "javascript:unexpected" }, records: [] }
+      ] }] })] });
+      return responseFor({ results: { stats: { categories: [] } }, events: [] });
+    });
+
+    const result = await lookupEspnMatchup(input, { fetcher });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.matchup.away.logo).toBeUndefined();
+      expect(result.matchup.home.logo).toBeUndefined();
+    }
   });
 
   it("reports an unavailable ESPN upstream without leaking a partial or stale matchup", async () => {

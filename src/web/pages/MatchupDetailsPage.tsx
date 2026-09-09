@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { type EspnMatchupResponse } from "../../contracts/http";
-import { ApiError, api } from "../api";
+import { api } from "../api";
 import { Layout } from "../components/Layout";
 import { formatKickoff } from "../odds-format";
 
-const unavailableMessage = (error: unknown) => error instanceof ApiError && error.code === "MATCHUP_NOT_AVAILABLE"
-  ? "Matchup details are available only for games in the current week."
-  : "Matchup details are unavailable right now. Please try again later.";
+/** A missing ESPN event and an inactive-week event share this safe, accurate member-facing state. */
+export const matchupUnavailableMessage = (_error: unknown) => "Matchup details aren't available for this game.";
 
 /** Side-by-side ESPN facts stay readable when an upstream field is unavailable. */
 export function MatchupDetails({ matchup }: { matchup: EspnMatchupResponse }) {
@@ -28,7 +27,7 @@ export function MatchupDetailsPage() {
   const [matchup, setMatchup] = useState<EspnMatchupResponse>(); const [error, setError] = useState("");
   useEffect(() => {
     let active = true; setMatchup(undefined); setError("");
-    void api.matchup(slug, eventId).then((loaded) => { if (active) setMatchup(loaded); }).catch((reason) => { if (active) setError(unavailableMessage(reason)); });
+    void api.matchup(slug, eventId).then((loaded) => { if (active) setMatchup(loaded); }).catch((reason) => { if (active) setError(matchupUnavailableMessage(reason)); });
     return () => { active = false; };
   }, [slug, eventId]);
   const back = <p className="matchup-details-back"><Link to={`/p/${slug}/odds`}>Back to odds board</Link></p>;
