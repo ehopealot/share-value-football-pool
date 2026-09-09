@@ -114,7 +114,18 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .bet-slip-error { min-height: 1.45rem; margin: var(--space-1) 0 0; color: #9b1c1c; font-weight: 700; }
 .main-content:has(.standings-page) { max-width: none; }
 /* Mobile standings stay more spacious than the Activity / My Bets tables. */
-@media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }
+@media (max-width: 600px) {
+  .standings-page table { font-size: 0.875rem; }
+  .standings-page th, .standings-page td { padding: 0.35rem; }
+  /* Four weekly metrics use the content width instead of retaining the all-weeks scroll layout. */
+  .standings-weekly-table { width: 100%; table-layout: fixed; }
+  .standings-weekly-table th, .standings-weekly-table td { padding-inline: 0.25rem; }
+  .standings-weekly-table th:nth-child(1), .standings-weekly-table td:nth-child(1) { width: 11%; }
+  .standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { width: 39%; }
+  .standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { overflow-wrap: anywhere; }
+  .standings-weekly-table th:nth-child(3), .standings-weekly-table td:nth-child(3), .standings-weekly-table th:nth-child(4), .standings-weekly-table td:nth-child(4) { width: 25%; }
+  .standings-weekly-table td:nth-child(3), .standings-weekly-table td:nth-child(4) { white-space: nowrap; text-align: right; font-size: clamp(0.68rem, 3vw, 0.875rem); font-variant-numeric: tabular-nums; letter-spacing: -0.025em; }
+}
 .corrections-page td { overflow-wrap: anywhere; vertical-align: top; }
 .corrections-page .activity-leg-push { color: var(--ink); }
 .correction-wager-meta, .correction-wager-id, .correction-wager-leg > small { display: block; }

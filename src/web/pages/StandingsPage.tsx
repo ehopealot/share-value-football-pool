@@ -33,6 +33,12 @@ export function sortStandings(standings: Standings, sort: StandingsSort): Standi
 }
 
 const standingsHeaders: Array<[StandingsSortKey, string]> = [["rank", "Rank"], ["displayName", "Member"], ["lockedMicros", "Locked"], ["totalMicros", "Total"], ["notionalValueMicros", "Notional value"], ["gainMicros", "SVG"], ["riskedMicros", "Risked"]];
+const weeklyStandingsHeaders = standingsHeaders.filter(([key]) => key === "rank" || key === "displayName" || key === "gainMicros" || key === "riskedMicros");
+
+/** A weekly view cannot retain a sort for a holding column it does not show. */
+export function standingsSortForView(sort: StandingsSort, weekly: boolean): StandingsSort {
+  return weekly && !weeklyStandingsHeaders.some(([key]) => key === sort.key) ? defaultStandingsSort : sort;
+}
 
 /** A week changes only the two period metrics; rank and holdings remain season-wide. */
 export function standingsForWeek(standings: Standings, weeklyChanges: WeeklyChanges, weekStart: string | undefined): Standings {
@@ -44,9 +50,11 @@ export function standingsForWeek(standings: Standings, weeklyChanges: WeeklyChan
   });
 }
 
-export function StandingsTable({ standings, memberProfilePath }: { standings: Standings; memberProfilePath?: (userId: string) => string }) {
+export function StandingsTable({ standings, memberProfilePath, weekly = false }: { standings: Standings; memberProfilePath?: (userId: string) => string; weekly?: boolean }) {
   const [sort, setSort] = useState(defaultStandingsSort);
-  return <section className="table-ribbon-section"><h2 className="table-ribbon">Active season holdings</h2><div className="table-scroll" tabIndex={0}><table><thead><tr>{standingsHeaders.map(([key, label]) => <th key={key} aria-sort={sort.key === key ? sort.ascending ? "ascending" : "descending" : "none"}><button type="button" className="standings-sort" onClick={() => setSort(toggleStandingsSort(sort, key))}>{label}</button></th>)}</tr></thead><tbody>{sortStandings(standings, sort).map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{memberProfilePath ? <Link to={memberProfilePath(row.userId)}>{row.displayName}</Link> : row.displayName}</th><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td><td className={parseIntegerText(row.gainMicros) < 0n ? "activity-leg-loss" : parseIntegerText(row.gainMicros) > 0n ? "activity-leg-win" : "activity-leg-push"}>{shares(row.gainMicros)}</td><td>{shares(row.riskedMicros)}</td></tr>)}</tbody></table></div></section>;
+  const visibleSort = standingsSortForView(sort, weekly);
+  const headers = weekly ? weeklyStandingsHeaders : standingsHeaders;
+  return <section className="table-ribbon-section"><h2 className="table-ribbon">Active season holdings</h2><div className="table-scroll" tabIndex={0}><table className={`standings-table${weekly ? " standings-weekly-table" : ""}`}><thead><tr>{headers.map(([key, label]) => <th key={key} aria-sort={visibleSort.key === key ? visibleSort.ascending ? "ascending" : "descending" : "none"}><button type="button" className="standings-sort" onClick={() => setSort(toggleStandingsSort(visibleSort, key))}>{label}</button></th>)}</tr></thead><tbody>{sortStandings(standings, visibleSort).map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{memberProfilePath ? <Link to={memberProfilePath(row.userId)}>{row.displayName}</Link> : row.displayName}</th>{!weekly && <><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td></>}<td className={parseIntegerText(row.gainMicros) < 0n ? "activity-leg-loss" : parseIntegerText(row.gainMicros) > 0n ? "activity-leg-win" : "activity-leg-push"}>{shares(row.gainMicros)}</td><td>{shares(row.riskedMicros)}</td></tr>)}</tbody></table></div></section>;
 }
 
 export function StandingsPage() {
@@ -75,7 +83,7 @@ function StandingsPageBody({ slug }: { slug: string }) {
   const week = data.weeklyChanges.some((period) => period.weekStart === selectedWeek) ? selectedWeek : undefined;
   const displayedStandings = standingsForWeek(data.standings, data.weeklyChanges, week);
   return <Layout><div className="standings-page"><h1>Standings</h1><p className="pool-context">Current share value: <strong>{shareValue}</strong>{noIssuedShares && <> · No shares issued yet; first order price is $1.00 per share.</>}</p>
-    {data.standings.length ? <><label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{data.weeklyChanges.map((period) => <option key={period.weekStart} value={period.weekStart}>{weekNumberLabel(period.weekStart)}</option>)}</select></label><StandingsTable standings={displayedStandings} memberProfilePath={(userId) => `/p/${slug}/member/${userId}`} /></> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
+    {data.standings.length ? <><label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{data.weeklyChanges.map((period) => <option key={period.weekStart} value={period.weekStart}>{weekNumberLabel(period.weekStart)}</option>)}</select></label><StandingsTable standings={displayedStandings} weekly={week !== undefined} memberProfilePath={(userId) => `/p/${slug}/member/${userId}`} /></> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }
