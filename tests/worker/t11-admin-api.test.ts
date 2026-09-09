@@ -62,7 +62,14 @@ describe("T11 member read boundaries over the Worker API", () => {
       standings: [
         { rank: 1, userId: "member", displayName: "Member", availableMicros: "1000000", lockedMicros: "1000000", totalMicros: "2000000", priceMicros: "1000000", notionalValueMicros: "2000000", gainMicros: "0", riskedMicros: "1000000" },
         { rank: 2, userId: "owner", displayName: "Owner", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }
-      ]
+      ],
+      weeklyChanges: [{
+        weekStart: expect.any(String),
+        members: [
+          { userId: "member", gainMicros: "0", riskedMicros: "1000000" },
+          { userId: "owner", gainMicros: "0", riskedMicros: "0" }
+        ]
+      }]
     });
 
     const memberActivity = await member.fetch(request(`/api/p/${slug}/activity`, undefined, "GET"));

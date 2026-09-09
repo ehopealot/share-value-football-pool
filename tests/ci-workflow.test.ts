@@ -69,6 +69,14 @@ describe("GitHub Actions CI and production deployment", () => {
     expect(deploy).not.toContain("e2e");
   });
 
+  it("removes the unrelated Chrome apt source before installing Playwright dependencies", () => {
+    const e2e = jobSource(workflowSource(), "e2e", "deploy");
+    const remove = "sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources";
+    expect(e2e).toContain(remove);
+    expect(e2e.indexOf(remove)).toBeLessThan(e2e.indexOf("./node_modules/.bin/playwright install --with-deps chromium"));
+    expect(e2e).not.toMatch(/--allow-unauthenticated|AllowInsecureRepositories/);
+  });
+
   it("deploys only successful main pushes with scoped credentials, migrations, and a health retry", () => {
     const workflow = workflowSource();
     const deploy = jobSource(workflow, "deploy");
