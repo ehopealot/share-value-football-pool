@@ -1,5 +1,5 @@
 import { isValidElement, type ReactElement, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadMyWagers } from "../src/contracts/http";
 import { MemberActivitySection } from "../src/web/pages/ActivityPage";
 import { MyWagersPage } from "../src/web/pages/MyWagersPage";
@@ -22,7 +22,13 @@ function tableBodies(node: ReactNode): ReactElement<{ children: ReactElement[] }
   return tableBodies(node.props.children);
 }
 
-const weekStart = "2026-09-01T04:00:00.000Z";
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-06T20:00:00.000Z"));
+});
+afterEach(() => vi.useRealTimers());
+
+const weekStart = "2026-09-01T07:00:00.000Z";
 const wager = (wagerId: string, legs: Array<{ eventStartsAt: string; grade: string | null }>) => ({
   wagerId, legs, weekStart, memberId: "member", memberDisplayName: "Member", type: "parlay", status: "open",
   confirmedAt: "2026-09-01T00:00:00.000Z", performanceMicros: "0"
