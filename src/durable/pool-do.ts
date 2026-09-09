@@ -551,7 +551,9 @@ export class PoolDO {
 
     return weeks.reverse().map((weekStart) => {
       const start = weekStart.toISOString();
-      const end = weekStart.getTime() === currentWeek.getTime() ? asOf.toISOString() : nextWeekStart(weekStart).toISOString();
+      // Stored timestamps have millisecond precision. Advance only the live cutoff so
+      // entries committed at asOf are included; completed weeks remain [start, nextStart).
+      const end = weekStart.getTime() === currentWeek.getTime() ? new Date(asOf.getTime() + 1).toISOString() : nextWeekStart(weekStart).toISOString();
       const startGains = gainsAt(start); const endGains = gainsAt(end);
       const risked = new Map<string, bigint>();
       for (const wager of wagers) {

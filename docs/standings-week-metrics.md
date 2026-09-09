@@ -4,7 +4,7 @@ The Standings week picker defaults to **All weeks**. A selected Tuesday–Monday
 
 ## Accounting interpretation
 
-Weekly windows are timestamp windows: the Pacific week start is inclusive and the next Pacific week start is exclusive. The current week ends at the authoritative Pool Durable Object read time (week-to-date).
+Weekly windows are timestamp windows: the Pacific week start is inclusive and the next Pacific week start is exclusive. The current week includes entries timestamped exactly at the authoritative Pool Durable Object read time (week-to-date). Because stored timestamps have millisecond precision, its exclusive query cutoff is one millisecond after that read time; future entries remain excluded.
 
 - **Risked** is the sum of stakes for wagers whose authoritative `confirmed_at` falls in the window and whose current status is not `refunded`. This mirrors the season-wide Risked rule. It uses placement time, not wager kickoff time, and publishes only a per-member aggregate—never selections or legs.
 - **SVG** is `SVG(at window end) - SVG(at window start)`. Each boundary snapshot is reconstructed from immutable accounting timestamps: member holdings and pool float/notional come from `ledger_entry`; member issued basis comes from `share_order`; the boundary share price and holding value use the same round-half-even calculations as season standings. This captures all authoritative value change during the window, including pool repricing caused by settlements, rather than treating wager kickoff P&L as accounting gain.

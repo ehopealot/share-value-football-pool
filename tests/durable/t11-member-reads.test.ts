@@ -149,6 +149,24 @@ describe("T11 authoritative member reads", () => {
     expect(result.standings.map((row: any) => [row.userId, row.rank, row.gainMicros, row.riskedMicros])).toEqual([
       ["a", 1, "4444443", "6000000"], ["owner", 2, "0", "0"], ["b", 3, "-4444445", "3000000"]
     ]);
+
+    // Reading at the exact current-week boundary includes its committed settlement/stake,
+    // without also attributing those entries to the completed previous week.
+    await runInDurableObject(pools.get(pools.idFromName(slug)), (instance) => {
+      (instance as unknown as { authoritativeTime(): Date }).authoritativeTime = () => new Date(currentAt);
+    });
+    const atBoundary = await send(slug, { type: "ReadStandings", commandId: "read-at-boundary", actorId: "owner" });
+    expect(atBoundary.weeklyChanges).toEqual(result.weeklyChanges);
+
+    // A future timestamp just one millisecond later must still be excluded.
+    await storage(slug, (state) => {
+      const afterRead = new Date(currentStart.getTime() + 1).toISOString();
+      state.storage.sql.exec("UPDATE ledger_entry SET created_at = ? WHERE id = 'current-win'", afterRead);
+      state.storage.sql.exec("UPDATE wager SET confirmed_at = ? WHERE id = 'boundary-current'", afterRead);
+    });
+    const beforeFuture = await send(slug, { type: "ReadStandings", commandId: "read-before-future", actorId: "owner" });
+    expect(beforeFuture.weeklyChanges[0].members.every((member: any) => member.gainMicros === "0" && member.riskedMicros === "0")).toBe(true);
+    expect(beforeFuture.weeklyChanges[1]).toEqual(result.weeklyChanges[1]);
   }, 90_000);
 
   it("orders zero-basis standings by holdings, then earliest attainment, then display name", async () => {
