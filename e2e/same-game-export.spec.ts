@@ -67,7 +67,10 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   const authorizedLeague = (await authorizedCells.nth(4).innerText()).trim();
   expect(authorizedEventId).toBe("local-nfl-upcoming");
   expect(authorizedLeague).toBe("nfl");
-  await expect(authorizedRow).not.toContainText(/Local Away|Local Home|spread|total|over/i);
+  await expect(authorizedRow).toContainText("Local Away");
+  await expect(authorizedRow).toContainText("Local Home");
+  await expect(authorizedRow).toContainText("(+3)");
+  await expect(authorizedRow).toContainText("O39.5");
   const correctedResults = [{ eventId: authorizedEventId, league: authorizedLeague, status: "final", homeScore: 17, awayScore: 24, correctionVersion: "official-2" }];
   await page.getByLabel("Reason").fill("Official correction");
   await page.getByLabel("Corrected event results").fill(JSON.stringify(correctedResults));

@@ -39,6 +39,14 @@ const canonical = (value: unknown) => JSON.stringify(value);
 const placementTerms = (value: { wagerId: string; quoteKey: string; seasonId: string; riskMicros: string; acceptedOdds: number; rulesetVersion: string; leg?: unknown; teaserPoints?: number; legs?: unknown }) => value.leg !== undefined
   ? { wagerId: value.wagerId, quoteKey: value.quoteKey, seasonId: value.seasonId, riskMicros: value.riskMicros, acceptedOdds: value.acceptedOdds, rulesetVersion: value.rulesetVersion, leg: value.leg }
   : { wagerId: value.wagerId, quoteKey: value.quoteKey, seasonId: value.seasonId, riskMicros: value.riskMicros, acceptedOdds: value.acceptedOdds, teaserPoints: value.teaserPoints, rulesetVersion: value.rulesetVersion, legs: value.legs };
+const assertStoredPlacementQuote = (sql: SqlStorage, command: Extract<PoolCommand, { type: "PlaceStraightWager" | "PlaceTeaserWager" | "PlaceParlayWager" }>) => {
+  const quote = first(sql, "SELECT wager_id, kind, terms_json, command_version FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.quoteKey);
+  if (!quote) throw new Error("LINE_CHANGED");
+  const kind = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";
+  if (quote.kind !== kind || String(quote.wager_id) !== command.wagerId) throw new Error("LINE_CHANGED");
+  if (command.quotedCommandVersion !== String(quote.command_version)) throw new Error("ORDER_QUOTE_STALE");
+  if (canonical(placementTerms(command)) !== String(quote.terms_json)) throw new Error("LINE_CHANGED");
+};
 const requestFingerprint = (command: PoolCommand, commandAuthenticatorKey?: string) => {
   const authenticate = (password: string) => {
     if (!commandAuthenticatorKey) throw new Error("POOL_NOT_INITIALIZED");
@@ -234,7 +242,11 @@ export class PoolDO {
       const candidate = poolCommandSchema.safeParse(command.placement);
       if (!candidate.success || (candidate.data.type !== "PlaceStraightWager" && candidate.data.type !== "PlaceTeaserWager" && candidate.data.type !== "PlaceParlayWager") || candidate.data.actorId !== command.actorId) throw new Error("INVALID_PLACEMENT_REPLAY_PROBE");
       const previousPlacement = first(sql, "SELECT type, actor_id, request_json, response_json FROM processed_command WHERE id = ?", candidate.data.commandId);
-      if (!previousPlacement) return { commandVersion: String(pool.command_version), replayed: false };
+      if (!previousPlacement) {
+        // Reject invented or tampered quotes before the Worker spends provider quota.
+        assertStoredPlacementQuote(sql, candidate.data);
+        return { commandVersion: String(pool.command_version), replayed: false };
+      }
       if (previousPlacement.type !== candidate.data.type || previousPlacement.actor_id !== candidate.data.actorId || previousPlacement.request_json !== requestFingerprint(candidate.data, this.env.POOL_COMMAND_AUTHENTICATOR_KEY)) throw new Error("IDEMPOTENCY_CONFLICT");
       return { commandVersion: String(pool.command_version), replayed: true, response: JSON.parse(String(previousPlacement.response_json)) };
     }
@@ -271,12 +283,7 @@ export class PoolDO {
       return snapshot;
     }
     if (command.type === "PlaceStraightWager" || command.type === "PlaceTeaserWager" || command.type === "PlaceParlayWager") {
-      const quote = first(sql, "SELECT wager_id, kind, terms_json, command_version FROM wager_quote WHERE actor_id = ? AND quote_key = ?", command.actorId, command.quoteKey);
-      if (!quote) throw new Error("LINE_CHANGED");
-      const kind = command.type === "PlaceStraightWager" ? "straight" : command.type === "PlaceTeaserWager" ? "teaser" : "parlay";
-      if (quote.kind !== kind || String(quote.wager_id) !== command.wagerId) throw new Error("LINE_CHANGED");
-      if (command.quotedCommandVersion !== String(quote.command_version)) throw new Error("ORDER_QUOTE_STALE");
-      if (canonical(placementTerms(command)) !== String(quote.terms_json)) throw new Error("LINE_CHANGED");
+      assertStoredPlacementQuote(sql, command);
       // Exact immutable terms can be atomically rebased onto current pool state; placeWager rechecks every mutable constraint.
       const result = placeWager(sql, command);
       return { ...result, commandVersion: this.bumpVersion(sql) };

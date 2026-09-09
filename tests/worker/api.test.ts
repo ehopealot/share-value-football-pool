@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
 import { selectionForOutcome } from "../../src/web/selection-matcher";
 import { poolCommandSchema } from "../../src/durable/pool-commands";
+import { RateLimiter } from "../../src/security/rate-limit";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 let migrated = false;
@@ -600,7 +601,53 @@ describe("later wager and member HTTP API", () => {
     }
   }, 180_000);
 
-  it("uses quote-first HTTP teaser D1 revalidation for every adjustment direction", async () => {
+  it.each(["unchanged", "changed", "timeout", "superseded-changed", "superseded-unchanged"] as const)("checks live odds before teaser placement: %s", async (outcome) => {
+    const poolId = `api-live-${crypto.randomUUID()}`; const slug = `api-live-${outcome}`;
+    await setupPool(poolId, slug);
+    const fundingQuote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "fund-live-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000" })).json() as { priceMicros: string; commandVersion: string };
+    await send(poolId, { type: "ExecuteShareOrder", commandId: "fund-live", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000", quote: fundingQuote, reason: "live odds fixture" });
+    const payload = (line: number) => JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: line }, { name: "Away", price: -110, point: -line }] });
+    for (const id of ["live-one", "live-two"]) {
+      await bindings.DB.prepare("INSERT INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, correction_version) VALUES (?, ?, 'nfl', 'Home', 'Away', '2099-09-10T20:00:00.000Z', 'scheduled', '1')").bind(id, id).run();
+      await bindings.DB.prepare("INSERT INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, 'spread', 'DraftKings', ?, 'v1', ?)").bind(id, new Date().toISOString(), payload(-3)).run();
+    }
+    const refreshPlacementOdds = vi.fn(async () => {
+      if (outcome === "timeout") throw new DOMException("Timed out", "TimeoutError");
+      if (outcome.startsWith("superseded")) return ["live-one", "live-two"].map(id => ({
+        id, sport: "nfl" as const, homeTeam: "Home", awayTeam: "Away", commenceTime: "2099-09-10T20:00:00.000Z", status: "scheduled" as const,
+        bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spread" as const, outcomes: JSON.parse(payload(outcome === "superseded-changed" && id === "live-one" ? -4 : -3)).outcomes }] }]
+      }));
+      await bindings.DB.prepare("UPDATE market_offer SET offer_version = 'live', payload_json = ? WHERE event_id = 'live-one'").bind(payload(outcome === "changed" ? -4 : -3)).run();
+    });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds, placementRefreshLimiter: new RateLimiter(1) });
+    const legs = ["live-one", "live-two"].map(eventId => ({ eventId, canonicalBook: "DraftKings", market: "spread", selection: "home", offerVersion: "v1", canonicalOfferProof: { offerId: `${eventId}:spread:home` } }));
+    const quoted = await quoteAndPlace(app, slug, "teasers", { wagerId: "live-wager", seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs }, "live-place");
+    expect(refreshPlacementOdds).not.toHaveBeenCalled();
+    // Invalid quote requests must not spend provider quota or consume the limiter.
+    for (const invalid of [{ ...quoted.placement, quoteKey: "nonexistent" }, { ...quoted.placement, riskMicros: "2000000" }]) {
+      const rejected = await app.fetch(request(`/api/p/${slug}/wagers/teasers/place`, invalid));
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toMatchObject({ code: "LINE_CHANGED" });
+      expect(refreshPlacementOdds).not.toHaveBeenCalled();
+    }
+    const response = await quoted.place();
+    expect(refreshPlacementOdds).toHaveBeenCalledExactlyOnceWith(["nfl"]);
+    if (outcome === "changed" || outcome === "superseded-changed") {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "LINE_CHANGED", replacement: { legs: expect.arrayContaining([expect.objectContaining({ eventId: "live-one", originalLine: -4 })]) } });
+      expect(await (await app.fetch(request(`/api/p/${slug}/wagers`, undefined, "GET"))).text()).not.toContain("live-wager");
+      const throttled = await quoted.place();
+      expect(throttled.status).toBe(429);
+      expect(refreshPlacementOdds).toHaveBeenCalledTimes(1);
+    } else {
+      expect(response.status).toBe(200);
+      const accepted = await response.json();
+      expect(await (await quoted.place()).json()).toEqual(accepted);
+      expect(refreshPlacementOdds).toHaveBeenCalledTimes(1);
+    }
+  }, 90_000);
+
+  it("places unchanged teasers across feed refreshes and rejects changed lines in every adjustment direction", async () => {
     const poolId = `api-teaser-directions-${crypto.randomUUID()}`;
     const slug = "api-teaser-directions";
     await setupPool(poolId, slug);
@@ -628,8 +675,12 @@ describe("later wager and member HTTP API", () => {
       const input = { wagerId: `unchanged-${id}`, seasonId: "s1", riskMicros: "1000000", teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [leg(id, initial, selection), leg(other, otherLine, selection)] };
       const unchanged = await quoteAndPlace(app, slug, "teasers", input, `unchanged-${id}`);
       expect(unchanged.quote).toMatchObject({ legs: expect.arrayContaining([expect.objectContaining({ eventId: id, originalLine: initial, adjustedLine: adjusted })]) });
-      expect((await unchanged.place()).status).toBe(200);
       const altered = await quoteAndPlace(app, slug, "teasers", { ...input, wagerId: `changed-${id}` }, `changed-${id}`);
+      // Polling replaces the retrieval timestamp and offer version, even with identical outcomes.
+      await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ?, offer_version = 'refreshed' WHERE event_id IN (?, ?)").bind(new Date(Date.parse(retrievedAt) + 1000).toISOString(), id, other).run();
+      const placed = await unchanged.place();
+      expect(await placed.json()).not.toMatchObject({ code: "LINE_CHANGED" });
+      expect(placed.status).toBe(200);
       const outcomes = market === "spread" ? [{ name: "Home", price: -110, point: selection === "home" ? changed : -changed }, { name: "Away", price: -110, point: selection === "away" ? changed : -changed }] : [{ name: "Over", price: -110, point: changed }, { name: "Under", price: -110, point: changed }];
       await bindings.DB.prepare("UPDATE market_offer SET offer_version = 'v2', payload_json = ? WHERE event_id = ? AND market = ?").bind(JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes }), id, market).run();
       const rejected = await altered.place(); expect(rejected.status).toBe(400);

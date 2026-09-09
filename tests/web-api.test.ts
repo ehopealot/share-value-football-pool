@@ -163,6 +163,23 @@ describe("wager placement status recovery", () => {
     expect(sleep).toHaveBeenNthCalledWith(2, 8_000);
   });
 
+  it("preserves the frozen placement identity through transport failure and throttling", async () => {
+    vi.useFakeTimers();
+    const body = { wagerId: "wager-1", quoteKey: "quote-1", mutationKey: "placement-1", commandId: "placement-1" };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("first response lost while placement is pending"))
+      .mockResolvedValueOnce(Response.json({ code: "RATE_LIMITED" }, { status: 429 }))
+      .mockResolvedValueOnce(Response.json({ wagerId: "wager-1" }));
+    try {
+      const placed = api.placeWager("pool", "/wagers/teasers/place", body).then(result => ({ result }), error => ({ error }));
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await placed).toEqual({ result: { wagerId: "wager-1" } });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      for (const [, init] of fetchMock.mock.calls) expect(init?.body).toBe(JSON.stringify(body));
+      expect(commandOutcome(new ApiError("RATE_LIMITED", 429))).toBe("retryable");
+    } finally { fetchMock.mockRestore(); vi.useRealTimers(); }
+  });
+
   it("stops status recovery when a replay gives a terminal placement result", async () => {
     let elapsed = 0;
     const sleep = vi.fn(async (milliseconds: number) => { elapsed += milliseconds; });

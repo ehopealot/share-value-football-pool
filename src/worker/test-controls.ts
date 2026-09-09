@@ -4,6 +4,7 @@ import { LOCAL_FIXTURE_EVENTS } from "../odds/fixtures/runtime";
 import { nextWeekStart, weekStartOf } from "../domain/betting-week";
 import { validateCanonicalMarket } from "../odds/market-semantics";
 import { ProjectionConsumer, durableProjectionSnapshotReader } from "../services/projections";
+import type { EventStatus, League, OddsProvider, ProviderEvent, ProviderPoll } from "../odds/types";
 
 const timestamp = z.string().datetime().refine((value) => Number.isFinite(new Date(value).getTime()));
 const currentTimeRequest = z.object({ poolSlug: z.string().min(1).max(64), currentTime: timestamp.nullable() });
@@ -15,6 +16,7 @@ const feedStateRequest = z.object({ state: z.enum(["current", "stale", "provider
 const seasonStateRequest = z.object({ poolSlug: z.string().min(1).max(64), state: z.literal("closed") });
 const expireSessionRequest = z.object({ userId: z.string().min(1).max(128) });
 const responseBarrierRequest = z.object({ mode: z.enum(["delay", "drop"]), delayMs: z.number().int().min(0).max(5_000).optional(), pathname: z.string().regex(/^\/api\/[^?#]+$/).optional() });
+const placementRefreshRequest = z.object({ mode: z.enum(["unchanged", "changed", "failure"]), changedAwayPoint: z.number().finite().optional() });
 
 /** A local-only, one-use transport seam. It operates after the real handler completes. */
 export class LocalResponseBarrier {
@@ -49,6 +51,8 @@ export type LocalTestControls = {
   /** Fixture-only escape valve for a deliberately multi-account browser journey. */
   resetAuthLimiter?(): void;
   responseBarrier?: LocalResponseBarrier;
+  configurePlacementRefresh?(input: z.infer<typeof placementRefreshRequest>): Promise<{ configured: true }>;
+  placementRefreshStatus?(): Promise<{ calls: number; mode: string | null; pending: boolean }>;
 };
 
 const LOCAL_FIXTURE_MODE_PROVIDER = "local-fixture-mode";
@@ -156,6 +160,11 @@ export function installLocalTestControls(app: Hono, controls: LocalTestControls)
   });
   if (controls.mailbox) app.get("/__local-test/mailbox", async (c) => c.json(await controls.mailbox!()));
   if (controls.resetAuthLimiter) app.post("/__local-test/reset-auth-limiter", (c) => { controls.resetAuthLimiter!(); return c.json({ reset: true }); });
+  if (controls.configurePlacementRefresh) app.post("/__local-test/placement-refresh", async (c) => {
+    const parsed = placementRefreshRequest.safeParse(await c.req.json());
+    return parsed.success ? c.json(await controls.configurePlacementRefresh!(parsed.data)) : c.json({ code: "INVALID_LOCAL_CONTROL" }, 400);
+  });
+  if (controls.placementRefreshStatus) app.get("/__local-test/placement-refresh", async (c) => c.json(await controls.placementRefreshStatus!()));
   const responseBarrier = controls.responseBarrier;
   if (responseBarrier) app.post("/__local-test/response-barrier", async (c) => {
     const parsed = responseBarrierRequest.safeParse(await c.req.json());
@@ -240,6 +249,11 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
       if (!response.ok) throw new Error("LOCAL_SEASON_CLOSE_FAILED");
       return { closed: true };
     },
+    async configurePlacementRefresh(input) {
+      await configureLocalPlacementRefresh(db, input);
+      return { configured: true };
+    },
+    placementRefreshStatus: () => localPlacementRefreshStatus(db),
     async expireSession({ userId }) {
       // Better Auth's D1 adapter stores timestamp columns in seconds. Epoch zero is
       // unambiguously outside the fifteen-minute production recent-auth window.
@@ -262,4 +276,70 @@ export function localFixtureControls(db: D1Database, pools: DurableObjectNamespa
       return { settled: true };
     }
   };
+}
+
+type LocalPlacementRefreshState = {
+  mode: z.infer<typeof placementRefreshRequest>["mode"];
+  changedAwayPoint?: number;
+  calls: number;
+  pending: boolean;
+};
+type LocalProviderEventRow = {
+  provider_event_id: string; league: League; home_team: string; away_team: string; starts_at: string;
+  status: EventStatus; home_score: string | null; away_score: string | null; event_name: string | null; postseason: number;
+};
+type LocalProviderOfferRow = { event_id: string; market: "spread" | "total" | "moneyline"; payload_json: string };
+const LOCAL_PLACEMENT_REFRESH_PROVIDER = "local-placement-refresh";
+const readLocalPlacementRefreshState = async (db: D1Database): Promise<LocalPlacementRefreshState | undefined> => {
+  const row = await db.prepare("SELECT cursor FROM odds_ingestion WHERE provider = ?").bind(LOCAL_PLACEMENT_REFRESH_PROVIDER).first<{ cursor: string | null }>();
+  if (!row?.cursor) return undefined;
+  try { return JSON.parse(row.cursor) as LocalPlacementRefreshState; } catch { return undefined; }
+};
+const writeLocalPlacementRefreshState = (db: D1Database, state: LocalPlacementRefreshState) => db.prepare("INSERT INTO odds_ingestion (provider, cursor) VALUES (?, ?) ON CONFLICT(provider) DO UPDATE SET cursor=excluded.cursor").bind(LOCAL_PLACEMENT_REFRESH_PROVIDER, JSON.stringify(state)).run();
+
+export async function configureLocalPlacementRefresh(db: D1Database, input: z.infer<typeof placementRefreshRequest>): Promise<void> {
+  await writeLocalPlacementRefreshState(db, { ...input, calls: 0, pending: true });
+}
+export async function localPlacementRefreshStatus(db: D1Database): Promise<{ calls: number; mode: string | null; pending: boolean }> {
+  const state = await readLocalPlacementRefreshState(db);
+  return { calls: state?.calls ?? 0, mode: state?.mode ?? null, pending: state?.pending ?? false };
+}
+
+/** One-shot provider controlled only by the loopback local composition. */
+export class LocalPlacementOddsProvider implements OddsProvider {
+  constructor(private readonly db: D1Database) {}
+  async configured(): Promise<boolean> { return Boolean((await readLocalPlacementRefreshState(this.db))?.pending); }
+  async events(league: League): Promise<ProviderPoll> {
+    const state = await readLocalPlacementRefreshState(this.db);
+    if (!state?.pending) throw new Error("Local placement refresh was not configured");
+    await writeLocalPlacementRefreshState(this.db, { ...state, calls: state.calls + 1, pending: false });
+    if (state.mode === "failure") throw new Error("Controlled local placement provider failure");
+
+    const [eventResult, offerResult] = await this.db.batch([
+      this.db.prepare("SELECT provider_event_id, league, home_team, away_team, starts_at, status, home_score, away_score, event_name, postseason FROM sports_event WHERE league = ? AND omitted_at IS NULL ORDER BY provider_event_id").bind(league),
+      this.db.prepare("SELECT o.event_id, o.market, o.payload_json FROM market_offer o JOIN sports_event e ON e.id = o.event_id WHERE e.league = ? AND e.omitted_at IS NULL ORDER BY o.event_id, o.market").bind(league)
+    ]);
+    const offersByEvent = new Map<string, LocalProviderOfferRow[]>();
+    for (const offer of offerResult.results as LocalProviderOfferRow[]) offersByEvent.set(offer.event_id, [...(offersByEvent.get(offer.event_id) ?? []), offer]);
+    const events = (eventResult.results as LocalProviderEventRow[]).map((event): ProviderEvent => ({
+      id: event.provider_event_id,
+      sport: event.league,
+      commenceTime: event.starts_at,
+      homeTeam: event.home_team,
+      awayTeam: event.away_team,
+      status: event.status,
+      ...(event.home_score === null ? {} : { homeScore: Number(event.home_score) }),
+      ...(event.away_score === null ? {} : { awayScore: Number(event.away_score) }),
+      ...(event.event_name === null ? {} : { eventName: event.event_name }),
+      postseason: Boolean(event.postseason),
+      bookmakers: [{ key: "draftkings", title: "DraftKings", markets: (offersByEvent.get(event.provider_event_id) ?? []).map((offer) => {
+        const payload = JSON.parse(offer.payload_json) as { outcomes: Array<{ name: string; price: number; point?: number }> };
+        const outcomes = state.mode === "changed" && event.provider_event_id === "local-nfl-upcoming" && offer.market === "spread"
+          ? payload.outcomes.map((outcome) => outcome.name === event.away_team ? { ...outcome, point: state.changedAwayPoint ?? 5.5 } : outcome.name === event.home_team ? { ...outcome, point: -(state.changedAwayPoint ?? 5.5) } : outcome)
+          : payload.outcomes;
+        return { key: offer.market, outcomes };
+      }) }]
+    }));
+    return { events };
+  }
 }

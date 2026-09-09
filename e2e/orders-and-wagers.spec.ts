@@ -301,6 +301,7 @@ test("commissioner confirms an in-page reversal and preserves immutable order hi
   await expect(
     page.getByRole("heading", { name: "Share orders" }),
   ).toBeVisible();
+  await page.getByLabel("Show individual orders").check();
   await page.getByRole("button", { name: "Reverse with reason" }).click();
   await expect(
     page.getByRole("heading", { name: "Confirm share-order reversal" }),
@@ -650,6 +651,69 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.91/ })).toBeVisible();
 });
 
+test("placement confirmation ingests live provider odds and preserves fail-open placement", async ({ page, worker }) => {
+  const pool = await createActivePool(page, worker, { slug: "live-refresh-pool", name: "Live Refresh Pool" });
+  expect(await fundPool(page, pool.slug)).toBe(200);
+  await page.goto(`${worker.baseURL}/p/${pool.slug}/odds`);
+
+  const placementBodies: Array<{ leg: { offerVersion: string } }> = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/wagers/straight/place"))
+      placementBodies.push(request.postDataJSON() as { leg: { offerVersion: string } });
+  });
+  const configureRefresh = (mode: "unchanged" | "changed" | "failure") => page.evaluate(async (nextMode) => {
+    const response = await fetch("/__local-test/placement-refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: nextMode, changedAwayPoint: 5.5 }) });
+    if (!response.ok) throw new Error(`placement refresh control failed: ${response.status}`);
+  }, mode);
+  const refreshStatus = () => page.evaluate(async () => (await (await fetch("/__local-test/placement-refresh")).json()) as { calls: number; mode: string | null; pending: boolean });
+  const reviewAwaySpread = async () => {
+    await page.getByRole("checkbox", { name: /^Local Away [+-]?\d+(\.\d+)?$/ }).check();
+    await page.getByLabel(/^Risk in whole shares for .*: spread/).fill("1");
+    await page.getByRole("button", { name: "Place bets" }).click();
+    await expect(page.getByRole("heading", { name: "Review straight wagers" })).toBeVisible();
+  };
+
+  const quotedBoard = await page.evaluate(async (slug) => (await (await fetch(`/api/p/${slug}/odds`)).json()) as { offers: Array<{ eventId: string; market: string; offerVersion: string; retrievedAt: string }> }, pool.slug);
+  const quotedSpread = quotedBoard.offers.find((offer) => offer.eventId === "local-nfl-upcoming" && offer.market === "spread");
+  await configureRefresh("unchanged");
+  await reviewAwaySpread();
+  expect(await refreshStatus()).toEqual({ calls: 0, mode: "unchanged", pending: true });
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await refreshStatus()).toEqual({ calls: 1, mode: "unchanged", pending: false });
+  const refreshedBoard = await page.evaluate(async (slug) => (await (await fetch(`/api/p/${slug}/odds`)).json()) as { offers: Array<{ eventId: string; market: string; offerVersion: string; retrievedAt: string }> }, pool.slug);
+  const refreshedSpread = refreshedBoard.offers.find((offer) => offer.eventId === "local-nfl-upcoming" && offer.market === "spread");
+  expect(placementBodies[0]?.leg.offerVersion).toBe(quotedSpread?.offerVersion);
+  expect(refreshedSpread?.offerVersion).not.toBe(quotedSpread?.offerVersion);
+  expect(refreshedSpread?.retrievedAt).not.toBe(quotedSpread?.retrievedAt);
+  await page.getByRole("link", { name: "My wagers" }).click();
+  const openBets = page.getByRole("table", { name: "Open bets" });
+  await expect(openBets.locator("tbody tr").filter({ hasText: "Local Away" })).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Return to games", exact: true }).click();
+  await reviewAwaySpread();
+  await configureRefresh("changed");
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Line changed.");
+  expect(await refreshStatus()).toEqual({ calls: 1, mode: "changed", pending: false });
+  await page.goto(`${worker.baseURL}/p/${pool.slug}/my-wagers`);
+  await expect(page.getByRole("table", { name: "Open bets" }).locator("tbody tr").filter({ hasText: "Local Away" })).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Return to games", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Local Away +5.5", exact: true })).toBeVisible();
+  await reviewAwaySpread();
+  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("5.5");
+  await configureRefresh("failure");
+  await page.getByRole("button", { name: "Place 1 wager" }).click();
+  await expect(page.getByRole("heading", { name: "Placement results" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await refreshStatus()).toEqual({ calls: 1, mode: "failure", pending: false });
+  await page.getByRole("link", { name: "My wagers" }).click();
+  await expect(page.getByRole("table", { name: "Open bets" }).locator("tbody tr").filter({ hasText: "Local Away" })).toHaveCount(2);
+});
+
 test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh explicit straight re-quote", async ({
   page,
   worker,
@@ -721,7 +785,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
             market: "spread",
             selection: "away",
             price: -115,
-            point: 4.5,
+            point: 5.5,
             offerVersion: "local-line-change-v3",
           }),
         })
@@ -733,13 +797,13 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
   await expect(page.getByRole("alert")).toContainText("Line changed.");
   await page.getByRole("button", { name: "Back to odds board" }).click();
   await expect(
-    page.getByRole("checkbox", { name: "Local Away +4.5", exact: true }),
+    page.getByRole("checkbox", { name: "Local Away +5.5", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Place bets" }).click();
   await expect(
     page.getByRole("heading", { name: "Review straight wagers" }),
   ).toBeVisible();
-  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("4.5");
+  await expect(page.getByRole("row", { name: /Local Away/ })).toContainText("5.5");
   // A fetched board that lacks the selected semantic outcome is terminal for this selection, unlike a dropped read.
   expect(
     await page.evaluate(
@@ -753,7 +817,7 @@ test("LINE_CHANGED discards review, unmounts confirmation, and requires a fresh 
               market: "spread",
               selection: "away",
               price: -115,
-              point: 4.5,
+              point: 5.5,
               offerVersion: "local-line-change-v3-unavailable",
               removeSelection: true,
             }),
@@ -1373,6 +1437,7 @@ test("real auth and PoolDO reject noncommissioner order controls, stale reversal
       reversalBodies.push(request.postDataJSON() as Record<string, unknown>);
   });
   await page.goto(`${worker.baseURL}/p/${slug}/admin/orders`);
+  await page.getByLabel("Show individual orders").check();
   await page
     .getByRole("button", { name: "Reverse with reason" })
     .first()

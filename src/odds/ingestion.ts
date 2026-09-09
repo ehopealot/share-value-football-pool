@@ -51,13 +51,16 @@ export class OddsIngestion {
     private readonly clock: Clock = systemClock,
     private readonly beforeClaim: () => Promise<void> = async () => undefined
   ) {}
-  async poll(): Promise<{ events: number; offers: number }> {
+  /** Placement refreshes bypass cadence, but not quota backoff, and never degrade last-good feed health on failure. */
+  async poll({ placementLeagues }: { placementLeagues?: readonly League[] } = {}): Promise<{ events: number; offers: number; placementEvents?: ProviderEvent[] }> {
     const now = this.clock.now();
     // The preflight avoids generation and health mutation when no request is due. Its
     // snapshot is never used after the atomic claim.
     const preflight = await this.db.prepare("SELECT quota_json FROM odds_ingestion WHERE provider = 'odds'").first<{ quota_json: string | null }>();
     const preflightBackoff = backoffFrom(preflight?.quota_json);
-    const preflightDue = await this.dueLeagues(now, preflightBackoff);
+    const requestedLeagues = placementLeagues ? [...new Set(placementLeagues)] : undefined;
+    if (requestedLeagues && preflightBackoff > 0) return { events: 0, offers: 0 };
+    const preflightDue = requestedLeagues ?? await this.dueLeagues(now, preflightBackoff);
     if (preflightDue.length === 0) return { events: 0, offers: 0 };
 
     await this.beforeClaim();
@@ -68,8 +71,11 @@ export class OddsIngestion {
     const at = [now.toISOString(), claimed.last_polled_at, claimed.last_success_at]
       .filter((value): value is string => value !== null)
       .reduce((latest, value) => value > latest ? value : latest);
-    const dueLeagues = await this.dueLeagues(now, backoffFrom(claimed.quota_json));
+    const claimedBackoff = backoffFrom(claimed.quota_json);
+    if (requestedLeagues && claimedBackoff > 0) return { events: 0, offers: 0 };
+    const dueLeagues = requestedLeagues ?? await this.dueLeagues(now, claimedBackoff);
     if (dueLeagues.length === 0) return { events: 0, offers: 0 }; // preserve feed health and availability exactly
+    let placementEvents: ProviderEvent[] | undefined;
     try {
       const fetched = await Promise.all(dueLeagues.map(async (league) => ({ league, poll: await this.provider.events(league) })));
       // Validate every completed provider response, including container identity, before canonicalization or D1 mutation.
@@ -83,6 +89,9 @@ export class OddsIngestion {
       const normalized = parsed.map(({ league, events }) => ({
         league, events: events.map((event) => ({ event, canonical: canonicalize(event, at) }))
       }));
+      // Retain validated live evidence independently of publication: a generation
+      // loss or D1 write failure must not erase a known change at placement.
+      if (requestedLeagues) placementEvents = parsed.flatMap(({ events }) => events);
       // Read all prior state and derive the complete replacement before constructing any mutation.
       const existingByLeague = new Map(normalized.map(({ league }) => [league, existingRows.filter((row) => row.league === league)] as const));
       const availability = Object.fromEntries(Object.entries(parseJson<Record<string, string[]>>(claimed.canonical_book_availability_json, {})).map(([id, markets]) => [id, [...markets]]));
@@ -120,13 +129,17 @@ export class OddsIngestion {
       // This final guarded result is the definitive indication that the whole atomic batch was current and applied.
       statements.push(this.db.prepare("UPDATE odds_ingestion SET quota_json=COALESCE(?, quota_json), last_polled_at=?, last_success_at=?, last_error=NULL, canonical_book_availability_json=? WHERE provider='odds' AND poll_generation=?").bind(successQuota ? JSON.stringify(successQuota) : null, at, at, JSON.stringify(availability), generation));
       const results = await this.db.batch(statements);
-      if (results.at(-1)?.meta.changes !== 1) return { events: 0, offers: 0 };
-      return { events, offers };
+      const evidence = placementEvents ? { placementEvents } : {};
+      if (results.at(-1)?.meta.changes !== 1) return { events: 0, offers: 0, ...evidence };
+      return { events, offers, ...evidence };
     } catch (error) {
+      if (placementEvents) return { events: 0, offers: 0, placementEvents };
       // Only the latest attempted failed response advances health; last-good event/offer bytes are retained.
       // If D1 cannot record that health transition, preserve the provider error
       // that triggered it rather than obscuring the actionable root cause.
-      try { await this.recordFailure(generation, at, providerFailureMessage(error)); } catch { /* health remains unavailable */ }
+      if (!requestedLeagues) {
+        try { await this.recordFailure(generation, at, providerFailureMessage(error)); } catch { /* health remains unavailable */ }
+      }
       throw error;
     }
   }
