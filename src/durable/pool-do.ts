@@ -6,7 +6,7 @@ import { validateTeaser } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
 import { calculateSharePriceMicros, OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
-import { assertBettingOpen } from "../domain/betting-week";
+import { assertBettingOpen, nextWeekStart, weekStartOf } from "../domain/betting-week";
 import { placeWager, SideBetLimitError } from "./wager-commands";
 import { runSettlementAlarm } from "./alarm";
 import { correctWager, voidWager } from "./settlement";
@@ -232,7 +232,10 @@ export class PoolDO {
       return this.createMessageBoardPost(sql, command);
     }
     if (command.type === "ReplyToMessageBoardPost") return this.replyToMessageBoardPost(sql, command);
-    if (command.type === "ReadStandings") return { commandVersion: String(pool.command_version), standings: this.standings(sql, pool.active_season_id) };
+    if (command.type === "ReadStandings") {
+      const standings = this.standings(sql, pool.active_season_id);
+      return { commandVersion: String(pool.command_version), standings, weeklyChanges: this.standingWeeklyChanges(sql, pool.active_season_id, standings, this.authoritativeTime()) };
+    }
     if (command.type === "ReadActivity") return { commandVersion: String(pool.command_version), activity: this.activity(sql, command.actorId) };
     if (command.type === "ReadSeasonHistory") return { commandVersion: String(pool.command_version), ...this.history(sql, command.seasonId, command.actorId) };
     if (command.type === "ReadWagers") return { commandVersion: String(pool.command_version), ...shapeWagers(sql, command.actorId, this.authoritativeTime()) };
@@ -506,6 +509,58 @@ export class PoolDO {
     return rows.map(({ row, holdings, issuedMicros, riskedMicros }, index) => {
       const value = divideRoundHalfEven(holdings * price, MICROS_PER_UNIT);
       return { rank: index + 1, userId: String(row.user_id), displayName: String(row.display_name), availableMicros: String(row.available_micros), lockedMicros: String(row.locked_micros), totalMicros: holdings.toString(), priceMicros: price.toString(), notionalValueMicros: value.toString(), gainMicros: (value - issuedMicros).toString(), riskedMicros: riskedMicros.toString() };
+    });
+  }
+
+  /**
+   * Weekly SVG is the change between authoritative accounting snapshots at [week start, week end).
+   * Each snapshot rebuilds holdings, pool price, and issued basis from immutable ledger/order timestamps;
+   * risked mirrors season standings by excluding wagers whose current status is refunded.
+   */
+  private standingWeeklyChanges(sql: SqlStorage, seasonId: SqlStorageValue | undefined, standings: Array<{ userId: string }>, asOf: Date) {
+    if (seasonId === null || seasonId === undefined) return [];
+    const season = first(sql, "SELECT opened_at FROM season WHERE id = ?", seasonId);
+    const currentWeek = weekStartOf(asOf);
+    let week = weekStartOf(new Date(String(season?.opened_at ?? asOf.toISOString())));
+    if (week > currentWeek) week = currentWeek;
+    const weeks: Date[] = [];
+    while (week <= currentWeek) { weeks.push(week); week = nextWeekStart(week); }
+
+    const ledger = [...sql.exec<Row>("SELECT member_id, available_delta, locked_delta, float_delta, notional_delta, created_at FROM ledger_entry WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
+    const orders = [...sql.exec<Row>("SELECT member_id, value_micros, created_at FROM share_order WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
+    const wagers = [...sql.exec<Row>("SELECT owner_id, risk_micros, status, confirmed_at FROM wager WHERE season_id = ? ORDER BY confirmed_at, rowid", seasonId)];
+    const gainsAt = (cutoff: string): Map<string, bigint> => {
+      let float = 0n; let notional = 0n;
+      const holdings = new Map<string, bigint>();
+      for (const entry of ledger) {
+        if (String(entry.created_at) >= cutoff) break;
+        const memberId = String(entry.member_id);
+        holdings.set(memberId, (holdings.get(memberId) ?? 0n) + BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)));
+        float += BigInt(String(entry.float_delta));
+        notional += BigInt(String(entry.notional_delta));
+      }
+      const issued = new Map<string, bigint>();
+      for (const order of orders) {
+        if (String(order.created_at) >= cutoff) break;
+        const memberId = String(order.member_id);
+        issued.set(memberId, (issued.get(memberId) ?? 0n) + BigInt(String(order.value_micros)));
+      }
+      const price = calculateSharePriceMicros(float, notional);
+      return new Map(standings.map(({ userId }) => [userId, divideRoundHalfEven((holdings.get(userId) ?? 0n) * price, MICROS_PER_UNIT) - (issued.get(userId) ?? 0n)]));
+    };
+
+    return weeks.reverse().map((weekStart) => {
+      const start = weekStart.toISOString();
+      const end = weekStart.getTime() === currentWeek.getTime() ? asOf.toISOString() : nextWeekStart(weekStart).toISOString();
+      const startGains = gainsAt(start); const endGains = gainsAt(end);
+      const risked = new Map<string, bigint>();
+      for (const wager of wagers) {
+        const confirmedAt = String(wager.confirmed_at);
+        if (confirmedAt < start || confirmedAt >= end || wager.status === "refunded") continue;
+        const memberId = String(wager.owner_id);
+        risked.set(memberId, (risked.get(memberId) ?? 0n) + BigInt(String(wager.risk_micros)));
+      }
+      return { weekStart: start, members: standings.map(({ userId }) => ({ userId, gainMicros: ((endGains.get(userId) ?? 0n) - (startGains.get(userId) ?? 0n)).toString(), riskedMicros: (risked.get(userId) ?? 0n).toString() })) };
     });
   }
 

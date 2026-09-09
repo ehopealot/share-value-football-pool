@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PoolCommand } from "../../src/durable/pool-commands";
+import { weekStartOf } from "../../src/domain/betting-week";
 
 const pools = (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO;
 const send = async (slug: string, command: PoolCommand) => {
@@ -105,6 +106,49 @@ describe("T11 authoritative member reads", () => {
     expect(risked.get("a")).toBe("15000000");
     expect(risked.get("b")).toBe("0");
     expect(risked.get("owner")).toBe("0");
+  }, 90_000);
+
+  it("reports authoritative SVG deltas and non-refunded risk within inclusive-exclusive Pacific weeks", async () => {
+    const slug = `t11-weekly-standings-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "a", "Aaa");
+    await join(slug, "b", "Bee");
+    await draftSeason(slug, "s", "S");
+    const currentStart = weekStartOf(new Date());
+    const previousStart = weekStartOf(new Date(currentStart.getTime() - 1));
+    const previousAt = previousStart.toISOString();
+    const currentAt = currentStart.toISOString();
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE season SET opened_at = ?, float_micros = '18000000', notional_micros = '20000000' WHERE id = 's'", previousAt);
+      sql.exec("UPDATE share_account SET available_micros = '13000000', locked_micros = '0' WHERE season_id = 's' AND member_id = 'a'");
+      sql.exec("UPDATE share_account SET available_micros = '5000000', locked_micros = '0' WHERE season_id = 's' AND member_id = 'b'");
+      const order = (id: string, memberId: string) => sql.exec("INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES (?, 's', ?, 'owner', 'shares', '10000000', '10000000', '10000000', '1000000', NULL, 'initial', ?, ?)", id, memberId, `command:${id}`, previousAt);
+      const ledger = (id: string, memberId: string, available: string, locked: string, float: string, kind: string, at: string) => sql.exec("INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES (?, 's', ?, 'owner', ?, ?, ?, ?, ?, ?, ?)", id, memberId, available, locked, float, kind === "order" ? "10000000" : "0", id, kind, at);
+      order("order-a", "a"); order("order-b", "b");
+      ledger("ledger-order-a", "a", "10000000", "0", "10000000", "order", previousAt);
+      ledger("ledger-order-b", "b", "10000000", "0", "10000000", "order", previousAt);
+      ledger("past-loss", "b", "-5000000", "0", "-5000000", "settlement", new Date(currentStart.getTime() - 1).toISOString());
+      // Exact next-week boundary belongs to the current week, not the prior week.
+      ledger("current-win", "a", "3000000", "0", "3000000", "settlement", currentAt);
+      const wager = (id: string, owner: string, risk: string, status: string, at: string) => sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, confirmed_at) VALUES (?, 's', ?, 'straight', ?, 100, ?, 'SHARE_POOL_2026_V1', ?)", id, owner, risk, status, at);
+      wager("past-start", "a", "2000000", "won", previousAt);
+      wager("past-end", "b", "3000000", "lost", new Date(currentStart.getTime() - 1).toISOString());
+      wager("boundary-current", "a", "4000000", "open", currentAt);
+      wager("ignored-refund", "b", "9000000", "refunded", previousAt);
+    });
+
+    const result = await send(slug, { type: "ReadStandings", commandId: "read-weekly", actorId: "owner" });
+    expect(result.weeklyChanges.map((period: any) => period.weekStart)).toEqual([currentAt, previousAt]);
+    const periods = new Map<string, Map<string, { gainMicros: string; riskedMicros: string }>>(result.weeklyChanges.map((period: any) => [period.weekStart, new Map(period.members.map((member: any) => [member.userId, member]))]));
+    expect(periods.get(previousAt)?.get("a")).toMatchObject({ gainMicros: "3333330", riskedMicros: "2000000" });
+    expect(periods.get(previousAt)?.get("b")).toMatchObject({ gainMicros: "-3333335", riskedMicros: "3000000" });
+    expect(periods.get(currentAt)?.get("a")).toMatchObject({ gainMicros: "1111113", riskedMicros: "4000000" });
+    expect(periods.get(currentAt)?.get("b")).toMatchObject({ gainMicros: "-1111110", riskedMicros: "0" });
+    // Rank and season-wide values remain based on current all-season accounting.
+    expect(result.standings.map((row: any) => [row.userId, row.rank, row.gainMicros, row.riskedMicros])).toEqual([
+      ["a", 1, "4444443", "6000000"], ["owner", 2, "0", "0"], ["b", 3, "-4444445", "3000000"]
+    ]);
   }, 90_000);
 
   it("orders zero-basis standings by holdings, then earliest attainment, then display name", async () => {

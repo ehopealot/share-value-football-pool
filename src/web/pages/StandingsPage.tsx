@@ -4,9 +4,13 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { formatCurrentShareValue } from "../share-value";
+import { weekNumberLabel } from "../../domain/betting-week";
+import { ALL_WEEKS_VALUE } from "../week-picker-presentation";
 
 const shares = (value: string, decimals: 2 | 4 = 2) => formatMicros(parseIntegerText(value), decimals);
-type Standings = import("../../contracts/http").ReadStandings["standings"];
+type StandingsResponse = import("../../contracts/http").ReadStandings;
+type Standings = StandingsResponse["standings"];
+type WeeklyChanges = StandingsResponse["weeklyChanges"];
 
 export type StandingsSortKey = "rank" | "displayName" | "lockedMicros" | "totalMicros" | "notionalValueMicros" | "gainMicros" | "riskedMicros";
 export type StandingsSort = { key: StandingsSortKey; ascending: boolean };
@@ -30,6 +34,16 @@ export function sortStandings(standings: Standings, sort: StandingsSort): Standi
 
 const standingsHeaders: Array<[StandingsSortKey, string]> = [["rank", "Rank"], ["displayName", "Member"], ["lockedMicros", "Locked"], ["totalMicros", "Total"], ["notionalValueMicros", "Notional value"], ["gainMicros", "SVG"], ["riskedMicros", "Risked"]];
 
+/** A week changes only the two period metrics; rank and holdings remain season-wide. */
+export function standingsForWeek(standings: Standings, weeklyChanges: WeeklyChanges, weekStart: string | undefined): Standings {
+  if (weekStart === undefined) return standings;
+  const changes = new Map(weeklyChanges.find((week) => week.weekStart === weekStart)?.members.map((member) => [member.userId, member]) ?? []);
+  return standings.map((row) => {
+    const change = changes.get(row.userId);
+    return change ? { ...row, gainMicros: change.gainMicros, riskedMicros: change.riskedMicros } : row;
+  });
+}
+
 export function StandingsTable({ standings, memberProfilePath }: { standings: Standings; memberProfilePath?: (userId: string) => string }) {
   const [sort, setSort] = useState(defaultStandingsSort);
   return <section className="table-ribbon-section"><h2 className="table-ribbon">Active season holdings</h2><div className="table-scroll" tabIndex={0}><table><thead><tr>{standingsHeaders.map(([key, label]) => <th key={key} aria-sort={sort.key === key ? sort.ascending ? "ascending" : "descending" : "none"}><button type="button" className="standings-sort" onClick={() => setSort(toggleStandingsSort(sort, key))}>{label}</button></th>)}</tr></thead><tbody>{sortStandings(standings, sort).map((row) => <tr key={row.userId}><td>{row.rank}</td><th scope="row">{memberProfilePath ? <Link to={memberProfilePath(row.userId)}>{row.displayName}</Link> : row.displayName}</th><td>{shares(row.lockedMicros)}</td><td>{shares(row.totalMicros)}</td><td>{shares(row.notionalValueMicros)}</td><td>{shares(row.gainMicros)}</td><td>{shares(row.riskedMicros)}</td></tr>)}</tbody></table></div></section>;
@@ -45,6 +59,7 @@ function StandingsPageBody({ slug }: { slug: string }) {
   const [data, setData] = useState<import("../../contracts/http").ReadStandings>();
   const [view, setView] = useState<import("../../contracts/http").ReadPoolView>();
   const [error, setError] = useState("");
+  const [selectedWeek, setSelectedWeek] = useState(ALL_WEEKS_VALUE);
   const errorRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -57,8 +72,10 @@ function StandingsPageBody({ slug }: { slug: string }) {
 
   const shareValue = view.activeSeason ? formatCurrentShareValue(view.activeSeason.floatMicros, view.activeSeason.notionalValueMicros) : "$0.000";
   const noIssuedShares = !view.activeSeason || parseIntegerText(view.activeSeason.floatMicros) === 0n;
+  const week = data.weeklyChanges.some((period) => period.weekStart === selectedWeek) ? selectedWeek : undefined;
+  const displayedStandings = standingsForWeek(data.standings, data.weeklyChanges, week);
   return <Layout><div className="standings-page"><h1>Standings</h1><p className="pool-context">Current share value: <strong>{shareValue}</strong>{noIssuedShares && <> · No shares issued yet; first order price is $1.00 per share.</>}</p>
-    {data.standings.length ? <StandingsTable standings={data.standings} memberProfilePath={(userId) => `/p/${slug}/member/${userId}`} /> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
+    {data.standings.length ? <><label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{data.weeklyChanges.map((period) => <option key={period.weekStart} value={period.weekStart}>{weekNumberLabel(period.weekStart)}</option>)}</select></label><StandingsTable standings={displayedStandings} memberProfilePath={(userId) => `/p/${slug}/member/${userId}`} /></> : <p className="state-notice">No active season standings yet. The commissioner can open a season before holdings appear.</p>}
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
 }

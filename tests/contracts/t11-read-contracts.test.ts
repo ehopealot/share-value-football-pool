@@ -26,9 +26,13 @@ describe("T11 member read contracts", () => {
     expect(() => ReadPoolView.parse({ ...view, activeSeason: { ...summary, unexpected: true } })).toThrow();
   });
 
-  it("accepts canonical standings and rejects noncanonical accounting", () => {
-    expect(ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }] }).standings).toHaveLength(1);
-    expect(() => ReadStandings.parse({ commandVersion: "1", standings: [{ rank: 1, userId: "u", displayName: "Member", availableMicros: "01", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" }] })).toThrow();
+  it("accepts canonical standings with weekly accounting changes and rejects noncanonical accounting", () => {
+    const standing = { rank: 1, userId: "u", displayName: "Member", availableMicros: "0", lockedMicros: "0", totalMicros: "0", priceMicros: "1000000", notionalValueMicros: "0", gainMicros: "0", riskedMicros: "0" };
+    const weeklyChanges = [{ weekStart: "2026-09-01T07:00:00.000Z", members: [{ userId: "u", gainMicros: "2", riskedMicros: "3" }] }];
+    expect(ReadStandings.parse({ commandVersion: "1", standings: [standing], weeklyChanges })).toMatchObject({ standings: [standing], weeklyChanges });
+    expect(() => ReadStandings.parse({ commandVersion: "1", standings: [{ ...standing, availableMicros: "01" }], weeklyChanges })).toThrow();
+    expect(() => ReadStandings.parse({ commandVersion: "1", standings: [standing], weeklyChanges: [{ ...weeklyChanges[0], weekStart: "invalid" }] })).toThrow();
+    expect(() => ReadStandings.parse({ commandVersion: "1", standings: [standing], weeklyChanges: [{ ...weeklyChanges[0], members: [{ userId: "u", gainMicros: "2", riskedMicros: "03" }] }] })).toThrow();
   });
   it("requires member-visible wager identity and immutable history fields", () => {
     expect(ReadActivity.parse({ commandVersion: "1", activity: { orders: [], wagers: [wager] } }).activity.wagers[0]).toEqual(wager);
