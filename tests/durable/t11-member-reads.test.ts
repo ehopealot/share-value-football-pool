@@ -169,6 +169,120 @@ describe("T11 authoritative member reads", () => {
     expect(beforeFuture.weeklyChanges[1]).toEqual(result.weeklyChanges[1]);
   }, 90_000);
 
+  it("removes a currently refunded ticket's settlement and reversal effects from every member's weekly SVG", async () => {
+    const slug = `t11-refunded-weekly-standings-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "a", "Aaa");
+    await join(slug, "b", "Bee");
+    await draftSeason(slug, "s", "S");
+    const currentStart = weekStartOf(new Date());
+    const previousStart = weekStartOf(new Date(currentStart.getTime() - 1));
+    const at = (offset: number) => new Date(currentStart.getTime() + offset).toISOString();
+    const previousAt = previousStart.toISOString();
+    const currentAt = currentStart.toISOString();
+    const asOf = new Date(currentStart.getTime() + 10);
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE season SET opened_at = ?, float_micros = '19000000', notional_micros = '20000000' WHERE id = 's'", previousAt);
+      sql.exec("UPDATE share_account SET available_micros = '10000000', locked_micros = '0' WHERE season_id = 's' AND member_id = 'a'");
+      sql.exec("UPDATE share_account SET available_micros = '9000000', locked_micros = '0' WHERE season_id = 's' AND member_id = 'b'");
+      const order = (id: string, memberId: string) => sql.exec("INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES (?, 's', ?, 'owner', 'shares', '10000000', '10000000', '10000000', '1000000', NULL, 'initial', ?, ?)", id, memberId, `command:${id}`, previousAt);
+      const ledger = (id: string, memberId: string, available: string, locked: string, float: string, notional: string, causation: string, kind: string, createdAt: string) => sql.exec("INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES (?, 's', ?, 'owner', ?, ?, ?, ?, ?, ?, ?)", id, memberId, available, locked, float, notional, causation, kind, createdAt);
+      const wager = (id: string, owner: string, risk: string, status: string, confirmedAt: string) => sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, confirmed_at) VALUES (?, 's', ?, 'straight', ?, 100, ?, 'SHARE_POOL_2026_V1', ?)", id, owner, risk, status, confirmedAt);
+      const settlement = (id: string, wagerId: string, outcome: string, reversalOf: string | null, createdAt: string) => sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, source_result_json, reversal_of, actor_id, reason, created_at) VALUES (?, ?, ?, ?, '0', '0', '[]', ?, 'system', NULL, ?)", id, wagerId, id, outcome, reversalOf, createdAt);
+
+      order("order-a", "a"); order("order-b", "b");
+      ledger("ledger-order-a", "a", "10000000", "0", "10000000", "10000000", "order-a", "order", previousAt);
+      ledger("ledger-order-b", "b", "10000000", "0", "10000000", "10000000", "order-b", "order", previousAt);
+
+      // A loss in the prior week is voided in the current week. Its original loss,
+      // reversal, and refund must not alter any member's weekly SVG.
+      wager("refunded-ticket", "a", "2000000", "refunded", new Date(previousStart.getTime() + 1).toISOString());
+      ledger("refunded-lock", "a", "-2000000", "2000000", "0", "0", "refunded-ticket", "wager_lock", new Date(previousStart.getTime() + 1).toISOString());
+      ledger("refunded-loss", "a", "0", "-2000000", "-2000000", "0", "refunded-ticket", "settlement", new Date(previousStart.getTime() + 2).toISOString());
+      settlement("refunded-loss-settlement", "refunded-ticket", "loss", null, new Date(previousStart.getTime() + 2).toISOString());
+      // A prior loss was regraded to a win before the commissioner voided the ticket.
+      ledger("refunded-loss-reversal", "a", "0", "2000000", "2000000", "0", "reversal:refunded-loss-settlement", "settlement_reversal", new Date(previousStart.getTime() + 3).toISOString());
+      ledger("refunded-win", "a", "3000000", "-2000000", "1000000", "0", "refunded-ticket", "settlement", new Date(previousStart.getTime() + 4).toISOString());
+      settlement("refunded-loss-reversal-record", "refunded-ticket", "reversal", "refunded-loss-settlement", new Date(previousStart.getTime() + 3).toISOString());
+      settlement("refunded-win-settlement", "refunded-ticket", "win", "refunded-loss-settlement", new Date(previousStart.getTime() + 4).toISOString());
+      ledger("refunded-win-reversal", "a", "-3000000", "2000000", "-1000000", "0", "reversal:refunded-win-settlement", "settlement_reversal", at(1));
+      ledger("refunded-return", "a", "2000000", "-2000000", "0", "0", "refunded-ticket", "settlement", at(2));
+      settlement("refunded-win-reversal-record", "refunded-ticket", "reversal", "refunded-win-settlement", at(1));
+      settlement("refunded-final", "refunded-ticket", "refund", "refunded-win-settlement", at(2));
+
+      // A naturally refunded ticket is equally absent from Risked and counterfactual SVG.
+      wager("natural-refund", "b", "1000000", "refunded", new Date(previousStart.getTime() + 5).toISOString());
+      ledger("natural-refund-lock", "b", "-1000000", "1000000", "0", "0", "natural-refund", "wager_lock", new Date(previousStart.getTime() + 5).toISOString());
+      ledger("natural-refund-settlement", "b", "1000000", "-1000000", "0", "0", "natural-refund", "settlement", new Date(previousStart.getTime() + 6).toISOString());
+      settlement("natural-refund-settlement-record", "natural-refund", "refund", null, new Date(previousStart.getTime() + 6).toISOString());
+
+      // B's valid loss remains counted and its result reprices A's unchanged shares.
+      wager("valid-loss", "b", "1000000", "lost", at(3));
+      ledger("valid-lock", "b", "-1000000", "1000000", "0", "0", "valid-loss", "wager_lock", at(3));
+      ledger("valid-settlement", "b", "0", "-1000000", "-1000000", "0", "valid-loss", "settlement", at(4));
+      settlement("valid-loss-settlement", "valid-loss", "loss", null, at(4));
+    });
+    await runInDurableObject(pools.get(pools.idFromName(slug)), (instance) => {
+      (instance as unknown as { authoritativeTime(): Date }).authoritativeTime = () => asOf;
+    });
+
+    const result = await send(slug, { type: "ReadStandings", commandId: "read-refund-weekly", actorId: "owner" });
+    const periods = new Map<string, Map<string, { gainMicros: string; riskedMicros: string }>>(result.weeklyChanges.map((period: any) => [period.weekStart, new Map(period.members.map((member: any) => [member.userId, member]))]));
+    // The voided ticket is absent in both its original-loss week and its refund week.
+    expect(periods.get(previousAt)?.get("a")).toMatchObject({ gainMicros: "0", riskedMicros: "0" });
+    expect(periods.get(previousAt)?.get("b")).toMatchObject({ gainMicros: "0", riskedMicros: "0" });
+    expect(periods.get(currentAt)?.get("a")).toMatchObject({ gainMicros: "526320", riskedMicros: "0" });
+    expect(periods.get(currentAt)?.get("b")).toMatchObject({ gainMicros: "-526312", riskedMicros: "1000000" });
+    // All-season balances/ranks remain authoritative actual accounting, not the weekly overlay.
+    expect(result.standings.map((row: any) => [row.userId, row.rank, row.gainMicros, row.riskedMicros])).toEqual([
+      ["a", 1, "526320", "0"], ["owner", 2, "0", "0"], ["b", 3, "-526312", "1000000"]
+    ]);
+  }, 90_000);
+
+  it("keeps a refund history when the ticket is later regraded to a valid win", async () => {
+    const slug = `t11-regraded-refund-weekly-standings-${crypto.randomUUID()}`;
+    await initialize(slug, "Owner");
+    await join(slug, "a", "Aaa");
+    await join(slug, "b", "Bee");
+    await draftSeason(slug, "s", "S");
+    const currentStart = weekStartOf(new Date());
+    const previousStart = weekStartOf(new Date(currentStart.getTime() - 1));
+    const at = (offset: number) => new Date(currentStart.getTime() + offset).toISOString();
+    const previousAt = previousStart.toISOString();
+    const currentAt = currentStart.toISOString();
+    await storage(slug, (state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE season SET opened_at = ?, float_micros = '21000000', notional_micros = '20000000' WHERE id = 's'", previousAt);
+      sql.exec("UPDATE share_account SET available_micros = '11000000', locked_micros = '0' WHERE season_id = 's' AND member_id = 'a'");
+      sql.exec("UPDATE share_account SET available_micros = '10000000', locked_micros = '0' WHERE season_id = 's' AND member_id = 'b'");
+      const ledger = (id: string, memberId: string, available: string, locked: string, float: string, notional: string, causation: string, kind: string, createdAt: string) => sql.exec("INSERT INTO ledger_entry (id, season_id, member_id, actor_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at) VALUES (?, 's', ?, 'owner', ?, ?, ?, ?, ?, ?, ?)", id, memberId, available, locked, float, notional, causation, kind, createdAt);
+      const order = (id: string, memberId: string) => sql.exec("INSERT INTO share_order (id, season_id, member_id, actor_id, mode, requested_micros, shares_micros, value_micros, price_micros, reversal_of, reason, command_id, created_at) VALUES (?, 's', ?, 'owner', 'shares', '10000000', '10000000', '10000000', '1000000', NULL, 'initial', ?, ?)", id, memberId, `command:${id}`, previousAt);
+      const settlement = (id: string, outcome: string, reversalOf: string | null, createdAt: string) => sql.exec("INSERT INTO settlement (id, wager_id, result_version, outcome, return_micros, profit_micros, source_result_json, reversal_of, actor_id, reason, created_at) VALUES (?, 'regraded-ticket', ?, ?, '0', '0', '[]', ?, 'system', NULL, ?)", id, id, outcome, reversalOf, createdAt);
+      order("regraded-order-a", "a"); order("regraded-order-b", "b");
+      ledger("regraded-ledger-order-a", "a", "10000000", "0", "10000000", "10000000", "regraded-order-a", "order", previousAt);
+      ledger("regraded-ledger-order-b", "b", "10000000", "0", "10000000", "10000000", "regraded-order-b", "order", previousAt);
+      sql.exec("INSERT INTO wager (id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, confirmed_at) VALUES ('regraded-ticket', 's', 'a', 'straight', '2000000', 100, 'won', 'SHARE_POOL_2026_V1', ?)", new Date(previousStart.getTime() + 1).toISOString());
+      // The ticket was refunded first, then regraded to a win in the current week.
+      ledger("regraded-lock", "a", "-2000000", "2000000", "0", "0", "regraded-ticket", "wager_lock", new Date(previousStart.getTime() + 1).toISOString());
+      ledger("regraded-refund", "a", "2000000", "-2000000", "0", "0", "regraded-ticket", "settlement", new Date(previousStart.getTime() + 2).toISOString());
+      settlement("regraded-refund-settlement", "refund", null, new Date(previousStart.getTime() + 2).toISOString());
+      ledger("regraded-refund-reversal", "a", "-2000000", "2000000", "0", "0", "reversal:regraded-refund-settlement", "settlement_reversal", at(1));
+      ledger("regraded-win", "a", "3000000", "-2000000", "1000000", "0", "regraded-ticket", "settlement", at(2));
+      settlement("regraded-refund-reversal", "reversal", "regraded-refund-settlement", at(1));
+      settlement("regraded-win-settlement", "win", "regraded-refund-settlement", at(2));
+    });
+    await runInDurableObject(pools.get(pools.idFromName(slug)), (instance) => {
+      (instance as unknown as { authoritativeTime(): Date }).authoritativeTime = () => new Date(currentStart.getTime() + 10);
+    });
+
+    const result = await send(slug, { type: "ReadStandings", commandId: "read-regraded-refund-weekly", actorId: "owner" });
+    const periods = new Map<string, Map<string, { gainMicros: string; riskedMicros: string }>>(result.weeklyChanges.map((period: any) => [period.weekStart, new Map(period.members.map((member: any) => [member.userId, member]))]));
+    expect(periods.get(previousAt)?.get("a")).toMatchObject({ gainMicros: "0", riskedMicros: "2000000" });
+    expect(periods.get(currentAt)?.get("a")).toMatchObject({ gainMicros: "476191", riskedMicros: "0" });
+    expect(periods.get(currentAt)?.get("b")).toMatchObject({ gainMicros: "-476190", riskedMicros: "0" });
+  }, 90_000);
+
   it("orders zero-basis standings by holdings, then earliest attainment, then display name", async () => {
     const slug = `t11-order-${crypto.randomUUID()}`;
     await initialize(slug, "Zed");

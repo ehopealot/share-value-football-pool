@@ -526,7 +526,14 @@ export class PoolDO {
     const weeks: Date[] = [];
     while (week <= currentWeek) { weeks.push(week); week = nextWeekStart(week); }
 
-    const ledger = [...sql.exec<Row>("SELECT member_id, available_delta, locked_delta, float_delta, notional_delta, created_at FROM ledger_entry WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
+    // A currently refunded ticket is absent from weekly standings entirely. Settlement
+    // applications use the wager ID; correction reversals use the reversed settlement ID.
+    const refundedCausations = new Set<string>();
+    for (const row of sql.exec<Row>("SELECT w.id AS wager_id, s.id AS settlement_id FROM wager w LEFT JOIN settlement s ON s.wager_id = w.id WHERE w.season_id = ? AND w.status = 'refunded'", seasonId)) {
+      refundedCausations.add(String(row.wager_id));
+      if (row.settlement_id !== null && row.settlement_id !== undefined) refundedCausations.add(`reversal:${String(row.settlement_id)}`);
+    }
+    const ledger = [...sql.exec<Row>("SELECT member_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, created_at FROM ledger_entry WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
     const orders = [...sql.exec<Row>("SELECT member_id, value_micros, created_at FROM share_order WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
     const wagers = [...sql.exec<Row>("SELECT owner_id, risk_micros, status, confirmed_at FROM wager WHERE season_id = ? ORDER BY confirmed_at, rowid", seasonId)];
     const gainsAt = (cutoff: string): Map<string, bigint> => {
@@ -534,6 +541,7 @@ export class PoolDO {
       const holdings = new Map<string, bigint>();
       for (const entry of ledger) {
         if (String(entry.created_at) >= cutoff) break;
+        if (refundedCausations.has(String(entry.causation_id))) continue;
         const memberId = String(entry.member_id);
         holdings.set(memberId, (holdings.get(memberId) ?? 0n) + BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)));
         float += BigInt(String(entry.float_delta));
