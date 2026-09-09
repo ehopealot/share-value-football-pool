@@ -6,6 +6,7 @@ import { formatWeeklyPerformance } from "../activity-presentation";
 import { formatPickRecord, pickRecord, profileWeekOptions, seasonPerformanceMicros, splitProfileWeekWagers } from "../profile-presentation";
 import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 import { parseIntegerText } from "../../domain/fixed-point";
+import { ALL_WEEKS_VALUE, selectedWeekOrCurrent } from "../week-picker-presentation";
 import { MemberActivitySection } from "./ActivityPage";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
@@ -51,9 +52,10 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
   const seasonWagers = activeSeason ? activity.activity.wagers.filter((wager) => wager.memberId === memberId && wager.seasonId === activeSeason.id) : [];
   const weeks = profileWeekOptions(seasonWagers.map((wager) => wager.weekStart), now);
   const currentWeek = weekStartOf(now).toISOString();
-  // The selector always offers the current week, so selection can only ever be a prior choice.
-  const week = weeks.includes(selectedWeek) ? selectedWeek : currentWeek;
-  const { inProcess, settled, unstarted } = splitProfileWeekWagers(week ? seasonWagers.filter((wager) => wager.weekStart === week) : [], now);
+  // The selector always offers the current week, so stale selections fall back to it.
+  const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);
+  const selectedWagers = week === undefined ? seasonWagers : seasonWagers.filter((wager) => wager.weekStart === week);
+  const { inProcess, settled, unstarted } = splitProfileWeekWagers(selectedWagers, now);
   const recordOf = (types: Wager["type"][]) => formatPickRecord(pickRecord(seasonWagers.filter((wager) => types.includes(wager.type))));
 
   return <Layout><div className="member-profile-page">
@@ -68,11 +70,11 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
         <tr><th scope="row">Season P&amp;L</th><td>{formatWeeklyPerformance(seasonPerformanceMicros(seasonWagers))}</td></tr>
       </tbody></table></div><p className="profile-record-note">Each bet counts as one pick. Refunded bets don't affect win-loss records.</p></section>
       <section><h2>Bets</h2>
-        <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
+        <label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         {inProcess.length + settled.length > 0 ? <>
           {inProcess.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, inProcess)} title="In process"/>}
           {settled.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, settled)} title="Settled"/>}
-        </> : unstarted.length > 0 ? <p className="state-notice">Selections not visible yet.</p> : <p className="state-notice">No bets this week.</p>}</section>
+        </> : unstarted.length > 0 ? <p className="state-notice">Selections not visible yet.</p> : <p className="state-notice">No bets{week === undefined ? "." : " this week."}</p>}</section>
     </> : <p className="state-notice">No active season. Member profiles cover the active season.</p>}
     <p><Link to={`/p/${slug}/standings`}>Standings</Link> · <Link to={`/p/${slug}/overview`}>Pool home</Link></p>
   </div></Layout>;

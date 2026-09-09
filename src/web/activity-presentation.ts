@@ -10,17 +10,21 @@ type Leg = NonNullable<Wager["legs"]>[number];
 export type ActivityMemberWeek = { memberId: string; memberDisplayName: string; performanceMicros: string; wagers: Wager[] };
 export type ActivityLegLine = { hidden: boolean; segments: Array<{ text: string; selected: boolean }> };
 
-/** Groups safe activity records by the server-projected kickoff week and member. */
-export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string): ActivityMemberWeek[] {
+/** Groups safe activity records by member, optionally restricting them to one server-projected kickoff week. */
+export function groupActivityMembers(wagers: Wager[], weekStart?: string): ActivityMemberWeek[] {
   const groups = new Map<string, ActivityMemberWeek & { performance: bigint }>();
   for (const wager of wagers) {
-    if (wager.weekStart !== weekStart) continue;
+    if (weekStart !== undefined && wager.weekStart !== weekStart) continue;
     const group = groups.get(wager.memberId) ?? { memberId: wager.memberId, memberDisplayName: wager.memberDisplayName, performanceMicros: "0", performance: 0n, wagers: [] };
     group.performance += parseIntegerText(wager.performanceMicros);
     group.wagers.push(wager);
     groups.set(wager.memberId, group);
   }
   return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByAnchorTime(group.wagers) }));
+}
+
+export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string): ActivityMemberWeek[] {
+  return groupActivityMembers(wagers, weekStart);
 }
 
 export function formatWeeklyPerformance(profitMicros: string): string {

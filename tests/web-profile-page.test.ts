@@ -36,10 +36,12 @@ describe("member profile page", () => {
 
   it("defaults the week selector to the current week and announces empty and hidden weeks", () => {
     expect(page).toContain("profileWeekOptions(");
-    expect(page).toContain("weeks.includes(selectedWeek) ? selectedWeek : currentWeek");
+    expect(page).toContain("selectedWeekOrCurrent(selectedWeek, weeks, currentWeek)");
+    expect(page).toContain('<option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map');
     expect(page).toContain("weekNumberLabel(start)");
+    expect(page).toContain("week === undefined ? seasonWagers : seasonWagers.filter");
     expect(page).toContain("unstarted.length > 0 ? <p className=\"state-notice\">Selections not visible yet.</p>");
-    expect(page).toContain("No bets this week.");
+    expect(page).toContain('No bets{week === undefined ? "." : " this week."}');
     expect(page).not.toContain("No bets yet this season.");
   });
 

@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { hasActiveActivityGame, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
+import { hasActiveActivityGame, activityWagerPerformanceClass, formatActivityLeg, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembers, groupActivityMembersForWeek, formatWeeklyPerformance } from "../src/web/activity-presentation";
 import { WagerLines } from "../src/web/pages/ActivityPage";
 type Wager = Parameters<typeof groupActivityMembersForWeek>[0][number];
 const leg = (overrides: Record<string, unknown> = {}) => ({ eventId: "game", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalLine: "-7.5", originalOdds: -110, eventStartsAt: "2026-09-06T20:00:00.000Z", awayTeam: "UCLA", homeTeam: "Arizona", ...overrides });
@@ -42,6 +42,19 @@ describe("activity presentation", () => {
     expect(formatWeeklyPerformance("500000000")).toBe("+500.00 shares");
     expect(formatWeeklyPerformance("-300000000")).toBe("-300.00 shares");
     expect(formatWeeklyPerformance("0")).toBe("0.00 shares");
+  });
+
+  it("aggregates member P&L across every week when All weeks is selected", () => {
+    const groups = groupActivityMembers([
+      wager({ wagerId: "week-one", performanceMicros: "500000000" }),
+      wager({ wagerId: "week-two", weekStart: "2026-09-08T04:00:00.000Z", performanceMicros: "-300000000" }),
+      wager({ wagerId: "other-member", memberId: "alpha", memberDisplayName: "Alpha", performanceMicros: "100000000" })
+    ]);
+
+    expect(groups).toEqual([
+      expect.objectContaining({ memberId: "alpha", performanceMicros: "100000000" }),
+      expect.objectContaining({ memberId: "ucla", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "week-one" }), expect.objectContaining({ wagerId: "week-two" })] })
+    ]);
   });
 
   it("omits the unit suffix from row P&L while showing a signed weekly zero summary", () => {
