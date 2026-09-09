@@ -195,6 +195,9 @@ describe("T11 authoritative member reads", () => {
       ledger("ledger-order-a", "a", "10000000", "0", "10000000", "10000000", "order-a", "order", previousAt);
       ledger("ledger-order-b", "b", "10000000", "0", "10000000", "10000000", "order-b", "order", previousAt);
 
+      // Client-chosen wager IDs may overlap order IDs; never discard the real order.
+      wager("order-a", "b", "1000000", "refunded", previousAt);
+
       // A loss in the prior week is voided in the current week. Its original loss,
       // reversal, and refund must not alter any member's weekly SVG.
       wager("refunded-ticket", "a", "2000000", "refunded", new Date(previousStart.getTime() + 1).toISOString());
