@@ -12,8 +12,11 @@ describe("Activity page", () => {
   it("offers a week selector and renders a compact wager table beneath every member ribbon", () => {
     expect(source).toContain('<h2>All bets</h2>');
     expect(source).toContain('<label>Week <select');
-    expect(source).toContain('].sort().reverse();');
-    expect(source).toContain('weeks.includes(selectedWeek) ? selectedWeek : weeks[0]');
+    expect(source).toContain('wagerWeekOptions(data.activity.wagers.map((wager) => wager.weekStart), currentWeek)');
+    expect(source).toContain('const currentWeek = weekStartOf(new Date()).toISOString();');
+    expect(source).toContain('const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);');
+    expect(source).toContain('<option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map');
+    expect(source).toContain('groupActivityMembers(data.activity.wagers, week)');
     expect(source).toContain('className="activity-member-ribbon"');
     expect(source).toContain('className="activity-table"');
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th>');

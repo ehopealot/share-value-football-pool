@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
-import { weekNumberLabel } from "../../domain/betting-week";
+import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityMembers, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
+import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
+import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { WagerLine } from "../components/WagerLine";
@@ -56,16 +57,17 @@ export function ActivityPageBody({ slug }: { slug: string }) {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   if (error) return <Layout><h1>Activity</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!data) return <Layout><p role="status">Loading activity…</p></Layout>;
-  const weeks = [...new Set(data.activity.wagers.map((wager) => wager.weekStart))].sort().reverse();
-  const week = weeks.includes(selectedWeek) ? selectedWeek : weeks[0];
+  const currentWeek = weekStartOf(new Date()).toISOString();
+  const weeks = wagerWeekOptions(data.activity.wagers.map((wager) => wager.weekStart), currentWeek);
+  const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);
   const now = Date.now();
-  // Group before filtering so ribbons retain the full week's member P&L.
-  const weeklyMembers = week ? groupActivityMembersForWeek(data.activity.wagers, week) : [];
+  // Group before filtering so ribbons retain the full selected period's member P&L.
+  const weeklyMembers = groupActivityMembers(data.activity.wagers, week);
   const members = activeOnly ? weeklyMembers.map((member) => ({ ...member, wagers: member.wagers.filter((wager) => hasActiveActivityGame(wager, now)) })).filter((member) => member.wagers.length > 0) : weeklyMembers;
   return <Layout><div className="activity-page"><h1 className="visually-hidden">Activity</h1>
     <section><h2>All bets</h2>
       <div className="activity-filters">
-        {weeks.length > 0 && <label>Week <select value={week} onChange={(event) => setSelectedWeek(event.target.value)}>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>}
+        <label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         <label className="activity-active-toggle"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Active games only</label>
       </div>
       {members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}
