@@ -9,7 +9,8 @@ const css = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), 
 
 describe("compact mobile standings", () => {
   it("scopes roomier-than-activity compact sizing to mobile standings", () => {
-    expect(css).toContain("@media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }");
+    const mobileStandings = css.match(/@media \(max-width: 600px\) \{\n  \.standings-page table \{ font-size: 0\.875rem; \}[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(mobileStandings).toContain(".standings-page th, .standings-page td { padding: 0.35rem; }");
   });
 
   it("underlines the active sort header without a visible direction indicator", () => {
