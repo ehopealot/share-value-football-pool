@@ -28,9 +28,11 @@ Copy `.dev.vars.example` to `.dev.vars` in the canonical Git-common checkout and
 
 `SETTLEMENT_SERVICE_TOKEN` authenticates the non-browser service boundary `POST /internal/pools/:poolId/settle`. Configure it as a Worker/DO secret and send it only as `x-settlement-service-token` from the settlement service; browser-originated, absent, or incorrect-token requests are denied.
 
+Read-only operational visibility uses `OPS_OPERATOR_USER_IDS`, a strict comma-separated allowlist of immutable Better Auth user IDs, and a distinct `OPS_SERVICE_TOKEN` shared only by the Worker and PoolDO inspection endpoint. Missing or malformed operator configuration fails closed. Neither value grants repair, settlement, outbox delivery, or operational email capability; this release intentionally has no such ops mutation or mail path.
+
 ## Cloudflare resources
 
-`wrangler.jsonc` declares the production D1, a SQLite `PoolDO` migration, Queue, R2, scheduled cron bindings, and the `officepool.football` custom domain. Follow [the production deployment runbook](docs/production-deployment.md); it builds the public Turnstile site key into browser assets, keeps Worker secrets interactive, and validates the custom-domain deployment before publishing. See [architecture](docs/architecture.md), [operations and recovery](docs/operations.md), and the [accessibility review](docs/accessibility-review.md) for implementation and verification details.
+`wrangler.jsonc` declares the production D1, a SQLite `PoolDO` migration, Queue, R2, scheduled cron bindings, and the `officepool.football` custom domain. Follow [the production deployment runbook](docs/production-deployment.md); it builds the public Turnstile site key into browser assets, keeps Worker secrets interactive, and validates the custom-domain deployment before publishing. See [architecture](docs/architecture.md), [operations and recovery](docs/operations.md), the current [reduced operational visibility scope](docs/plans/2026-09-10-operational-visibility-reduced-scope.md), and the [accessibility review](docs/accessibility-review.md) for implementation and verification details.
 
 ### Service-only variables
-`BACKUP_ENCRYPTION_KEY`, `POOL_PROJECTION_SERVICE_TOKEN`, and `POOL_BACKUP_SERVICE_TOKEN` are Worker/service-only variable names. They are not browser variables; production values belong in Worker secrets. The example values are local non-secret placeholders only.
+`BACKUP_ENCRYPTION_KEY`, `POOL_PROJECTION_SERVICE_TOKEN`, `POOL_BACKUP_SERVICE_TOKEN`, and `OPS_SERVICE_TOKEN` are Worker/service-only variable names. They are not browser variables; production values belong in Worker secrets. The example values are local non-secret placeholders only.

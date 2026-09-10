@@ -73,11 +73,20 @@ export function backupConfigured(env: { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KE
   try { decodeBackupKey(env.BACKUP_ENCRYPTION_KEY); return true; } catch { return false; }
 }
 
-export async function runBackupCron(env: BackupDependencies): Promise<void> {
+export type BackupJobOutcome = { status: "success" | "not_due" | "failed"; safeCategory: string };
+
+export async function runBackupCron(env: BackupDependencies, observe?: (outcome: BackupJobOutcome) => Promise<void>): Promise<void> {
   try {
     const result = await backupPools(env);
+    const outcome: BackupJobOutcome = result.attempted === 0
+      ? { status: "not_due", safeCategory: "no_ready_pools" }
+      : result.stored === result.attempted
+        ? { status: "success", safeCategory: "backup_page_stored" }
+        : { status: "failed", safeCategory: "backup_partial_failure" };
     if (result.stored < result.attempted) logBackupFailure("partial_failure", result);
+    await observe?.(outcome).catch(() => undefined);
   } catch {
     logBackupFailure("run_failure");
+    await observe?.({ status: "failed", safeCategory: "backup_run_failed" }).catch(() => undefined);
   }
 }

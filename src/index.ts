@@ -10,6 +10,7 @@ import { createAuthAbuseGuard } from "./security/turnstile";
 import { consumeProjectionQueue } from "./worker/queue";
 import { handleInternalSettlement } from "./worker/internal-settlement";
 import { backupConfigured, runBackupCron } from "./worker/backup-cron";
+import { jobAttemptKey, recordJobStatus } from "./worker/job-status";
 
 const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
@@ -22,7 +23,7 @@ export { PoolDO } from "./durable/pool-do";
 export interface Env {
   DB: D1Database; POOL_DO: DurableObjectNamespace; ODDS_API_KEY?: string; BETTER_AUTH_SECRET?: string; RESEND_API_KEY?: string;
   POOL_COMMAND_AUTHENTICATOR_KEY?: string; TURNSTILE_SECRET_KEY?: string;
-  SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string;
+  SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; OPS_SERVICE_TOKEN?: string; OPS_OPERATOR_USER_IDS?: string;
   BACKUP_ENCRYPTION_KEY?: string; BACKUPS?: R2Bucket; POOL_EVENTS?: Queue; ASSETS: Fetcher;
 }
 
@@ -40,6 +41,7 @@ const worker: ExportedHandler<Env> = {
       authHandler: auth.handler, limiter: poolMutationLimiter,
       authAbuseGuard: createAuthAbuseGuard({ secret: env.TURNSTILE_SECRET_KEY, expectedHostname: productionTurnstileHostname, allowInsecureLocalAuth: false, limiter: authLimiter }),
       allowInsecureLocalAuth: false, queue: env.POOL_EVENTS, spaAssets: env.ASSETS, poolNotifier: createResendPoolNotifier(emailOptions), oddsConfigured: Boolean(env.ODDS_API_KEY), backupConfigured: backupConfigured(env),
+      opsOperatorUserIds: env.OPS_OPERATOR_USER_IDS, opsServiceToken: env.OPS_SERVICE_TOKEN,
       placementRefreshLimiter,
       async refreshPlacementOdds(leagues) {
         if (!env.ODDS_API_KEY) return;
@@ -54,7 +56,28 @@ const worker: ExportedHandler<Env> = {
     });
     return app.fetch(request, env, ctx);
   },
-  scheduled(_event, env, ctx): void { if (env.ODDS_API_KEY) ctx.waitUntil(runOddsCron(env.DB, new TheOddsApiProvider(env.ODDS_API_KEY))); if (backupConfigured(env)) ctx.waitUntil(runBackupCron({ db: env.DB, pools: env.POOL_DO, bucket: env.BACKUPS, encryptionKey: env.BACKUP_ENCRYPTION_KEY, backupServiceToken: env.POOL_BACKUP_SERVICE_TOKEN })); },
+  scheduled(event, env, ctx): void {
+    const scheduledAt = new Date(typeof event.scheduledTime === "number" ? event.scheduledTime : Date.now());
+    if (env.ODDS_API_KEY) {
+      const startedAt = scheduledAt;
+      const attemptKey = jobAttemptKey(startedAt);
+      ctx.waitUntil(runOddsCron(env.DB, new TheOddsApiProvider(env.ODDS_API_KEY)).then(async (result) => {
+        const observedAt = new Date().toISOString();
+        const status = result.operationalOutcome === "published" ? "success" : result.operationalOutcome === "not_due" ? "not_due" : "superseded";
+        await recordJobStatus(env.DB, { jobKind: "odds", attemptKey, status, safeCategory: status === "success" ? "provider_published" : status === "not_due" ? "provider_not_due" : "provider_superseded", observedAt, ...(status === "success" ? { successfulAt: observedAt } : {}) }).catch(() => undefined);
+      }).catch(async (error) => {
+        await recordJobStatus(env.DB, { jobKind: "odds", attemptKey, status: "failed", safeCategory: "provider_failed", observedAt: new Date().toISOString() }).catch(() => undefined);
+        throw error;
+      }));
+    }
+    if (backupConfigured(env)) {
+      const attemptKey = jobAttemptKey(scheduledAt);
+      ctx.waitUntil(runBackupCron({ db: env.DB, pools: env.POOL_DO, bucket: env.BACKUPS, encryptionKey: env.BACKUP_ENCRYPTION_KEY, backupServiceToken: env.POOL_BACKUP_SERVICE_TOKEN }, async (outcome) => {
+        const observedAt = new Date().toISOString();
+        await recordJobStatus(env.DB, { jobKind: "backup", attemptKey, status: outcome.status, safeCategory: outcome.safeCategory, observedAt, ...(outcome.status === "success" ? { successfulAt: observedAt } : {}) });
+      }));
+    }
+  },
   queue(batch, env, ctx): void { ctx.waitUntil(consumeProjectionQueue(batch, { db: env.DB, pools: env.POOL_DO, projectionServiceToken: env.POOL_PROJECTION_SERVICE_TOKEN })); }
 };
 export default worker;
