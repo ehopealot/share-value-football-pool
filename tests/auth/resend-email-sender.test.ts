@@ -108,6 +108,23 @@ describe("Resend email sender", () => {
     });
   });
 
+  it("sends the season closure reminder with escaped details, a navigation-only admin link, and stable provider identity", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
+    const notifier = createResendPoolNotifier({ apiKey: "resend-test-key", from: "Yourfootballpool <noreply@officepool.football>", fetcher });
+    await notifier.notifySeasonClosureReminder({
+      to: "commissioner@example.test", poolName: "Sunday & Pool", seasonLabel: "2030 <season>", gameName: "Super Bowl <LX>", kickoff: "2030-02-10T23:00:00.000Z",
+      adminUrl: "https://officepool.football/p/sunday%20pool/admin/season?view=closure&safe=1", idempotencyKey: "season-closure/pool/season"
+    });
+
+    const request = fetcher.mock.calls[0]![1];
+    expect(request?.headers).toMatchObject({ "idempotency-key": "season-closure/pool/season" });
+    expect(JSON.parse(String(request?.body))).toEqual({
+      from: "Yourfootballpool <noreply@officepool.football>", to: ["commissioner@example.test"], subject: "End 2030 <season> after the Super Bowl — Sunday & Pool",
+      text: "Pool: Sunday & Pool\nSeason: 2030 <season>\nSuper Bowl: Super Bowl <LX>\nKickoff: 2030-02-10T23:00:00.000Z\n\nUse season administration to acknowledge this is the season's Super Bowl. After acknowledgment, the season will close automatically once the game is final and all wagers are resolved.\n\nOpen season administration: https://officepool.football/p/sunday%20pool/admin/season?view=closure&safe=1\n\nThis link opens the authenticated admin page and does not take action by itself.",
+      html: "<p><strong>Pool:</strong> Sunday &amp; Pool<br><strong>Season:</strong> 2030 &lt;season&gt;<br><strong>Super Bowl:</strong> Super Bowl &lt;LX&gt;<br><strong>Kickoff:</strong> 2030-02-10T23:00:00.000Z</p><p>Use season administration to acknowledge this is the season&#39;s Super Bowl. After acknowledgment, the season will close automatically once the game is final and all wagers are resolved.</p><p><a href=\"https://officepool.football/p/sunday%20pool/admin/season?view=closure&amp;safe=1\">Open season administration</a></p><p>This link opens the authenticated admin page and does not take action by itself.</p>"
+    });
+  });
+
   it("notifies a member when a share order is fulfilled", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "email-id" }), { status: 200, headers: { "content-type": "application/json" } }));
     const notifier = createResendPoolNotifier({ apiKey: "resend-test-key", from: "Yourfootballpool <noreply@officepool.football>", fetcher });

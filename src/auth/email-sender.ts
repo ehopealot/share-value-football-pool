@@ -9,6 +9,7 @@ export interface PoolNotifier {
   notifyCommissionerTransfer(message: { to: string; poolName: string; formerCommissionerName: string; newCommissionerName: string; recipient: "new" | "former" }): Promise<void>;
   notifyShareOrderFulfilled(message: { to: string; poolName: string; sharesMicros: string; valueMicros: string }): Promise<void>;
   notifyCommissionerAnnouncement(message: { to: string; poolName: string; authorName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
+  notifySeasonClosureReminder?(message: { to: string; poolName: string; seasonLabel: string; gameName: string; kickoff: string; adminUrl: string; idempotencyKey: string }): Promise<void>;
   notifyMessageBoardReply?(message: { to: string; poolName: string; replierName: string; text: string; boardUrl: string; idempotencyKey: string }): Promise<void>;
 }
 
@@ -57,7 +58,7 @@ export function createResendEmailSender(options: ResendEmailSenderOptions): Emai
 }
 
 /** Sends pool notifications through Resend. */
-export function createResendPoolNotifier(options: ResendEmailSenderOptions): PoolNotifier {
+export function createResendPoolNotifier(options: ResendEmailSenderOptions): PoolNotifier & { notifySeasonClosureReminder: NonNullable<PoolNotifier["notifySeasonClosureReminder"]> } {
   const amount = (micros: string) => formatMicros(BigInt(micros), 2);
   return {
     async notifyPoolJoin(message) {
@@ -79,6 +80,15 @@ export function createResendPoolNotifier(options: ResendEmailSenderOptions): Poo
         subject: `New reply in ${message.poolName}`,
         text: `${message.replierName} replied to your post in ${message.poolName}:\n\n${message.text}\n\nView reply: ${message.boardUrl}`,
         html: `<p><strong>${escapeHtml(message.replierName)}</strong> replied to your post in <strong>${escapeHtml(message.poolName)}</strong>.</p><p>${escapeHtml(message.text)}</p><p><a href="${escapeHtml(message.boardUrl)}">View reply</a></p>`
+      }, message.idempotencyKey);
+    },
+    async notifySeasonClosureReminder(message) {
+      const instruction = "Use season administration to acknowledge this is the season's Super Bowl. After acknowledgment, the season will close automatically once the game is final and all wagers are resolved.";
+      const navigationOnly = "This link opens the authenticated admin page and does not take action by itself.";
+      await sendResend(options, message.to, {
+        subject: `End ${message.seasonLabel} after the Super Bowl — ${message.poolName}`,
+        text: `Pool: ${message.poolName}\nSeason: ${message.seasonLabel}\nSuper Bowl: ${message.gameName}\nKickoff: ${message.kickoff}\n\n${instruction}\n\nOpen season administration: ${message.adminUrl}\n\n${navigationOnly}`,
+        html: `<p><strong>Pool:</strong> ${escapeHtml(message.poolName)}<br><strong>Season:</strong> ${escapeHtml(message.seasonLabel)}<br><strong>Super Bowl:</strong> ${escapeHtml(message.gameName)}<br><strong>Kickoff:</strong> ${escapeHtml(message.kickoff)}</p><p>${escapeHtml(instruction)}</p><p><a href="${escapeHtml(message.adminUrl)}">Open season administration</a></p><p>${navigationOnly}</p>`
       }, message.idempotencyKey);
     },
     async notifyShareOrderFulfilled(message) {

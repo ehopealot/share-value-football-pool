@@ -11,6 +11,7 @@ import { consumeProjectionQueue } from "./worker/queue";
 import { handleInternalSettlement } from "./worker/internal-settlement";
 import { backupConfigured, runBackupCron } from "./worker/backup-cron";
 import { jobAttemptKey, recordJobStatus } from "./worker/job-status";
+import { runSeasonClosureReminderCron, seasonClosureReminderConfigured } from "./worker/season-closure-reminder-cron";
 
 const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
@@ -58,6 +59,11 @@ const worker: ExportedHandler<Env> = {
   },
   scheduled(event, env, ctx): void {
     const scheduledAt = new Date(typeof event.scheduledTime === "number" ? event.scheduledTime : Date.now());
+    // This lifecycle sweep is intentionally independent of odds and backup configuration/outcomes.
+    if (seasonClosureReminderConfigured(env)) {
+      const notifier = createResendPoolNotifier({ apiKey: env.RESEND_API_KEY, from: productionEmailFrom });
+      ctx.waitUntil(runSeasonClosureReminderCron({ db: env.DB, pools: env.POOL_DO, settlementServiceToken: env.SETTLEMENT_SERVICE_TOKEN, notifier, adminOrigin: productionAuthOrigin }).catch(() => undefined));
+    }
     if (env.ODDS_API_KEY) {
       const startedAt = scheduledAt;
       const attemptKey = jobAttemptKey(startedAt);

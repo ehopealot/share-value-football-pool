@@ -31,6 +31,7 @@ const localWorker: ExportedHandler<Env> = {
     return responseBarrier.apply(request, response);
   },
   scheduled(event, env, ctx) {
+    // Resend season reminders are intentionally not composed in the local Worker.
     if (backupConfigured(env)) {
       const scheduledAt = new Date(typeof event.scheduledTime === "number" ? event.scheduledTime : Date.now());
       const attemptKey = jobAttemptKey(scheduledAt);
