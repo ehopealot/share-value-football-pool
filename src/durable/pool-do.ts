@@ -16,6 +16,7 @@ import { infrastructureAuditExport, memberAuditExport } from "../services/audit-
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
 import { schedulingInspection } from "./scheduling";
+import { claimSeasonClosureReminder, finishSeasonClosureReminder, prepareSeasonClosureReminder } from "./season-closure-reminder";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -115,6 +116,19 @@ export class PoolDO {
       if (request.method !== "POST" || !this.env.SETTLEMENT_SERVICE_TOKEN || request.headers.get("x-settlement-service-token") !== this.env.SETTLEMENT_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       await this.alarm();
       return Response.json({ ok: true });
+    }
+    if (pathname === "/internal/season-closure-reminder") {
+      if (request.method !== "POST" || !this.env.SETTLEMENT_SERVICE_TOKEN?.trim() || request.headers.get("x-settlement-service-token") !== this.env.SETTLEMENT_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
+      const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+      const at = typeof body?.now === "string" ? Date.parse(body.now) : Number.NaN;
+      if (!body || !Number.isFinite(at)) return Response.json({ code: "INVALID_REMINDER_REQUEST" }, { status: 400 });
+      const result = this.state.storage.transactionSync(() => {
+        if (body.action === "prepare") return prepareSeasonClosureReminder(this.state.storage.sql, at);
+        if (body.action === "claim" && typeof body.attemptToken === "string" && typeof body.commissionerId === "string" && typeof body.recipientEmail === "string") return claimSeasonClosureReminder(this.state.storage.sql, { now: at, attemptToken: body.attemptToken, commissionerId: body.commissionerId, recipientEmail: body.recipientEmail });
+        if ((body.action === "complete" || body.action === "fail") && typeof body.attemptToken === "string") return finishSeasonClosureReminder(this.state.storage.sql, { now: at, attemptToken: body.attemptToken, outcome: body.action === "complete" ? "accepted" : "provider_failed" });
+        return null;
+      });
+      return result === null ? Response.json({ code: "INVALID_REMINDER_REQUEST" }, { status: 400 }) : Response.json(result);
     }
     if (request.method !== "POST") return new Response("Not found", { status: 404 });
     try {

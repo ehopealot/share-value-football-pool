@@ -1,4 +1,5 @@
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
+import { seasonClosureReminderDdl } from "./season-closure-reminder";
 
 /** PoolDO-local authority schema. Accounting amounts are canonical integer TEXT, never REAL. */
 export const poolTableDdl = `CREATE TABLE IF NOT EXISTS pool (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, commissioner_id TEXT NOT NULL, password_hash TEXT NOT NULL, password_version INTEGER NOT NULL, signups_open INTEGER NOT NULL, max_side_bet_micros TEXT NOT NULL DEFAULT '800000000', commissioner_notice TEXT CHECK(commissioner_notice IS NULL OR length(trim(commissioner_notice)) BETWEEN 1 AND 500), active_season_id TEXT, command_version TEXT NOT NULL)`;
@@ -29,6 +30,7 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS season_super_bowl (season_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, provider_event_name TEXT NOT NULL, event_starts_at TEXT, confirmed_at TEXT)`,
   /** Active seasons independently and durably discover their provider-derived Super Bowl candidate. */
   `CREATE TABLE IF NOT EXISTS season_super_bowl_reconciliation (season_id TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, error_attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, last_error TEXT)`,
+  seasonClosureReminderDdl,
   `CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, event_type TEXT NOT NULL, version TEXT NOT NULL, payload_json TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, delivered_at TEXT, last_error TEXT, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS season_annotation (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, actor_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS processed_command (id TEXT PRIMARY KEY, type TEXT NOT NULL, actor_id TEXT NOT NULL, request_json TEXT NOT NULL, response_json TEXT NOT NULL, expires_at TEXT NOT NULL)`,
@@ -51,6 +53,8 @@ export const migratePoolStorage = (sql: SqlStorage): void => {
 
 /** Idempotently upgrades existing PoolDO SQLite files without depending on wall-clock time. */
 export const migrateAdditivePoolStorage = (sql: SqlStorage): void => {
+  // Recreate the additive reminder table when upgrading an existing SQLite-backed PoolDO.
+  sql.exec(seasonClosureReminderDdl);
   const columns = [...sql.exec<{ name: string }>("PRAGMA table_info(season)")];
   if (!columns.some((column) => column.name === "created_at")) sql.exec("ALTER TABLE season ADD COLUMN created_at TEXT");
   // Historical draft rows have no lifecycle timestamp. The fixed epoch makes their backfill stable across restarts.
