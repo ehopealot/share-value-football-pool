@@ -198,6 +198,13 @@ export async function acquireTurnstileToken(target?: HTMLElement | null): Promis
   });
 }
 
+export type OpsSummary = {
+  readiness: { operatorAllowlist: boolean; poolInspection: boolean; oddsJob: boolean; backupJob: boolean };
+  jobs: Array<{ job_kind: string; status: string; freshness: "current" | "stale" | "unknown"; safe_category: string; observed_at: string | null; successful_at: string | null }>;
+  limitations: { perPoolBackgroundMonitoring: false; automatedNotifications: false; inAppRepair: false };
+};
+export type PoolInspection = { initialized: boolean; status: "observed" | "unknown"; sampledAt: string; reconciliationRetryAt: string | null; discoveryRetryAt: string | null; outboxRetryAt: string | null; alarmAt: string | null; pendingReconciliationCount: number; pendingOutboxCount: number; exhaustedOutboxCount: number; exhaustedOutboxCategories: string[] };
+
 export type Membership = { poolId: string; slug: string; poolName: string; role: string; status: string; projectionVersion: string };
 export type PoolGate = { membership: "member" } | { membership: "joinable"; poolName: string; signupsOpen: true } | { membership: "closed"; signupsOpen: false };
 type Turnstile = { turnstileToken?: string };
@@ -231,6 +238,8 @@ const boundedJson = <T>(path: string, init?: RequestInit) => json<T>(path, { ...
 export const api = {
   session: async (): Promise<Session> => (await json<Session | null>("/api/auth/get-session", { method: "GET", headers: {} })) ?? {},
   memberships: () => json<{ memberships: Membership[] }>("/api/pools", { method: "GET", headers: {} }),
+  opsSummary: () => json<OpsSummary>("/ops/api/summary", { method: "GET", headers: {} }),
+  inspectPool: (poolId: string) => json<PoolInspection>(`/ops/api/pools/${encodeURIComponent(poolId)}/inspection`, { method: "GET", headers: {} }),
   gate: (slug: string) => json<PoolGate>(`/api/p/${encodeURIComponent(slug)}/gate`, { method: "GET", headers: {} }),
   signUp: (name: string, email: string, password: string, security: Turnstile) => json("/api/auth/sign-up/email", { method: "POST", body: JSON.stringify({ name, email, password, ...security }) }),
   signIn: (email: string, password: string, security: Turnstile) => json("/api/auth/sign-in/email", { method: "POST", body: JSON.stringify({ email, password, ...security }) }),

@@ -1,5 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
+import operationsMigration from "../../src/db/migrations/0003_operations.sql?raw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ProjectionConsumer, recordQueuedProjection } from "../../src/services/projections";
 import { createWorkerApp } from "../../src/worker/app";
@@ -13,8 +14,8 @@ const message = (eventId: string, version: string): PoolOutboxMessage => ({
 });
 
 beforeEach(async () => {
-  if (!migrated) { await applyD1Migrations(db, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]); migrated = true; }
-  await db.exec("DELETE FROM projection_delivery; DELETE FROM projection_state; DELETE FROM membership_projection; DELETE FROM season_projection; DELETE FROM odds_ingestion;");
+  if (!migrated) { await applyD1Migrations(db, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }, { name: "0003_operations.sql", queries: operationsMigration.split(";\n").filter(Boolean) }]); migrated = true; }
+  await db.exec("DELETE FROM projection_delivery; DELETE FROM projection_state; DELETE FROM membership_projection; DELETE FROM season_projection; DELETE FROM odds_ingestion; DELETE FROM ops_job_status;");
 });
 
 describe("projection Queue consumer", () => {
@@ -71,9 +72,13 @@ describe("non-sensitive operational health", () => {
     const app = createWorkerApp({ db, pools: (env as unknown as { POOL_DO: DurableObjectNamespace }).POOL_DO, queue: {} as Queue, oddsConfigured: true, currentUser: async () => null });
     expect(await (await app.fetch(new Request("https://pool.example.test/health/app"))).json()).toEqual({ status: "ok" });
     expect(await (await app.fetch(new Request("https://pool.example.test/health/d1"))).json()).toEqual({ status: "ok" });
-    expect(await (await app.fetch(new Request("https://pool.example.test/health/odds"))).json()).toEqual({ status: "degraded" });
-    await db.prepare("INSERT INTO odds_ingestion (provider, last_polled_at, last_error) VALUES ('odds', ?, ?)").bind("2026-01-01T00:00:00.000Z", "provider unavailable").run();
-    expect(await (await app.fetch(new Request("https://pool.example.test/health/odds"))).json()).toEqual({ status: "error" });
+    const unknownOdds = await app.fetch(new Request("https://pool.example.test/health/odds"));
+    expect(unknownOdds.status).toBe(503);
+    expect(await unknownOdds.json()).toEqual({ status: "unknown", lastObservedAt: null, lastSuccessfulAt: null });
+    await db.prepare("INSERT INTO ops_job_status(job_kind,attempt_key,status,safe_category,observed_at) VALUES('odds','current','failed','provider_failed',?)").bind(new Date().toISOString()).run();
+    const failedOdds = await app.fetch(new Request("https://pool.example.test/health/odds"));
+    expect(failedOdds.status).toBe(503);
+    expect(await failedOdds.json()).toMatchObject({ status: "failed", lastObservedAt: expect.any(String), lastSuccessfulAt: null });
     expect(await health()).toEqual({ status: "ok" });
   });
 

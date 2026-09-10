@@ -4,5 +4,8 @@ BETTER_AUTH_SECRET=local-development-secret
 POOL_COMMAND_AUTHENTICATOR_KEY=local-command-authenticator
 POOL_PROJECTION_SERVICE_TOKEN=local-projection-service-token
 POOL_BACKUP_SERVICE_TOKEN=local-backup-service-token
+# Read-only operational visibility. Use an immutable Better Auth user ID, not email or commissioner role.
+OPS_SERVICE_TOKEN=local-ops-inspection-token
+OPS_OPERATOR_USER_IDS=local-operator-user-id
 # Canonical base64 encoding of exactly 32 bytes; service-only encryption key name.
 BACKUP_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

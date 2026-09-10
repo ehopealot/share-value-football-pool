@@ -674,10 +674,10 @@ describe("odds ingestion", () => {
 
     await db.exec("UPDATE sports_event SET last_polled_at='2026-09-09T00:00:00.000Z'; UPDATE odds_league_poll SET last_discovery_at='2026-09-09T00:00:00.000Z' WHERE league='nfl';");
     const staleSuccess = new DeferredProvider(); const latestFailure = new DeferredProvider();
-    const stalePoll = new OddsIngestion(db, staleSuccess, { now: () => new Date("2026-09-10T00:02:00.000Z") }).poll(); await staleSuccess.called;
+    const stalePoll = new OddsIngestion(db, staleSuccess, { now: () => new Date("2026-09-10T00:02:00.000Z") }).poll({ operational: true }); await staleSuccess.called;
     const failurePoll = new OddsIngestion(db, latestFailure, { now: () => new Date("2026-09-10T00:03:00.000Z") }).poll(); await latestFailure.called;
     latestFailure.reject(new Error("latest failure")); await expect(failurePoll).rejects.toThrow("latest failure");
-    staleSuccess.resolve({ events: [event()] }); expect(await stalePoll).toEqual({ events: 0, offers: 0 });
+    staleSuccess.resolve({ events: [event()] }); expect(await stalePoll).toEqual({ events: 0, offers: 0, operationalOutcome: "superseded" });
     expect(await db.prepare("SELECT status FROM sports_event WHERE provider_event_id='event-1'").first()).toEqual({ status: "in_progress" });
     expect(await db.prepare("SELECT last_error, last_polled_at FROM odds_ingestion WHERE provider='odds'").first()).toMatchObject({ last_error: "latest failure", last_polled_at: "2026-09-10T00:03:00.000Z" });
   });

@@ -52,16 +52,17 @@ export class OddsIngestion {
     private readonly beforeClaim: () => Promise<void> = async () => undefined
   ) {}
   /** Placement refreshes bypass cadence, but not quota backoff, and never degrade last-good feed health on failure. */
-  async poll({ placementLeagues }: { placementLeagues?: readonly League[] } = {}): Promise<{ events: number; offers: number; placementEvents?: ProviderEvent[] }> {
+  async poll({ placementLeagues, operational = false }: { placementLeagues?: readonly League[]; operational?: boolean } = {}): Promise<{ events: number; offers: number; placementEvents?: ProviderEvent[]; operationalOutcome?: "published" | "not_due" | "superseded" }> {
+    const outcome = <T extends Record<string, unknown>>(value: T, state: "published" | "not_due" | "superseded") => operational ? { ...value, operationalOutcome: state } : value;
     const now = this.clock.now();
     // The preflight avoids generation and health mutation when no request is due. Its
     // snapshot is never used after the atomic claim.
     const preflight = await this.db.prepare("SELECT quota_json FROM odds_ingestion WHERE provider = 'odds'").first<{ quota_json: string | null }>();
     const preflightBackoff = backoffFrom(preflight?.quota_json);
     const requestedLeagues = placementLeagues ? [...new Set(placementLeagues)] : undefined;
-    if (requestedLeagues && preflightBackoff > 0) return { events: 0, offers: 0 };
+    if (requestedLeagues && preflightBackoff > 0) return outcome({ events: 0, offers: 0 }, "not_due");
     const preflightDue = requestedLeagues ?? await this.dueLeagues(now, preflightBackoff);
-    if (preflightDue.length === 0) return { events: 0, offers: 0 };
+    if (preflightDue.length === 0) return outcome({ events: 0, offers: 0 }, "not_due");
 
     await this.beforeClaim();
     const claimed = await this.claimGeneration();
@@ -72,9 +73,9 @@ export class OddsIngestion {
       .filter((value): value is string => value !== null)
       .reduce((latest, value) => value > latest ? value : latest);
     const claimedBackoff = backoffFrom(claimed.quota_json);
-    if (requestedLeagues && claimedBackoff > 0) return { events: 0, offers: 0 };
+    if (requestedLeagues && claimedBackoff > 0) return outcome({ events: 0, offers: 0 }, "not_due");
     const dueLeagues = requestedLeagues ?? await this.dueLeagues(now, claimedBackoff);
-    if (dueLeagues.length === 0) return { events: 0, offers: 0 }; // preserve feed health and availability exactly
+    if (dueLeagues.length === 0) return outcome({ events: 0, offers: 0 }, "not_due"); // preserve feed health and availability exactly
     let placementEvents: ProviderEvent[] | undefined;
     try {
       const fetched = await Promise.all(dueLeagues.map(async (league) => ({ league, poll: await this.provider.events(league) })));
@@ -130,8 +131,8 @@ export class OddsIngestion {
       statements.push(this.db.prepare("UPDATE odds_ingestion SET quota_json=COALESCE(?, quota_json), last_polled_at=?, last_success_at=?, last_error=NULL, canonical_book_availability_json=? WHERE provider='odds' AND poll_generation=?").bind(successQuota ? JSON.stringify(successQuota) : null, at, at, JSON.stringify(availability), generation));
       const results = await this.db.batch(statements);
       const evidence = placementEvents ? { placementEvents } : {};
-      if (results.at(-1)?.meta.changes !== 1) return { events: 0, offers: 0, ...evidence };
-      return { events, offers, ...evidence };
+      if (results.at(-1)?.meta.changes !== 1) return outcome({ events: 0, offers: 0, ...evidence }, "superseded");
+      return outcome({ events, offers, ...evidence }, "published");
     } catch (error) {
       if (placementEvents) return { events: 0, offers: 0, placementEvents };
       // Only the latest attempted failed response advances health; last-good event/offer bytes are retained.

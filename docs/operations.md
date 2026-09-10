@@ -19,11 +19,29 @@ Use `npm run build:local` only for a local Wrangler dry-run build. It does not p
 
 ## Health and recovery
 
-`/health/app` confirms Worker application availability. The Worker also exposes D1, Durable Object, odds, and Queue health paths for operator diagnostics. A failed odds poll blocks only new quotes when the relevant offers are stale; accepted tickets remain immutable and settle once provider results are available.
+`/health/app` confirms Worker request handling. `/health/d1` checks a D1 query. `/health/scheduler` reports only the latest overwritten odds/backup job observations and returns 503 for missing, unreadable, more-than-four-minutes-stale, failed, unknown, or superseded evidence. A `not_due` outcome means the scheduled job made its current due decision; it does not claim provider work occurred. The endpoint does **not** prove that every pool settled or that every pool backup succeeded.
+
+The authenticated `/ops` page is read-only. Exact immutable user IDs in `OPS_OPERATOR_USER_IDS` authorize it; email and commissioner role do not. It shows configuration and latest job evidence and can request one current inspection for a ready directory pool. That token-protected inspection has fixed queries and returns only alarm/retry timestamps and safe pending/exhausted counts. It does not execute commands, settle, drain/reset outbox, set alarms, or repair anything. Inspecting a never-used object can create empty constructor schema; such a response is explicitly uninitialized/unknown.
+
+There is no background per-pool watchdog, automated operational email, continuous incident timer, or in-app repair in this release. Impact: an individual pool problem may remain unknown until an operator inspects it. Workaround: inspect the affected ready pool from `/ops`, then use existing documented business procedures; do not treat observation data as authority or improvise repair. Existing shared PoolDO alarm writers can replace an earlier alarm, the native and service settlement entries do not share an application single-flight, and exhausted outbox rows have no reset path; this visibility increment deliberately does not claim to fix those baseline risks. Escalate suspicious inspection evidence for separately reviewed action rather than invoking settlement or editing storage. These omissions are intentional small-scale tradeoffs in the [reduced scope](plans/2026-09-10-operational-visibility-reduced-scope.md).
+
+### Independent external monitor setup
+
+After deployment, an operator may configure an uptime provider outside the Cloudflare account:
+
+1. Check `https://officepool.football/health/app` and `/health/scheduler` every minute.
+2. Require HTTP 200 and JSON `status: "ok"`; HTTP reachability alone is insufficient.
+3. Notify only after 30 continuous minutes of failed assertions and enable one recovery notification.
+4. Record provider, monitor IDs, owner, assertions, cadence, notification window, and last verified test in the private operator system.
+5. Prove delivery with staging/fixture infrastructure or an approved maintenance window. Never stop or mutate production work merely to test monitoring.
+
+Until that evidence exists, the application and repository do not claim an external monitor is configured or verified.
 
 A started event is intentionally excluded from the current odds board. If local manual fixtures have expired, reseed them or use the local controls to finalize the intended fixture; do not modify production provider data to repair a local test state.
 
 Durable Object alarms retry settlement. Repeated service delivery is safe because commands and result versions are idempotent. Use the authorized audit export to inspect immutable accounting evidence before any commissioner correction. Correct an order only with a reversing order and correct a graded wager only with the constrained void/regrade flow.
+
+The [isolated recovery drill runbook](restore-drill-runbook.md) remains runbook-only and unexecuted. Its mandatory Phase 0 currently stops because complete isolated D1/PoolDO recovery sources and side-effect quarantine are unavailable. Encrypted R2 audit exports are evidence, not complete PoolDO backups or restore inputs.
 
 ## Provider limits
 

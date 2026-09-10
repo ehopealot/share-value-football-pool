@@ -15,6 +15,7 @@ import { shapeActivityWagers, shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
+import { schedulingInspection } from "./scheduling";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -70,7 +71,7 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
  * provider evidence for settlement.
  */
 export class PoolDO {
-  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
+  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; OPS_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
     this.state.storage.transactionSync(() => {
       migrateAdditivePoolStorage(this.state.storage.sql);
@@ -79,11 +80,30 @@ export class PoolDO {
   }
 
   async fetch(request: Request): Promise<Response> {
-    if (new URL(request.url).pathname === "/internal/projection") {
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/internal/ops/inspection") {
+      if (request.method !== "GET" || !this.env.OPS_SERVICE_TOKEN?.trim() || request.headers.get("x-ops-service-token") !== this.env.OPS_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
+      const inspection = schedulingInspection(this.state.storage.sql);
+      const alarm = await this.state.storage.getAlarm();
+      return Response.json({
+        initialized: inspection.initialized,
+        status: inspection.initialized && !inspection.corrupt ? "observed" : "unknown",
+        sampledAt: new Date().toISOString(),
+        reconciliationRetryAt: inspection.reconciliationRetryAt,
+        discoveryRetryAt: inspection.discoveryRetryAt,
+        outboxRetryAt: inspection.outboxRetryAt,
+        alarmAt: alarm === null ? null : new Date(alarm).toISOString(),
+        pendingReconciliationCount: inspection.pendingReconciliationCount,
+        pendingOutboxCount: inspection.pendingOutboxCount,
+        exhaustedOutboxCount: inspection.exhaustedOutboxCount,
+        exhaustedOutboxCategories: inspection.exhaustedOutboxCategories
+      });
+    }
+    if (pathname === "/internal/projection") {
       if (request.method !== "GET" || !this.env.POOL_PROJECTION_SERVICE_TOKEN || request.headers.get("x-projection-service-token") !== this.env.POOL_PROJECTION_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       return Response.json(this.projectionSnapshot(this.state.storage.sql));
     }
-    if (new URL(request.url).pathname === "/internal/audit-export") {
+    if (pathname === "/internal/audit-export") {
       if (request.method !== "GET" || !this.env.POOL_BACKUP_SERVICE_TOKEN || request.headers.get("x-backup-service-token") !== this.env.POOL_BACKUP_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       try {
         return Response.json(infrastructureAuditExport(this.state.storage.sql));
@@ -91,7 +111,7 @@ export class PoolDO {
         return new Response("Internal Server Error", { status: 500 });
       }
     }
-    if (new URL(request.url).pathname === "/internal/settle") {
+    if (pathname === "/internal/settle") {
       if (request.method !== "POST" || !this.env.SETTLEMENT_SERVICE_TOKEN || request.headers.get("x-settlement-service-token") !== this.env.SETTLEMENT_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       await this.alarm();
       return Response.json({ ok: true });
