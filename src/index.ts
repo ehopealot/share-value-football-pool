@@ -14,6 +14,7 @@ import type { EspnMatchupCache } from "./services/espn-matchup";
 import { jobAttemptKey, recordJobStatus } from "./worker/job-status";
 import { createOperationalAlerts, scheduleOperationalAlert } from "./services/operational-alerts";
 import { runSettlementAlertCron } from "./worker/settlement-alert-cron";
+import { runSeasonClosureReminderCron, seasonClosureReminderConfigured } from "./worker/season-closure-reminder-cron";
 
 const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
@@ -67,6 +68,11 @@ const worker: ExportedHandler<Env> = {
     const alerts = createOperationalAlerts(env);
     if (alerts && env.OPS_SERVICE_TOKEN?.trim()) {
       ctx.waitUntil(runSettlementAlertCron({ db: env.DB, pools: env.POOL_DO, opsServiceToken: env.OPS_SERVICE_TOKEN, alerts }).catch(() => alerts.report({ kind: "settlement_check", scope: "global" })));
+    }
+    // This lifecycle sweep is intentionally independent of odds and backup configuration/outcomes.
+    if (seasonClosureReminderConfigured(env)) {
+      const notifier = createResendPoolNotifier({ apiKey: env.RESEND_API_KEY, from: productionEmailFrom });
+      ctx.waitUntil(runSeasonClosureReminderCron({ db: env.DB, pools: env.POOL_DO, settlementServiceToken: env.SETTLEMENT_SERVICE_TOKEN, notifier, adminOrigin: productionAuthOrigin }).catch(() => undefined));
     }
     if (env.ODDS_API_KEY) {
       const startedAt = scheduledAt;
