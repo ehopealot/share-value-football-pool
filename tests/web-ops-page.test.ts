@@ -30,7 +30,7 @@ const render = () => { hooks.cursor = 0; hooks.refCursor = 0; return OpsPage(); 
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  hooks.values = [summary, "pool-a", undefined, "", false];
+  hooks.values = [summary, "pool-a", undefined, "", false, Date.parse("2026-09-10T00:02:00.000Z")];
   hooks.refs = [];
   vi.spyOn(api, "opsSummary").mockResolvedValue(summary);
 });
@@ -42,6 +42,60 @@ describe("reduced read-only operations page", () => {
     expect(pageSource).toContain("Inspect current scheduling");
     expect(pageSource).toContain("reports observations only");
     expect(pageSource).not.toMatch(/repairScheduling|repair-scheduling|>Repair scheduling<|sendOperational|retryDelivery/);
+  });
+
+  it("shows readable job outcomes, local timestamps, and snapshot-scoped signals", () => {
+    hooks.values[0] = { ...summary, jobs: [
+      { job_kind: "odds", status: "not_due", safe_category: "provider_not_due", freshness: "current", observed_at: "2026-09-10T00:00:00.000Z", successful_at: null },
+      { job_kind: "backup", status: "failed", safe_category: "backup_partial_failure", freshness: "stale", observed_at: "2026-09-09T00:00:00.000Z", successful_at: null }
+    ] };
+    const html = renderToStaticMarkup(render());
+    expect(html).toContain("Odds updates");
+    expect(html).toContain("Recent check OK");
+    expect(html).toContain("No work due");
+    expect(html).toContain("No odds update was due");
+    expect(html).toContain('ops-badge--bad');
+    expect(html).toContain("Failed");
+    expect(html).toContain("Some backup exports failed");
+    expect(html).toContain("Older than 4 minutes");
+    expect(html).toContain("2 minutes ago");
+    expect(html).toContain('dateTime="2026-09-10T00:00:00.000Z"');
+    expect(html).toContain(new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" }).format(new Date("2026-09-10T00:00:00.000Z")));
+    expect(html).toContain("Times and statuses are frozen at this snapshot");
+    expect(html).toContain("not completed work");
+    expect(html).toContain("Disabled");
+    expect(html).toContain("Not verified");
+  });
+
+  it("keeps relative job times frozen on later renders", () => {
+    hooks.values[0] = { ...summary, jobs: [{ job_kind: "odds", status: "success", safe_category: "provider_published", freshness: "current", observed_at: "2026-09-10T00:00:00.000Z", successful_at: null }] };
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-11T00:00:00.000Z"));
+    expect(renderToStaticMarkup(render())).toContain("2 minutes ago");
+  });
+
+  it("explains pending work without declaring it failed and highlights exhausted deliveries", () => {
+    hooks.values[2] = { poolId: "pool-a", receivedAt: Date.parse("2026-09-10T00:00:00.000Z"), value: { ...inspection("2026-09-09T23:58:00.000Z"), pendingReconciliationCount: 3, pendingOutboxCount: 2, exhaustedOutboxCount: 1, exhaustedOutboxCategories: ["invalid_delivery"] } };
+    const html = renderToStaticMarkup(render());
+    expect(html).toContain("Snapshot collected");
+    expect(html).toContain("not a whole-pool health check");
+    expect(html).toContain("Event/result checks");
+    expect(html).toContain("Queued deliveries");
+    expect(html).toContain('ops-badge--neutral">3 waiting');
+    expect(html).toContain('ops-badge--neutral">2 waiting');
+    expect(html).toContain('ops-badge--bad">1 retries exhausted');
+    expect(html).toContain("Invalid delivery data");
+    expect(html).toContain("Time passed");
+    expect(html).toContain("does not prove work is stuck");
+    expect(html).toContain("Pending work alone is not a failure");
+  });
+
+  it.each([{ status: "unknown", initialized: true }, { status: "observed", initialized: false }])("does not display unreadable/uninitialized counts as healthy: %s", (overrides) => {
+    hooks.values[2] = { poolId: "pool-a", receivedAt: Date.parse("2026-09-10T00:00:00.000Z"), value: { ...inspection("invalid"), ...overrides, pendingOutboxCount: 99 } };
+    const html = renderToStaticMarkup(render());
+    expect(html).toContain("Scheduling evidence is unknown");
+    expect(html).not.toContain("99 waiting");
+    expect(html).not.toContain("Snapshot collected");
+    expect(html).not.toContain("Invalid Date");
   });
 
   it("clears a labeled result when the editable pool target changes", async () => {
