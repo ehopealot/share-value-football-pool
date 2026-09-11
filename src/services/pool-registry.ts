@@ -30,7 +30,7 @@ const requireInitialization = (input: CreatePoolInput): Required<CreatePoolInput
   return input as Required<CreatePoolInput>;
 };
 
-const normalizeSlug = (slug: string) => {
+export const normalizeSlug = (slug: string) => {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) throw new Error("Pool slug must be lowercase URL-safe words.");
   return normalized;

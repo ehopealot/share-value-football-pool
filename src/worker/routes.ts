@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { z } from "zod";
-import { PoolRegistry } from "../services/pool-registry";
+import { normalizeSlug, PoolRegistry } from "../services/pool-registry";
 import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
@@ -76,8 +76,9 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (user === undefined) return jsonError(c, "CSRF_REJECTED", 403);
     if (!user) return jsonError(c, "UNAUTHENTICATED", 401);
     try { return await action(user); } catch (error) {
-      if (/\/wagers\/(straight|teasers|parlays)\/(quote|place)$/.test(c.req.path) && !(error instanceof QuoteLineChangedError) && !(error instanceof LineChangedError) && !expectedWagerRejections.has(error instanceof Error ? error.message : "")) {
-        report(c, { kind: "placement", scope: c.req.param("slug") ?? "unknown" });
+      const wagerAlertScope: unknown = c.get("wagerAlertScope");
+      if (typeof wagerAlertScope === "string" && /\/wagers\/(straight|teasers|parlays)\/(quote|place)$/.test(c.req.path) && !(error instanceof QuoteLineChangedError) && !(error instanceof LineChangedError) && !expectedWagerRejections.has(error instanceof Error ? error.message : "")) {
+        report(c, { kind: "placement", scope: wagerAlertScope });
       }
       // A malformed post-commit authority response leaves the browser with an unknown outcome.
       if (error instanceof z.ZodError) return jsonError(c, "POOL_UNAVAILABLE", 503);
@@ -265,9 +266,16 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   const wager = (kind: "straight" | "teasers" | "parlays", quote: boolean) => (c: Context) => mutation(c, async (user) => {
     const quoteSchema = kind === "straight" ? straightWagerQuoteRequest : kind === "teasers" ? teaserWagerQuoteRequest : parlayWagerQuoteRequest;
     const placementSchema = kind === "straight" ? straightWagerPlacementRequest : kind === "teasers" ? teaserWagerPlacementRequest : parlayWagerPlacementRequest;
-    const parsed = (quote ? quoteSchema : placementSchema).safeParse(await c.req.json());
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { return jsonError(c, "INVALID_REQUEST"); }
+    const parsed = (quote ? quoteSchema : placementSchema).safeParse(body);
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
-    const slug = c.req.param("slug"); if (!slug) return jsonError(c, "INVALID_REQUEST");
+    let slug: string;
+    try { slug = normalizeSlug(c.req.param("slug") ?? ""); }
+    catch { return jsonError(c, "INVALID_REQUEST"); }
+    // Only validated requests may produce incidents; aliases share one cooldown scope.
+    c.set("wagerAlertScope", slug);
     const data = parsed.data as any;
     if (!quote) {
       const command = kind === "straight"
