@@ -6,7 +6,8 @@ const first = (sql: SqlStorage, query: string, ...params: SqlStorageValue[]): Ro
 /** Local-only DO identity: fixture requests are handled here; every command delegates unchanged. */
 export class PoolDO extends ProductionPoolDO {
   constructor(state: DurableObjectState, env: ConstructorParameters<typeof ProductionPoolDO>[1]) {
-    super(state, env);
+    // Local fixture alarms must never send operational mail, even with operator-local secrets present.
+    super(state, { ...env, RESEND_API_KEY: undefined });
     // The fixture read clock lives only in this identity's storage; the production schema never creates it.
     state.storage.sql.exec("CREATE TABLE IF NOT EXISTS local_read_time (id INTEGER PRIMARY KEY CHECK (id = 1), read_time TEXT NOT NULL)");
   }

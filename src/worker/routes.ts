@@ -12,6 +12,7 @@ import { offerIsStale } from "../odds/ingestion";
 import type { League, ProviderEvent } from "../odds/types";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
+import { scheduleOperationalAlert, type OperationalAlert, type OperationalAlerts } from "../services/operational-alerts";
 
 export type AuthenticatedUser = { id: string; name: string };
 export type RouteDependencies = {
@@ -30,6 +31,7 @@ export type RouteDependencies = {
   /** Best-effort live refresh; failures leave the existing placement checks authoritative. */
   refreshPlacementOdds?: (leagues: League[]) => Promise<ProviderEvent[] | void>;
   placementRefreshLimiter?: RateLimiter;
+  operationalAlerts?: OperationalAlerts;
 };
 const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503 = 400) => c.json({ code }, status);
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
@@ -42,6 +44,8 @@ const csrf = (c: Context) => {
   } catch { return false; }
 };
 const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.stringify(ticket);
+// Expected business/authorization rejections are not incidents. Unknown technical errors are.
+const expectedWagerRejections = new Set(["BETTING_CLOSED", "FORBIDDEN", "SUSPENDED", "IDEMPOTENCY_CONFLICT", "INVALID_COMMAND", "INVALID_PLACEMENT_REPLAY_PROBE", "INVALID_QUOTE", "QUOTE_NOT_FOUND", "LINE_CHANGED", "ORDER_QUOTE_STALE", "MARKET_LOCKED", "MARKET_STALE", "MARKET_UNAVAILABLE", "NON_CANONICAL_QUOTE", "INSUFFICIENT_SHARES", "SIDE_BET_LIMIT", "WHOLE_SHARE_RISK_REQUIRED", "SEASON_CLOSED", "SEASON_NOT_ACTIVE", "SEASON_NOT_FOUND", "SHARE_ACCOUNT_NOT_FOUND", "POOL_NOT_AVAILABLE", "POOL_NOT_INITIALIZED", "INVALID_OFFER_SNAPSHOT", "INVALID_PARLAY_TERMS", "INVALID_TEASER_TERMS", "INVALID_WAGER_LEG"]);
 const recipientChunkSize = 100;
 const announcementSendIntervalMs = 250;
 const pause = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -59,6 +63,10 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   const limiter = dependencies.limiter ?? new RateLimiter();
   const placementRefreshLimiter = dependencies.placementRefreshLimiter ?? new RateLimiter(10, 60_000);
   const poolNotifier = dependencies.poolNotifier ?? dependencies.poolJoinNotifier;
+  const report = (c: Context, alert: OperationalAlert) => {
+    if (!dependencies.operationalAlerts) return;
+    try { scheduleOperationalAlert(c.executionCtx, dependencies.operationalAlerts, alert); } catch { /* context unavailable: best effort */ }
+  };
   const requireUser = async (c: Context) => {
     if (!csrf(c)) return undefined;
     return dependencies.currentUser(c.req.raw);
@@ -68,6 +76,9 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (user === undefined) return jsonError(c, "CSRF_REJECTED", 403);
     if (!user) return jsonError(c, "UNAUTHENTICATED", 401);
     try { return await action(user); } catch (error) {
+      if (/\/wagers\/(straight|teasers|parlays)\/(quote|place)$/.test(c.req.path) && !(error instanceof QuoteLineChangedError) && !(error instanceof LineChangedError) && !expectedWagerRejections.has(error instanceof Error ? error.message : "")) {
+        report(c, { kind: "placement", scope: c.req.param("slug") ?? "unknown" });
+      }
       // A malformed post-commit authority response leaves the browser with an unknown outcome.
       if (error instanceof z.ZodError) return jsonError(c, "POOL_UNAVAILABLE", 503);
       const code = error instanceof Error ? error.message : "COMMAND_FAILED";
@@ -272,7 +283,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
         const leagues = [...new Set<League>(legs.map((leg: { league: League }) => leg.league))];
         let liveEvents: ProviderEvent[] | void = undefined;
         try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
-        catch { console.warn({ event: "placement_odds_refresh_failed", fallback: "stored_offer_checks" }); }
+        catch { report(c, { kind: "odds_update", scope: "global" }); console.warn({ event: "placement_odds_refresh_failed", fallback: "stored_offer_checks" }); }
         // Confirmed drift is not a provider failure and must never be swallowed.
         if (liveEvents) revalidateLiveWagerOffers(command, liveEvents);
       }
@@ -302,7 +313,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       if (!placementRefreshLimiter.allow(user.id)) return jsonError(c, "RATE_LIMITED", 429);
       let liveEvents: ProviderEvent[] | void = undefined;
       try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
-      catch { throw error; }
+      catch { report(c, { kind: "odds_update", scope: "global" }); throw error; }
       // A refresh must actually publish fresh, valid evidence. Changed versions still
       // require another review; never quote stale inputs just to reach placement.
       canonical = await canonicalizeWagerQuote(dependencies.db, seed);

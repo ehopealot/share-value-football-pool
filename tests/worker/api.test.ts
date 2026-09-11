@@ -506,6 +506,21 @@ describe("later wager and member HTTP API", () => {
     expect(await odds()).toMatchObject({ offers: [expect.objectContaining({ eventId: "attested-one" }), expect.objectContaining({ eventId: "attested-two" })], feed: { status: "provider-error" } });
   }, 90_000);
 
+  it.each(["POOL_UNAVAILABLE", "INSUFFICIENT_SHARES", "LINE_CHANGED"])("only alerts on technical wager failures: %s", async (code) => {
+    const poolId = `alert-placement-${crypto.randomUUID()}`;
+    await setupPool(poolId, poolId);
+    const report = vi.fn().mockRejectedValue(new Error("mail unavailable"));
+    const tasks: Promise<unknown>[] = [];
+    const pools = { idFromName: (id: string) => bindings.POOL_DO.idFromName(id), get: () => ({ fetch: async () => Response.json({ code }, { status: code === "POOL_UNAVAILABLE" ? 503 : 400 }) }) } as unknown as DurableObjectNamespace;
+    const app = createWorkerApp({ db: bindings.DB, pools, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), operationalAlerts: { report } });
+    const response = await app.fetch(request(`/api/p/${poolId}/wagers/straight/quote`, { quoteKey: "alert-quote", commandId: "alert-quote", wagerId: "alert-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event:spread:home", offerVersion: "v1" } }), {}, { waitUntil: (task: Promise<unknown>) => tasks.push(task) } as unknown as ExecutionContext);
+    expect(response.status).toBe(code === "POOL_UNAVAILABLE" ? 503 : 400);
+    expect(await response.json()).toMatchObject({ code });
+    await Promise.all(tasks);
+    expect(report).toHaveBeenCalledTimes(code === "POOL_UNAVAILABLE" ? 1 : 0);
+    if (code === "POOL_UNAVAILABLE") expect(report).toHaveBeenCalledWith({ kind: "placement", scope: poolId });
+  });
+
   it.each(["recovered", "changed", "failed"] as const)("refreshes stale offers before quoting while preserving acceptance checks: %s", async (outcome) => {
     const poolId = `api-recovery-${crypto.randomUUID()}`; const slug = poolId;
     await setupPool(poolId, slug);
@@ -518,8 +533,12 @@ describe("later wager and member HTTP API", () => {
       await bindings.DB.prepare("UPDATE market_offer SET retrieved_at=?, offer_version=?").bind(new Date().toISOString(), outcome === "changed" ? "v2" : "v1").run();
       await bindings.DB.prepare("UPDATE odds_ingestion SET last_error=NULL").run();
     });
-    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds });
-    const response = await app.fetch(request(`/api/p/${slug}/wagers/straight/quote`, { quoteKey: "recover-quote", commandId: "recover-quote", wagerId: "recover-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "recover", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "recover:spread:home", offerVersion: "v1" } }));
+    const report = vi.fn().mockResolvedValue(undefined);
+    const tasks: Promise<unknown>[] = [];
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds, operationalAlerts: { report } });
+    const response = await app.fetch(request(`/api/p/${slug}/wagers/straight/quote`, { quoteKey: "recover-quote", commandId: "recover-quote", wagerId: "recover-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "recover", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "recover:spread:home", offerVersion: "v1" } }), {}, { waitUntil: (task: Promise<unknown>) => tasks.push(task) } as unknown as ExecutionContext);
+    await Promise.all(tasks);
+    expect(report.mock.calls.map(([alert]) => alert)).toEqual(outcome === "failed" ? [{ kind: "odds_update", scope: "global" }] : []);
     expect(refreshPlacementOdds).toHaveBeenCalledExactlyOnceWith(["nfl"]);
     expect(response.status).toBe(outcome === "recovered" ? 200 : 400);
     if (outcome !== "recovered") expect(await response.json()).toMatchObject({ code: outcome === "changed" ? "LINE_CHANGED" : "MARKET_STALE" });

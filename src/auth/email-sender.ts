@@ -56,6 +56,17 @@ export function createResendEmailSender(options: ResendEmailSenderOptions): Emai
   return { async send(message) { await sendResend(options, message.to, emailContent(message)); } };
 }
 
+/** Operational content is deliberately limited to safe categories and correlation IDs. */
+export async function sendOperationalAlertEmail(options: ResendEmailSenderOptions, message: { to: string; title: string; description: string; scope: string; observedAt: string; count?: number }): Promise<void> {
+  const count = message.count === undefined ? "" : `\nAffected open wagers: ${message.count}`;
+  const text = `${message.description}\nScope: ${message.scope}\nObserved at: ${message.observedAt}${count}\n\nInspect operations and Worker logs: https://officepool.football/ops\n\nDelivery is best effort. Repeated alerts of this type for this scope are suppressed for 30 minutes.`;
+  await sendResend(options, message.to, {
+    subject: `Yourfootballpool: ${message.title}`,
+    text,
+    html: `<p>${escapeHtml(message.description)}</p><p>Scope: ${escapeHtml(message.scope)}<br>Observed at: ${escapeHtml(message.observedAt)}${message.count === undefined ? "" : `<br>Affected open wagers: ${escapeHtml(String(message.count))}`}</p><p><a href="https://officepool.football/ops">Inspect operations</a> and Worker logs.</p><p>Delivery is best effort. Repeated alerts of this type for this scope are suppressed for 30 minutes.</p>`
+  });
+}
+
 /** Sends pool notifications through Resend. */
 export function createResendPoolNotifier(options: ResendEmailSenderOptions): PoolNotifier {
   const amount = (micros: string) => formatMicros(BigInt(micros), 2);
