@@ -300,11 +300,15 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       const leagues = events.results.map(({ league }) => league).filter((league) => league === "nfl" || league === "ncaaf");
       if (!leagues.length) throw error;
       if (!placementRefreshLimiter.allow(user.id)) return jsonError(c, "RATE_LIMITED", 429);
-      try { await dependencies.refreshPlacementOdds(leagues); }
+      let liveEvents: ProviderEvent[] | void = undefined;
+      try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
       catch { throw error; }
       // A refresh must actually publish fresh, valid evidence. Changed versions still
       // require another review; never quote stale inputs just to reach placement.
       canonical = await canonicalizeWagerQuote(dependencies.db, seed);
+      // Superseded publication can leave fresh cached bytes behind. Live evidence,
+      // including an empty result, must still veto unavailable or changed terms.
+      if (liveEvents !== undefined) revalidateLiveWagerOffers(canonical, liveEvents);
     }
     if (!quoteRequestMatchesCanonical(data, canonical)) throw new QuoteLineChangedError();
     const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
