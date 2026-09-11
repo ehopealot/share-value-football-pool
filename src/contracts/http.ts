@@ -114,7 +114,7 @@ export const OddsBoardResponse = z.object({
   }).strict()),
   feed: z.object({ status: z.enum(["current", "stale", "provider-error", "no-offer"]), message: z.string().min(1), lastPolledAt: z.string().datetime().nullable(), lastSuccessAt: z.string().datetime().nullable() }).strict()
 }).strict().superRefine((board, ctx) => {
-  if ((board.feed.status === "current") !== (board.offers.length > 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offers"], message: "Only a current board may expose reviewable offers." });
+  if ((board.feed.status === "current" && board.offers.length === 0) || (board.feed.status === "no-offer" && board.offers.length > 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offers"], message: "Offers must match the board availability status." });
   board.offers.forEach((offer, index) => {
     try {
       validateCanonicalMarket({ market: offer.market, canonicalBook: offer.canonicalBook, policyVersion: offer.policyVersion, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam, outcomes: offer.outcomes });

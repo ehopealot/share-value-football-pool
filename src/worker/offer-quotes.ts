@@ -4,6 +4,7 @@ import { moneylineStrikeIsAvailable } from "../odds/moneyline-policy";
 import { resolveCanonicalOutcomeSide, validateCanonicalMarket, vigFreeMoneylinePrice } from "../odds/market-semantics";
 import { CANONICAL_BOOK_POLICY_VERSION, type MarketName, type ProviderEvent } from "../odds/types";
 import { canonicalize } from "../odds/canonicalize";
+import { orientProviderEvent } from "../odds/event-team-order";
 import type { PoolCommand } from "../durable/pool-commands";
 import { SHARE_POOL_RULESET_ID, TEASER_RULESET_ID, teaserOdds } from "../domain/teaser-table";
 import { adjustTeaserLine } from "../domain/grading";
@@ -87,7 +88,8 @@ export function revalidateLiveWagerOffers(command: Placement, events: ProviderEv
   const rows = legs.map((leg): OfferRow | undefined => {
     const matches = events.filter(event => event.id === leg.eventId);
     if (matches.length !== 1) return undefined;
-    const event = matches[0]!;
+    const event = orientProviderEvent({ homeTeam: leg.homeTeam, awayTeam: leg.awayTeam }, matches[0]!);
+    if (!event) return undefined;
     const offer = canonicalize(event, retrievedAt).find(offer => offer.market === leg.market);
     if (!offer) return undefined;
     return { league: event.sport, home_team: event.homeTeam, away_team: event.awayTeam, starts_at: event.commenceTime, status: event.status ?? "scheduled", canonical_book: offer.canonicalBook, retrieved_at: retrievedAt, offer_version: offer.offerVersion, payload_json: JSON.stringify({ policyVersion: offer.policyVersion, outcomes: offer.payload.outcomes }) };

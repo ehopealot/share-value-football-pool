@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 import { providerEventSnapshot } from "../contracts/provider";
 import { canonicalize } from "./canonicalize";
-import { canonicalTeamIdentity } from "./market-semantics";
+import { orientProviderEvent } from "./event-team-order";
 import type { Clock } from "../platform/clock";
 import { systemClock } from "../platform/clock";
 import type { EventStatus, League, OddsProvider, ProviderEvent, ProviderPoll } from "./types";
@@ -82,17 +82,25 @@ export class OddsIngestion {
       // Validate every completed provider response, including container identity, before canonicalization or D1 mutation.
       const parsed = fetched.map(({ league, poll }) => ({ league, events: poll.events.map((event) => providerEventSnapshot.parse(event)) }));
       assertUniqueNormalizedIds(parsed);
-      // Provider event IDs identify immutable ordered sides. Check every prior
-      // event before canonicalization or construction of any D1 mutation.
+      // Anchor neutral-site side swaps to persisted team identities before prices or scores are used.
       const existingRows = (await this.db.prepare("SELECT provider_event_id, league, home_team, away_team, status, home_score, away_score, correction_version, finalized_at FROM sports_event").all<ExistingEventRow>()).results;
       const existingById = new Map(existingRows.map((row) => [row.provider_event_id, row]));
-      for (const { events } of parsed) for (const event of events) assertPersistedOrderedSides(existingById.get(event.id), event);
-      const normalized = parsed.map(({ league, events }) => ({
+      const oriented = parsed.map(({ league, events }) => ({ league, events: events.flatMap((event) => {
+        const existing = existingById.get(event.id);
+        const normalized = existing ? orientProviderEvent({ homeTeam: existing.home_team, awayTeam: existing.away_team }, event) : event;
+        if (!normalized || event.sport !== league || (existing && existing.league !== league)) {
+          // Treat a conflicting event as unavailable: remove only its offers below, retaining result history.
+          console.warn({ event: "odds_event_identity_conflict", eventId: event.id });
+          return [];
+        }
+        return [normalized];
+      }) }));
+      const normalized = oriented.map(({ league, events }) => ({
         league, events: events.map((event) => ({ event, canonical: canonicalize(event, at) }))
       }));
       // Retain validated live evidence independently of publication: a generation
       // loss or D1 write failure must not erase a known change at placement.
-      if (requestedLeagues) placementEvents = parsed.flatMap(({ events }) => events);
+      if (requestedLeagues) placementEvents = oriented.flatMap(({ events }) => events);
       // Read all prior state and derive the complete replacement before constructing any mutation.
       const existingByLeague = new Map(normalized.map(({ league }) => [league, existingRows.filter((row) => row.league === league)] as const));
       const availability = Object.fromEntries(Object.entries(parseJson<Record<string, string[]>>(claimed.canonical_book_availability_json, {})).map(([id, markets]) => [id, [...markets]]));
@@ -171,11 +179,6 @@ const assertUniqueNormalizedIds = (responses: Array<{ league: League; events: Ar
       if (ids.has(event.id)) throw new Error(`Duplicate normalized event ID: ${event.id}`);
       ids.add(event.id);
     }
-  }
-};
-const assertPersistedOrderedSides = (existing: ExistingEventRow | undefined, event: ProviderEvent): void => {
-  if (existing && (canonicalTeamIdentity(existing.home_team) !== canonicalTeamIdentity(event.homeTeam) || canonicalTeamIdentity(existing.away_team) !== canonicalTeamIdentity(event.awayTeam))) {
-    throw new Error(`Immutable provider event sides changed: ${event.id}`);
   }
 };
 const providerFailureMessage = (error: unknown): string => {
