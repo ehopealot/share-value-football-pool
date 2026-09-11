@@ -250,6 +250,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
   .odds-board thead th:nth-child(3), .odds-board thead th:nth-child(4), .odds-board thead th:nth-child(5) { width: 4.25rem; }
   .odds-board .odds-matchup { width: auto; padding-inline: var(--space-1); }
   .odds-kickoff-row { display: table-row; }
+  .odds-kickoff-heading { display: flex; justify-content: space-between; gap: var(--space-1); }
   /* Match My Bets' thin date ribbons without inheriting ordinary odds-cell padding. */
   .odds-board .odds-kickoff-row th { padding: 0 0.25rem; background: var(--blue); color: #fff; font-size: 0.78rem; line-height: 1.1; text-size-adjust: none; -webkit-text-size-adjust: none; }
   .odds-board .odds-cell { padding: 0.25rem 0.1rem; text-align: center; }

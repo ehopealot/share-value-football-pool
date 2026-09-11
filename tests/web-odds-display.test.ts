@@ -46,7 +46,7 @@ describe("member-facing odds display", () => {
 
   const kickoffGame = (eventId: string, startsAt: string): GameRow => ({ eventId, startsAt, league: "nfl", awayTeam: "Away", homeTeam: "Home", markets: { spread: {}, total: {}, moneyline: {} } });
   const renderKickoffs = (games: GameRow[]) => renderToStaticMarkup(createElement(OddsBoardTable, { games, currentWeek: "2026-09-08T07:00:00.000Z", selectedPickIds: [], onToggle: () => undefined }));
-  const kickoffRibbons = (html: string) => [...html.matchAll(/<tr class="odds-kickoff-row"><th colSpan="4">(.*?)<\/th><\/tr>/g)].map((match) => match[1]);
+  const kickoffRibbons = (html: string) => [...html.matchAll(/<tr class="odds-kickoff-row"><th colSpan="4"><span class="odds-kickoff-heading"><span>(.*?)<\/span><span>.*?<\/span><\/span><\/th><\/tr>/g)].map((match) => match[1]);
 
   it("adds one date/time ribbon per kickoff batch, including equivalent timestamp formats", () => {
     const starts = ["2026-09-13T17:00:00.000Z", "2026-09-13T13:00:00-04:00", "2026-09-13T20:25:00.000Z", "2026-09-14T17:00:00.000Z"];
@@ -56,6 +56,22 @@ describe("member-facing odds display", () => {
     expect(html.match(/class="odds-game-bottom"/g)).toHaveLength(4);
     expect(html).not.toContain("odds-mobile-start");
     expect(html.match(/class="odds-start"/g)).toHaveLength(4);
+  });
+
+  it("labels kickoff ribbons with the league aligned opposite the date/time", () => {
+    const games = [kickoffGame("nfl", "2026-09-13T17:00:00.000Z"), { ...kickoffGame("college", "2026-09-14T17:00:00.000Z"), league: "ncaaf" as const }];
+    const html = renderKickoffs(games);
+    expect(html).toContain(`<span class="odds-kickoff-heading"><span>${formatKickoff(games[0].startsAt)}</span><span>NFL</span></span>`);
+    expect(html).toContain(`<span class="odds-kickoff-heading"><span>${formatKickoff(games[1].startsAt)}</span><span>NCAAF</span></span>`);
+    expect(mobileOddsStyles).toMatch(/\.odds-kickoff-heading\s*\{[^}]*display:\s*flex;[^}]*justify-content:\s*space-between;/);
+  });
+
+  it("keeps league labels accurate even if leagues unexpectedly share a kickoff", () => {
+    const nfl = kickoffGame("nfl", "2026-09-13T17:00:00.000Z");
+    const html = renderKickoffs([nfl, { ...nfl, eventId: "college", league: "ncaaf" }]);
+    expect(kickoffRibbons(html)).toHaveLength(2);
+    expect(html).toContain("<span>NFL</span>");
+    expect(html).toContain("<span>NCAAF</span>");
   });
 
   it("keeps the kickoff heading when filtering removes the original first game", () => {
