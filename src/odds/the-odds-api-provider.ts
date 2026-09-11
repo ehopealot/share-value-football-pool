@@ -1,5 +1,6 @@
 import { theOddsApiOddsResponse, theOddsApiScoresResponse } from "../contracts/provider";
 import { canonicalTeamIdentity } from "./market-semantics";
+import { eventTeamOrder } from "./event-team-order";
 import type { EventStatus, League, OddsProvider, ProviderBook, ProviderEvent, ProviderMarket, ProviderOutcome, ProviderPoll } from "./types";
 
 const sportKey: Record<League, string> = { nfl: "americanfootball_nfl", ncaaf: "americanfootball_ncaaf" };
@@ -47,12 +48,17 @@ export class TheOddsApiProvider implements OddsProvider {
     const oddsById = new Map(odds.map((event) => [event.id, event]));
     for (const scoreEvent of scores) {
       const quote = oddsById.get(scoreEvent.id);
-      if (quote) assertMatchingOrderedTeams(quote, scoreEvent);
+      if (quote && eventTeamOrder({ homeTeam: quote.home_team, awayTeam: quote.away_team }, { homeTeam: scoreEvent.home_team, awayTeam: scoreEvent.away_team }) === "conflict") {
+        console.warn({ event: "odds_event_identity_conflict", eventId: scoreEvent.id });
+        oddsById.delete(scoreEvent.id);
+        scoreById.delete(scoreEvent.id);
+      }
     }
     const events = [...new Set([...oddsById.keys(), ...scoreById.keys()])].map((id): ProviderEvent => {
       const quote = oddsById.get(id); const scoreEvent = scoreById.get(id);
-      const homeTeam = scoreEvent?.home_team ?? quote!.home_team;
-      const awayTeam = scoreEvent?.away_team ?? quote!.away_team;
+      // Keep any odds-side aliases anchored to the odds response; scores are matched by team name.
+      const homeTeam = quote?.home_team ?? scoreEvent!.home_team;
+      const awayTeam = quote?.away_team ?? scoreEvent!.away_team;
       const homeScore = parseCanonicalScore(scoreEvent?.scores?.find((item) => canonicalTeamIdentity(item.name) === canonicalTeamIdentity(homeTeam))?.score);
       const awayScore = parseCanonicalScore(scoreEvent?.scores?.find((item) => canonicalTeamIdentity(item.name) === canonicalTeamIdentity(awayTeam))?.score);
       const commenceTime = scoreEvent?.commence_time ?? quote!.commence_time;
@@ -81,11 +87,6 @@ const assertUniqueRawIds = (events: Array<{ id: string }>, container: "odds" | "
 
 // The scores endpoint and event container use the same case-insensitive,
 // whitespace-insensitive team identity for matching.
-const assertMatchingOrderedTeams = (odds: ApiEvent, score: ApiScoreEvent): void => {
-  if (canonicalTeamIdentity(odds.home_team) !== canonicalTeamIdentity(score.home_team) || canonicalTeamIdentity(odds.away_team) !== canonicalTeamIdentity(score.away_team)) {
-    throw new Error(`Conflicting raw odds/score event sides: ${odds.id}`);
-  }
-};
 const assertUnambiguousScoreTeams = (event: ApiScoreEvent): void => {
   if (!event.scores) return;
   const home = canonicalTeamIdentity(event.home_team); const away = canonicalTeamIdentity(event.away_team);

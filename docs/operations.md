@@ -47,6 +47,12 @@ The [isolated recovery drill runbook](restore-drill-runbook.md) remains runbook-
 
 The odds adapter records poll observations and respects configured freshness windows. Provider errors, quota backoff, and no-offer states are visible to members as concise feed status. Do not expose provider API keys, raw provider credentials, or hidden wager selections in logs, screenshots, or support material.
 
+### Deferred residual: cross-league event-ID conflicts (PR #112, P2)
+
+Per-event identity isolation assumes a provider event ID remains in its stored league. If an existing NFL ID reappears with conflicting teams in a poll of **only NCAAF** (or vice versa), ingestion rejects the incoming event, but omission cleanup visits only the polled league. The original event's offers and availability can therefore remain visible and quoteable while the successful poll clears the global provider error. Existing freshness and placement checks still apply, but they do not guarantee immediate isolation of this cross-league case.
+
+This low-likelihood provider-ID reuse scenario is explicitly deferred; same-league conflicts and same-team home/away swaps are handled. If an `odds_event_identity_conflict` warning coincides with an event remaining available, compare the provider ID's stored league with the incoming league and escalate for an approved repair. Do not infer that a healthy feed proves every conflicting event was removed, or silently rewrite stored teams/results. A future fix should collect conflicting persisted IDs independently of the polled league and generation-guard their offer/availability removal and omission marker, preserving result history.
+
 ## Production publishing
 
 Publishing is an explicit operator action. A dry-run (`wrangler deploy --dry-run`) is not a deployment. Before a real publish, follow [the production deployment runbook](production-deployment.md), verify the production artifact, confirm migrations remotely, and use Cloudflare OAuth or an authorized secret path. Never substitute a copied browser key or a local environment file for production secret configuration.

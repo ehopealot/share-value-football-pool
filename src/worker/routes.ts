@@ -236,18 +236,18 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       try { return { offer, payload: decodeStoredOffer(offer.payload_json, { market: offer.market as "spread" | "total" | "moneyline", canonicalBook: offer.canonical_book, homeTeam: offer.home_team, awayTeam: offer.away_team }) }; }
       catch { return null; }
     });
-    const allValid = decoded.every((item) => item !== null);
-    const allFresh = offers.every((offer) => !offerIsStale(offer.retrieved_at, now));
-    const successCoversOffers = ingestion?.last_success_at !== null && ingestion?.last_success_at !== undefined
-      && offers.every((offer) => new Date(ingestion.last_success_at!).getTime() >= new Date(offer.retrieved_at).getTime());
-    const boardIsCurrent = offers.length > 0 && !ingestion?.last_error && allValid && allFresh && successCoversOffers;
-    const rows = boardIsCurrent ? decoded.map((item) => {
-      const { offer, payload } = item!;
+    // Browsing is not wager authority. Retain valid last-known offers without hiding
+    // unrelated games, but never expose bytes lacking successful-ingestion provenance.
+    const visible = decoded.filter((item): item is NonNullable<typeof item> => item !== null
+      && ingestion?.last_success_at != null
+      && Date.parse(ingestion.last_success_at) >= Date.parse(item.offer.retrieved_at));
+    const allFresh = visible.every(({ offer }) => !offerIsStale(offer.retrieved_at, now));
+    const boardIsCurrent = visible.length > 0 && !ingestion?.last_error && allFresh;
+    const rows = visible.map(({ offer, payload }) => {
       return { eventId: offer.id, league: offer.league, homeTeam: offer.home_team, awayTeam: offer.away_team, startsAt: offer.starts_at, market: offer.market, canonicalBook: offer.canonical_book, retrievedAt: offer.retrieved_at, offerVersion: offer.offer_version, policyVersion: payload.policyVersion, outcomes: payload.outcomes };
-    }) : [];
-    // A latest failure remains truthful even when older offer bytes are retained; no failed-closed state exposes reviewable offers.
-    const status = ingestion?.last_error ? "provider-error" : boardIsCurrent ? "current" : offers.length > 0 && allValid && !allFresh ? "stale" : "no-offer";
-    const message = status === "current" ? "Odds are up to date." : status === "stale" ? "Current odds are stale; new bets are disabled." : status === "provider-error" ? "Odds provider error; accepted bets remain intact." : "No current odds are available.";
+    });
+    const status = ingestion?.last_error ? "provider-error" : boardIsCurrent ? "current" : visible.length > 0 && !allFresh ? "stale" : "no-offer";
+    const message = status === "current" ? "Odds are up to date." : status === "stale" ? "Showing last-known odds. Fresh odds are required before a bet can be accepted." : status === "provider-error" ? "Odds refresh is unavailable. Showing last-known odds where available; fresh odds are required before acceptance." : "No current odds are available.";
     return c.json(OddsBoardResponse.parse({ offers: rows, feed: { status, message, lastPolledAt: ingestion?.last_polled_at ?? null, lastSuccessAt: ingestion?.last_success_at ?? null } }));
   }));
 
@@ -290,7 +290,26 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const seed = kind === "straight" ? { ...common, type: "PlaceStraightWager" as const, leg: data.leg }
       : kind === "teasers" ? { ...common, type: "PlaceTeaserWager" as const, teaserPoints: data.teaserPoints, legs: data.legs }
       : { ...common, type: "PlaceParlayWager" as const, legs: data.legs };
-    const canonical: any = await canonicalizeWagerQuote(dependencies.db, seed);
+    let canonical: any;
+    try { canonical = await canonicalizeWagerQuote(dependencies.db, seed); }
+    catch (error) {
+      if (!dependencies.refreshPlacementOdds || !(error instanceof Error) || !["MARKET_STALE", "MARKET_UNAVAILABLE"].includes(error.message)) throw error;
+      const legs = seed.type === "PlaceStraightWager" ? [seed.leg] : seed.legs;
+      const eventIds = [...new Set<string>(legs.map((leg: { eventId: string }) => leg.eventId))];
+      const events = await dependencies.db.prepare(`SELECT DISTINCT league FROM sports_event WHERE provider_event_id IN (${eventIds.map(() => "?").join(",")})`).bind(...eventIds).all<{ league: League }>();
+      const leagues = events.results.map(({ league }) => league).filter((league) => league === "nfl" || league === "ncaaf");
+      if (!leagues.length) throw error;
+      if (!placementRefreshLimiter.allow(user.id)) return jsonError(c, "RATE_LIMITED", 429);
+      let liveEvents: ProviderEvent[] | void = undefined;
+      try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
+      catch { throw error; }
+      // A refresh must actually publish fresh, valid evidence. Changed versions still
+      // require another review; never quote stale inputs just to reach placement.
+      canonical = await canonicalizeWagerQuote(dependencies.db, seed);
+      // Superseded publication can leave fresh cached bytes behind. Live evidence,
+      // including an empty result, must still veto unavailable or changed terms.
+      if (liveEvents !== undefined) revalidateLiveWagerOffers(canonical, liveEvents);
+    }
     if (!quoteRequestMatchesCanonical(data, canonical)) throw new QuoteLineChangedError();
     const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
     const snapshot = kind === "straight"
