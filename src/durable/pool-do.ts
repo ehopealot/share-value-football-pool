@@ -16,6 +16,8 @@ import { infrastructureAuditExport, memberAuditExport } from "../services/audit-
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
 import { schedulingInspection } from "./scheduling";
+import { countOverdueWagers } from "./overdue-settlements";
+import { createOperationalAlerts, scheduleOperationalAlert, type OperationalAlerts } from "../services/operational-alerts";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -71,7 +73,9 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
  * provider evidence for settlement.
  */
 export class PoolDO {
-  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; OPS_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
+  private readonly operationalAlerts: OperationalAlerts | undefined;
+  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; OPS_SERVICE_TOKEN?: string; RESEND_API_KEY?: string; OPS_OPERATOR_USER_IDS?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
+    this.operationalAlerts = createOperationalAlerts(env);
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
     this.state.storage.transactionSync(() => {
       migrateAdditivePoolStorage(this.state.storage.sql);
@@ -81,6 +85,11 @@ export class PoolDO {
 
   async fetch(request: Request): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    if (pathname === "/internal/ops/overdue-settlements") {
+      if (request.method !== "GET" || !this.env.OPS_SERVICE_TOKEN?.trim() || request.headers.get("x-ops-service-token") !== this.env.OPS_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
+      if (!this.env.DB) return new Response("Inspection unavailable", { status: 503 });
+      return Response.json({ overdueWagers: await countOverdueWagers(this.state.storage.sql, this.env.DB) });
+    }
     if (pathname === "/internal/ops/inspection") {
       if (request.method !== "GET" || !this.env.OPS_SERVICE_TOKEN?.trim() || request.headers.get("x-ops-service-token") !== this.env.OPS_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       const inspection = schedulingInspection(this.state.storage.sql);
@@ -484,7 +493,15 @@ export class PoolDO {
   }
 
   protected async alarm(currentTime: number | AlarmInvocationInfo = Date.now()): Promise<void> {
-    const settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime) : null;
+    const reportFailure = () => {
+      try {
+        const poolId = first(this.state.storage.sql, "SELECT id FROM pool LIMIT 1")?.id ?? this.state.id.toString();
+        scheduleOperationalAlert(this.state, this.operationalAlerts, { kind: "settlement", scope: String(poolId) });
+      } catch { /* reporting cannot replace the original failure */ }
+    };
+    let settlementDeadline: number | null;
+    try { settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime, reportFailure) : null; }
+    catch (error) { reportFailure(); throw error; }
     await drainOutbox(this.state, this.env.POOL_EVENTS, new Date(), this.env.DB);
     const outboxDeadline = this.env.POOL_EVENTS ? nextOutboxAttempt(this.state) : null;
     const deadlines = [settlementDeadline, outboxDeadline].filter((deadline): deadline is number => deadline !== null && Number.isFinite(deadline));
