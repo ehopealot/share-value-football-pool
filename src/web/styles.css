@@ -96,6 +96,16 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .odds-matchup { width: 16ch; }
 /* The whole current-week matchup name is the details link, without adding a cramped extra control. */
 .odds-matchup-link { display: block; color: inherit; }
+/* Matchup links read as data first: no underline until hover. */
+.matchup-link, .odds-matchup-link { text-decoration: none; color: inherit; }
+.matchup-link:hover { text-decoration: underline; }
+/* Box score: the scoreline is the hero; tables share the site's sizing. */
+.matchup-box-scoreline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: var(--space-2) 0 var(--space-1); }
+.matchup-box-team { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-1) 0.5rem; border: 1px solid var(--line); background: #f6f8fa; }
+.matchup-box-team img { flex: 0 0 auto; width: 24px; height: 24px; object-fit: contain; }
+.matchup-box-team-name { flex: 1 1 auto; font-weight: 700; }
+.matchup-box-points { font-size: 1.3rem; }
+.matchup-box-state { margin: 0 0 var(--space-2); font-weight: 700; }
 .odds-matchup-team { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
 .odds-matchup-at { display: block; font-weight: 400; line-height: 1; }
 .odds-empty { background: var(--table-gray); }
@@ -298,7 +308,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
   .odds-option:not(.odds-option-total) .odds-option-name { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .odds-option-total .odds-option-name { font-weight: 700; }
   .matchup-details { gap: var(--space-2); }
-  .matchup-team-records, .matchup-recent-results { grid-template-columns: 1fr; }  .matchup-team-record, .matchup-recent-results > section { padding: var(--space-2); }
+  .matchup-team-records, .matchup-recent-results, .matchup-box-scoreline { grid-template-columns: 1fr; }  .matchup-team-record, .matchup-recent-results > section { padding: var(--space-2); }
   .matchup-details .table-scroll { margin-inline: calc(-1 * var(--space-2)); }
   .matchup-details .matchup-stats { min-width: 26rem; }
 }

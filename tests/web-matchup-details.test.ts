@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { MatchupDetails, matchupUnavailableMessage } from "../src/web/pages/MatchupDetailsPage";
+import { MatchupDetails, MatchupBoxScore, matchupUnavailableMessage } from "../src/web/pages/MatchupDetailsPage";
+import { MatchupLegLink } from "../src/web/components/MatchupLegLink";
 import { ApiError } from "../src/web/api";
 import { OddsBoardTable, matchupDetailsAvailable, type GameRow } from "../src/web/pages/OddsPage";
 
@@ -49,5 +50,45 @@ describe("in-app matchup details", () => {
     expect(styles).toMatch(/\.odds-matchup-link\s*\{[^}]*display:\s*block/);
     expect(styles).toMatch(/\.matchup-details\s*\{/);
     expect(styles).toMatch(/@media \(max-width: 600px\)[\s\S]*\.matchup-details/);
+  });
+});
+
+const liveBox = {
+  state: "live" as const, startsAt: game.startsAt, statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2,
+  away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
+  quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
+  stats: []
+};
+
+describe("box score view", () => {
+  it("shows the scoreline, live state, and quarter breakdown without stats while live", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: liveBox }));
+    expect(html).toContain("ESPN box score");
+    expect(html).toContain("14");
+    expect(html).toContain("10");
+    expect(html).toContain("2nd Qtr - 5:22");
+    expect(html).toContain("Scoring by quarter");
+    expect(html).toContain(">Q4<");
+    expect(html).not.toContain("Team stats");
+  });
+
+  it("shows final results with team stats once final", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, state: "final", statusDetail: "Final", stats: [{ label: "Total Yards", away: "340", home: "208" }] } }));
+    expect(html).toContain("Final");
+    expect(html).toContain("Team stats");
+    expect(html).toContain("Total Yards");
+  });
+
+  it("links current-week legs to their matchup without an underline and leaves other weeks as text", () => {
+    const currentWeekLeg = { eventId: "leg-1", eventStartsAt: "2026-09-13T17:00:00.000Z" };
+    const priorWeekLeg = { eventId: "leg-2", eventStartsAt: "2026-08-30T17:00:00.000Z" };
+    const html = renderToStaticMarkup(createElement(MemoryRouter, {}, createElement("div", {},
+      createElement(MatchupLegLink, { slug: "pool", leg: currentWeekLeg, children: createElement("span", {}, "Falcons +3.5") }),
+      createElement(MatchupLegLink, { slug: "pool", leg: priorWeekLeg, children: createElement("span", {}, "Browns +7") })
+    )));
+    expect(html).toContain('href="/p/pool/matchups/leg-1"');
+    expect(html).toContain('class="matchup-link"');
+    expect(html).not.toContain("leg-2");
+    expect(styles).toMatch(/\.matchup-link,\s*\.odds-matchup-link\s*\{\s*text-decoration:\s*none/);
   });
 });
