@@ -16,7 +16,7 @@ const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"
 
 describe("table ribbons", () => {
   it("uses the shared blue ribbon immediately above each requested table", () => {
-    expect(styles).toContain('.table-ribbon, .activity-member-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }');
+    expect(styles).toContain('.table-ribbon, .activity-member-ribbon, .activity-day-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }');
     expect(odds).toContain('className="table-ribbon">Current odds</h2>');
     expect(odds).toContain('<table aria-label="Current odds" className="odds-board">');
     expect(standings).toContain('className="table-ribbon">Active season holdings</h2>');
