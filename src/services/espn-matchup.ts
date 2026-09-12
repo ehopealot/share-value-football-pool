@@ -345,7 +345,7 @@ export async function lookupEspnBoxScore(input: EspnMatchupInput, dependencies: 
     const awayValue = event.away.lineScores?.[index]; const homeValue = event.home.lineScores?.[index];
     return { label: quarterLabel(index + 1), ...(typeof awayValue === "number" ? { away: String(awayValue) } : {}), ...(typeof homeValue === "number" ? { home: String(homeValue) } : {}) };
   });
-  const stats = state === "final" ? summaryStats(await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/summary?event=${encodeURIComponent(event.id)}`)) : [];
+  const stats = state !== "pregame" ? summaryStats(await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/summary?event=${encodeURIComponent(event.id)}`)) : [];
   const box: EspnBoxScore = {
     state, startsAt: input.startsAt,
     away: { name: event.away.team.displayName, ...(event.away.team.logo ? { logo: event.away.team.logo } : {}), ...(event.away.score ? { score: event.away.score } : {}) },

@@ -265,5 +265,9 @@ export const ReadSeasonHistory = z.object({
 }).strict();
 export type ReadStandings = z.infer<typeof ReadStandings>;
 export type ReadActivity = z.infer<typeof ReadActivity>;
+
+/** Every pool bet touching one event; settled parlays/teasers intentionally count at full wager P&L in each game they touch. */
+export const PoolExposureResponse = z.object({ eventId: z.string().min(1), wagers: z.array(activityWager) }).strict();
+export type PoolExposureResponse = z.infer<typeof PoolExposureResponse>;
 export type ReadMyWagers = z.infer<typeof ReadMyWagers>;
 export type ReadSeasonHistory = z.infer<typeof ReadSeasonHistory>;
