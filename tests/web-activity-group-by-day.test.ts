@@ -113,6 +113,14 @@ describe("Activity Group by day control and tables", () => {
     expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(2);
   });
 
+  it("labels visible Upcoming kickoff days on mobile without exposing hidden dates", () => {
+    hooks.compact = true;
+    const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
+    const upcoming = html.split('<h3 class="activity-day-ribbon">Upcoming</h3>')[1]!;
+    expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Mon, Sep 14</th></tr>');
+    expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Upcoming</th></tr>');
+  });
+
   it("preserves a daily P&L ribbon after filtering to an active ticket", () => {
     const active = toggleCheckbox(renderPage(), 0, true);
     const grouped = toggleCheckbox(active, 1, true);
