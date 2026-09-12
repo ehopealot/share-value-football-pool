@@ -47,6 +47,10 @@ describe("in-app matchup details", () => {
     expect(matchupUnavailableMessage(new ApiError("MATCHUP_NOT_AVAILABLE", 404))).toBe("Matchup details aren't available for this game.");
   });
 
+  it("keeps matchup tables at the page's width so wide lines scroll inside the table, like Activity", () => {
+    expect(styles).toMatch(/\.matchup-details > \* \{ min-width: 0; \}/);
+  });
+
   it("keeps mobile matchup links and the detail comparison within the existing touch-friendly visual system", () => {
     expect(styles).toMatch(/\.odds-matchup-link\s*\{[^}]*display:\s*block/);
     expect(styles).toMatch(/\.matchup-details\s*\{/);
