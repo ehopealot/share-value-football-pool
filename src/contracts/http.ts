@@ -106,12 +106,13 @@ export type MessageBoardMutationResponse = z.infer<typeof MessageBoardMutationRe
 export type MessageBoardPostResponse = z.infer<typeof MessageBoardPostResponse>;
 
 /** Exact authenticated odds-board response. Poll observations are stored provider facts, never inferred from offer timestamps. */
-export const OddsBoardResponse = z.object({
-  offers: z.array(z.object({
+export const boardOffer = z.object({
     eventId: z.string().min(1), league: z.enum(["nfl", "ncaaf"]), homeTeam: z.string().min(1), awayTeam: z.string().min(1), startsAt: z.string().datetime(),
     market: z.enum(["spread", "total", "moneyline"]), canonicalBook: z.string().min(1), retrievedAt: z.string().datetime(), offerVersion: z.string().min(1), policyVersion: z.literal("CANONICAL_BOOKS_2026_V1"),
     outcomes: z.array(z.object({ name: z.string().trim().min(1), price: z.number().int().refine((price) => price !== 0), point: z.number().finite().optional() }).strict()).min(1)
-  }).strict()),
+  }).strict();
+export const OddsBoardResponse = z.object({
+  offers: z.array(boardOffer),
   feed: z.object({ status: z.enum(["current", "stale", "provider-error", "no-offer"]), message: z.string().min(1), lastPolledAt: z.string().datetime().nullable(), lastSuccessAt: z.string().datetime().nullable() }).strict()
 }).strict().superRefine((board, ctx) => {
   if ((board.feed.status === "current" && board.offers.length === 0) || (board.feed.status === "no-offer" && board.offers.length > 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offers"], message: "Offers must match the board availability status." });
@@ -141,7 +142,9 @@ export const EspnBoxScoreResponse = z.object({
   away: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
   home: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
   quarters: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict()).max(10),
-  stats: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict().refine((stat) => stat.away !== undefined || stat.home !== undefined)).max(20)
+  stats: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict().refine((stat) => stat.away !== undefined || stat.home !== undefined)).max(20),
+  /** Last-known canonical board lines for the event; closing lines persist after kickoff. */
+  lines: z.array(boardOffer).max(6).optional()
 }).strict();
 export type EspnBoxScoreResponse = z.infer<typeof EspnBoxScoreResponse>;
 

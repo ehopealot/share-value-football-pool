@@ -104,6 +104,32 @@ describe("matchup details HTTP boundary", () => {
     expect((await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/prior-week/exposure`))).status).toBe(404);
   }, 90_000);
 
+  it("serves last-known board lines with the box score for started events", async () => {
+    const poolId = `lines-matchup-${crypto.randomUUID()}`; const slug = `lines-matchup-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug); await insertEvent();
+    await bindings.DB.prepare("UPDATE sports_event SET status = 'in_progress' WHERE id = ?").bind(activeEvent.id).run();
+    const spread = JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: activeEvent.awayTeam, point: 3.5, price: -110 }, { name: activeEvent.homeTeam, point: -3.5, price: -110 }] });
+    await bindings.DB.prepare("INSERT INTO market_offer (event_id, market, canonical_book, retrieved_at, offer_version, payload_json) VALUES (?, 'spread', 'DraftKings', ?, 'v1', ?)").bind(activeEvent.id, now.toISOString(), spread).run();
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) return responseFor({ events: [{ id: "espn", date: activeEvent.startsAt, status: { type: { state: "post", shortDetail: "Final" } }, competitions: [{ competitors: [
+        { homeAway: "away", team: { id: "away", displayName: activeEvent.awayTeam }, score: "19", linescores: [{ value: 7 }, { value: 3 }, { value: 3 }, { value: 6 }] },
+        { homeAway: "home", team: { id: "home", displayName: activeEvent.homeTeam }, score: "17", linescores: [{ value: 0 }, { value: 7 }, { value: 3 }, { value: 7 }] }
+      ] }] }] });
+      if (value.includes("summary?event=espn")) return responseFor({ boxscore: { teams: [] } });
+      throw new Error(`unexpected ESPN call: ${value}`);
+    });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), matchupFetcher: fetcher, matchupCache: new MemoryCache() });
+
+    const response = await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/${activeEvent.id}/box`));
+    expect(response.status).toBe(200);
+    const body = await response.json() as { state: string; lines?: Array<{ market: string; outcomes: Array<{ name: string; point?: number }> }> };
+    expect(body.state).toBe("final");
+    expect(body.lines).toHaveLength(1);
+    expect(body.lines![0]!.market).toBe("spread");
+    expect(body.lines![0]!.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ name: activeEvent.awayTeam, point: 3.5 })]));
+  }, 90_000);
+
   it("rate limits repeated member lookup requests before they amplify ESPN traffic", async () => {
     const poolId = `limited-matchup-${crypto.randomUUID()}`; const slug = `limited-matchup-${crypto.randomUUID()}`;
     await setupPool(poolId, slug); await insertEvent();
