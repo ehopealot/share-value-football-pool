@@ -172,3 +172,18 @@ describe("board lines on matchup pages", () => {
     expect(html).not.toContain("+3.5");
   });
 });
+
+describe("matchup hint", () => {
+  it("renders the tap hint smaller than the pickers, only where matchups link", async () => {
+    const { MatchupHint, matchupHintText } = await import("../src/web/components/MatchupLegLink");
+    const html = renderToStaticMarkup(createElement(MatchupHint));
+    expect(html).toContain(matchupHintText);
+    expect(styles).toMatch(/\.matchup-hint\s*\{[^}]*font-size:\s*0\.78rem/);
+    const oddsSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
+    const activitySource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/ActivityPage.tsx"), "utf8");
+    const myWagersSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/MyWagersPage.tsx"), "utf8");
+    expect(oddsSource).toContain("{week === currentWeek && <MatchupHint/>}");
+    expect(activitySource).toContain("{(week === undefined || week === currentWeek) && <MatchupHint/>}");
+    expect(myWagersSource).toContain("{(week === undefined || week === currentWeek) && <MatchupHint/>}");
+  });
+});

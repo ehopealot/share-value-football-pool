@@ -8,7 +8,7 @@ import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg
 import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
-import { MatchupLegLink } from "../components/MatchupLegLink";
+import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
 type Leg = Wager["legs"][number];
@@ -52,5 +52,5 @@ export function MyWagersPage() {
   const open = orderWagers(selectedWagers.filter((w) => w.status === "open"));
   const settled = orderWagers(selectedWagers.filter((w) => w.status !== "open"));
   const table = (title: string, rows: Wager[]) => <section className="activity-member-section"><h2 className="activity-member-ribbon">{title}</h2>{rows.length ? <div className="table-scroll" tabIndex={0}><table className="activity-table" aria-label={title}><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th></tr></thead><tbody>{rows.flatMap((wager, index) => { const date = displayWagerDateLabel(wager); const showDate = index === 0 || date !== displayWagerDateLabel(rows[index - 1]!); return [...(showDate ? [<tr className="wager-date-row" key={`${wager.wagerId}:date`}><th colSpan={5}>{date}</th></tr>] : []), <WagerRows key={wager.wagerId} wager={wager} slug={slug}/>]; })}</tbody></table></div> : <p>No {title.toLowerCase()}.</p>}</section>;
-  return <Layout><div className="my-wagers-page"><h1>My Bets</h1><p>Bets cannot be canceled after placement.</p><label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>{table("Open bets", open)}{table("Settled bets", settled)}<Link to={`/p/${slug}/odds`}>Return to games</Link></div></Layout>;
+  return <Layout><div className="my-wagers-page"><h1>My Bets</h1><p>Bets cannot be canceled after placement.</p><label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>{(week === undefined || week === currentWeek) && <MatchupHint/>}{table("Open bets", open)}{table("Settled bets", settled)}<Link to={`/p/${slug}/odds`}>Return to games</Link></div></Layout>;
 }

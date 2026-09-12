@@ -10,3 +10,9 @@ export function MatchupLegLink({ slug, leg, children }: { slug: string; leg: Lin
   if (!matchupDetailsAvailable(leg.eventStartsAt, weekStartOf(new Date()).toISOString())) return <>{children}</>;
   return <Link className="matchup-link" to={`/p/${encodeURIComponent(slug)}/matchups/${encodeURIComponent(leg.eventId)}`}>{children}</Link>;
 }
+
+export const matchupHintText = "Tap any matchup to see details.";
+/** Smaller than the pickers it sits under; only current-week views link matchups. */
+export function MatchupHint() {
+  return <p className="matchup-hint">{matchupHintText}</p>;
+}

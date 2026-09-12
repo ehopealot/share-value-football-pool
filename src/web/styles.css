@@ -99,6 +99,7 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 /* Matchup links read as data first: no underline until hover. */
 .matchup-link, .odds-matchup-link { text-decoration: none; color: inherit; }
 .matchup-link:hover { text-decoration: underline; }
+.matchup-hint { margin: 0 0 var(--space-2); font-size: 0.78rem; color: #57606a; }
 /* Box score: the scoreline is the hero; tables share the site's sizing. */
 .matchup-box-scoreline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-3) 0 var(--space-2); }
 .matchup-box-team { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-2) 0.75rem; border: 1px solid var(--line); background: #f6f8fa; }
