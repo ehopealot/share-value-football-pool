@@ -115,12 +115,14 @@ export const findEspnEvent = (scoreboard: unknown, input: EspnMatchupInput): Esp
       const scores = raw.map((entry) => { const value = asObject(entry)?.value; return typeof value === "number" ? value : null; });
       return scores.length ? scores : undefined;
     };
-    const rawScores = sides.map((competitor) => {
-      const rawCompetitor = asObject(competitors.find((entry) => asObject(entry)?.homeAway === competitor.homeAway));
-      return { score: asText(rawCompetitor?.score), lineScores: lineScores(competitor) };
-    });
+    const rawScores = (homeAway: "home" | "away"): { score?: string; lineScores?: Array<number | null> } => {
+      const competitor = sides.find((side) => side.homeAway === homeAway);
+      const rawCompetitor = asObject(competitors.find((entry) => asObject(entry)?.homeAway === homeAway));
+      return { score: asText(rawCompetitor?.score), lineScores: competitor ? lineScores(competitor) : undefined };
+    };
+    const awayRaw = rawScores("away"); const homeRaw = rawScores("home");
     candidates.push({
-      id, date, away: { ...away, ...(rawScores[0]?.score ? { score: rawScores[0].score } : {}), ...(rawScores[0]?.lineScores ? { lineScores: rawScores[0].lineScores } : {}) }, home: { ...home, ...(rawScores[1]?.score ? { score: rawScores[1].score } : {}), ...(rawScores[1]?.lineScores ? { lineScores: rawScores[1].lineScores } : {}) },
+      id, date, away: { ...away, ...(awayRaw.score ? { score: awayRaw.score } : {}), ...(awayRaw.lineScores ? { lineScores: awayRaw.lineScores } : {}) }, home: { ...home, ...(homeRaw.score ? { score: homeRaw.score } : {}), ...(homeRaw.lineScores ? { lineScores: homeRaw.lineScores } : {}) },
       ...(venueParts.length ? { venue: venueParts.length > 1 ? `${venueParts[0]} · ${venueParts.slice(1).join(", ")}` : venueParts[0] } : {}),
       ...(state === "pre" || state === "in" || state === "post" ? { state } : {}),
       ...(asText(statusType?.shortDetail) ? { statusDetail: asText(statusType?.shortDetail) } : {}),
@@ -282,7 +284,7 @@ export type EspnBoxScore = { state: "pregame" | "live" | "final"; startsAt: stri
 export type EspnBoxScoreResult = { status: "ok"; box: EspnBoxScore } | { status: "not-found" } | { status: "upstream-unavailable" };
 /** Live game state may lag kickoff by up to this long; box reads trade freshness for upstream protection. */
 const BOX_CACHE_SECONDS = 60;
-const BOX_STAT_LABELS = ["Total Yards", "Passing", "Rushing", "1st Downs", "3rd down efficiency", "Turnovers"] as const;
+const BOX_STAT_LABELS = ["1st Downs", "3rd down efficiency", "4th down efficiency", "Total Plays", "Total Yards", "Yards per Play", "Passing", "Comp/Att", "Interceptions thrown", "Sacks-Yards Lost", "Rushing", "Yards per rush", "Red Zone (Made-Att)", "Penalties", "Turnovers", "Fumbles lost", "Possession"] as const;
 const quarterLabel = (period: number): string => period <= 4 ? `Q${period}` : period === 5 ? "OT" : `${period - 4}OT`;
 export const boxCacheRequest = (input: EspnMatchupInput, scope = "shared"): Request => {
   const date = gameDate(input.startsAt) ?? "invalid-date";

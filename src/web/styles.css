@@ -100,12 +100,13 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .matchup-link, .odds-matchup-link { text-decoration: none; color: inherit; }
 .matchup-link:hover { text-decoration: underline; }
 /* Box score: the scoreline is the hero; tables share the site's sizing. */
-.matchup-box-scoreline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: var(--space-2) 0 var(--space-1); }
-.matchup-box-team { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-1) 0.5rem; border: 1px solid var(--line); background: #f6f8fa; }
-.matchup-box-team img { flex: 0 0 auto; width: 24px; height: 24px; object-fit: contain; }
+.matchup-box-scoreline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-3) 0 var(--space-2); }
+.matchup-box-team { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-2) 0.75rem; border: 1px solid var(--line); background: #f6f8fa; }
+.matchup-box-team img { flex: 0 0 auto; width: 28px; height: 28px; object-fit: contain; }
 .matchup-box-team-name { flex: 1 1 auto; font-weight: 700; }
-.matchup-box-points { font-size: 1.3rem; }
-.matchup-box-state { margin: 0 0 var(--space-2); font-weight: 700; }
+.matchup-box-points { font-size: 1.5rem; }
+.matchup-box-state { margin: 0 0 var(--space-3); font-weight: 700; }
+.matchup-box .table-ribbon-section { margin: var(--space-3) 0 var(--space-4, 1.75rem); }
 .odds-matchup-team { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
 .odds-matchup-at { display: block; font-weight: 400; line-height: 1; }
 .odds-empty { background: var(--table-gray); }

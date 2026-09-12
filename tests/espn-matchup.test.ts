@@ -284,9 +284,10 @@ describe("ESPN box score", () => {
       away: { score: "19" }, home: { score: "17" },
       quarters: [{ label: "Q1", away: "7", home: "0" }, { label: "Q2", away: "3", home: "7" }, { label: "Q3", away: "3", home: "3" }, { label: "Q4", away: "6", home: "7" }],
       stats: [
-        { label: "Total Yards", away: "340", home: "208" },
         { label: "1st Downs", away: "16", home: "14" },
-        { label: "3rd down efficiency", away: "5-16", home: "4-14" }
+        { label: "3rd down efficiency", away: "5-16", home: "4-14" },
+        { label: "Total Yards", away: "340", home: "208" },
+        { label: "Fumbles lost", away: "1" }
       ]
     } });
     expect("clock" in (result as { status: "ok"; box: Record<string, unknown> }).box).toBe(false);
@@ -304,6 +305,23 @@ describe("ESPN box score", () => {
 
     await expect(lookupEspnBoxScore(input, { fetcher })).resolves.toMatchObject({ status: "ok", box: { state: "pregame", statusDetail: "Sun 1:00 PM", quarters: [], stats: [] } });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("keys scores and linescores by side, not ESPN's raw competitor order", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("scoreboard")) return responseFor(boxEvent({ type: { state: "in", shortDetail: "1st Qtr - 8:15" }, displayClock: "8:15", period: { number: 1 } }, [
+        boxCompetitor("home", "Pittsburgh Steelers", "0", [0]),
+        boxCompetitor("away", "Atlanta Falcons", "10", [10])
+      ]));
+      throw new Error(`unexpected ESPN call: ${url}`);
+    });
+
+    const result = await lookupEspnBoxScore(input, { fetcher });
+
+    expect(result).toMatchObject({ status: "ok", box: {
+      away: { name: "Atlanta Falcons", score: "10" }, home: { name: "Pittsburgh Steelers", score: "0" },
+      quarters: [{ label: "Q1", away: "10", home: "0" }]
+    } });
   });
 
   it("caches the box score under a deploy-scoped one-minute key", async () => {

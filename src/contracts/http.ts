@@ -141,7 +141,7 @@ export const EspnBoxScoreResponse = z.object({
   away: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
   home: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
   quarters: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict()).max(10),
-  stats: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict().refine((stat) => stat.away !== undefined || stat.home !== undefined)).max(6)
+  stats: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict().refine((stat) => stat.away !== undefined || stat.home !== undefined)).max(20)
 }).strict();
 export type EspnBoxScoreResponse = z.infer<typeof EspnBoxScoreResponse>;
 
