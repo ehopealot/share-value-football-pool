@@ -7,7 +7,7 @@ export type EspnMatchup = { league: EspnLeague; startsAt: string; venue?: string
 export type EspnMatchupResult = { status: "ok"; matchup: EspnMatchup } | { status: "not-found" } | { status: "upstream-unavailable" };
 /** The Cache API surface needed for a JSON matchup blob, easily replaced in focused unit tests. */
 export type EspnMatchupCache = { match(request: Request): Promise<Response | undefined>; put(request: Request, response: Response): Promise<void> };
-export type EspnMatchupDependencies = { fetcher?: typeof fetch; cache?: EspnMatchupCache };
+export type EspnMatchupDependencies = { fetcher?: typeof fetch; cache?: EspnMatchupCache; cacheScope?: string };
 
 type JsonObject = Record<string, unknown>;
 type EspnTeam = { id: string; displayName: string; logo?: string };
@@ -63,9 +63,9 @@ const scoreboardDateRange = (startsAt: string): string | undefined => {
 const cacheName = (name: string) => canonicalTeamName(name).replace(/ /g, "-");
 
 /** The cache identity includes every canonical source field that determines the ESPN game lookup. */
-export const matchupCacheRequest = (input: EspnMatchupInput): Request => {
+export const matchupCacheRequest = (input: EspnMatchupInput, scope = "shared"): Request => {
   const date = gameDate(input.startsAt) ?? "invalid-date";
-  return new Request(`https://espn-matchup-cache.invalid/${input.league}/${date}/${encodeURIComponent(`${cacheName(input.awayTeam)}__${cacheName(input.homeTeam)}`)}`);
+  return new Request(`https://espn-matchup-cache.invalid/${encodeURIComponent(scope)}/${input.league}/${date}/${encodeURIComponent(`${cacheName(input.awayTeam)}__${cacheName(input.homeTeam)}`)}`);
 };
 
 const httpsUrl = (value: unknown): string | undefined => {
@@ -118,7 +118,7 @@ const responseJson = async (fetcher: typeof fetch, url: string): Promise<unknown
   } catch { return undefined; }
 };
 const displayStat = (stat: JsonObject, perGame = false): string | undefined => perGame ? asText(stat.perGameDisplayValue) ?? asText(stat.displayValue) : asText(stat.displayValue);
-const findStat = (payload: unknown, name: string, category?: string, perGame = false): string | undefined => {
+const findStatObject = (payload: unknown, name: string, category?: string): JsonObject | undefined => {
   const root = asObject(payload); const results = root && asObject(root.results); const stats = results && asObject(results.stats); const categories = stats && asArray(stats.categories);
   if (!categories) return undefined;
   for (const rawCategory of categories) {
@@ -126,30 +126,56 @@ const findStat = (payload: unknown, name: string, category?: string, perGame = f
     if (!current || (category && current.name !== category)) continue;
     for (const rawStat of asArray(current.stats) ?? []) {
       const stat = asObject(rawStat);
-      if (stat?.name === name) return displayStat(stat, perGame);
+      if (stat?.name === name) return stat;
     }
   }
   return undefined;
 };
-const teamSeasonStats = (payload: unknown): Record<string, string | undefined> => ({
-  "Yards/game": findStat(payload, "totalYards", "rushing", true),
-  "Passing yards/game": findStat(payload, "passingYards", "passing", true),
-  "Rushing yards/game": findStat(payload, "rushingYards", "rushing", true),
-  Touchdowns: findStat(payload, "totalTouchdowns", "scoring"),
-  "Defensive sacks": findStat(payload, "sacks", "defensive")
-});
+const findStat = (payload: unknown, name: string, category?: string, perGame = false): string | undefined => {
+  const stat = findStatObject(payload, name, category);
+  return stat ? displayStat(stat, perGame) : undefined;
+};
+const numericStat = (value: string | undefined): number | undefined => {
+  const text = asText(value);
+  if (!text) return undefined;
+  const parsed = Number(text.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+/** The NFL carries perGameDisplayValue; FBS/FCS payloads carry only totals, so derive those from games played. */
+const perGameStat = (payload: unknown, name: string, category: string, gamesPlayed: number | undefined): string | undefined => {
+  const direct = asText(findStatObject(payload, name, category)?.perGameDisplayValue);
+  if (direct) return direct;
+  const total = numericStat(asText(findStatObject(payload, name, category)?.displayValue));
+  if (total === undefined || !gamesPlayed) return undefined;
+  return String(Math.round(total / gamesPlayed));
+};
+const gamesPlayedOf = (payload: unknown): number | undefined => numericStat(asText(findStatObject(payload, "gamesPlayed", "general")?.displayValue));
+const teamSeasonStats = (payload: unknown): Record<string, string | undefined> => {
+  const games = gamesPlayedOf(payload);
+  return {
+    "Yards/game": perGameStat(payload, "totalYards", "rushing", games),
+    "Passing yards/game": perGameStat(payload, "passingYards", "passing", games),
+    "Rushing yards/game": perGameStat(payload, "rushingYards", "rushing", games),
+    Touchdowns: findStat(payload, "totalTouchdowns", "scoring"),
+    "Defensive sacks": findStat(payload, "sacks", "defensive")
+  };
+};
 const scheduleResults = (payload: unknown, teamId: string, before: string): EspnRecentResult[] => {
   const root = asObject(payload); const events = root && asArray(root.events);
   if (!events) return [];
   const results: EspnRecentResult[] = [];
+  const scoreText = (competitor: JsonObject | undefined): string | undefined => asText(competitor?.score) ?? asText(asObject(competitor?.score)?.displayValue);
   for (const rawEvent of events) {
-    const event = asObject(rawEvent); const date = event && asText(event.date); const status = event && asObject(event.status); const statusType = status && asObject(status.type);
-    const competition = event && asArray(event.competitions)?.[0]; const competitors = asObject(competition) && asArray(asObject(competition)!.competitors);
+    const event = asObject(rawEvent); const date = event && asText(event.date);
+    const competition = event && asArray(event.competitions)?.[0]; const competitionObject = asObject(competition); const competitors = competitionObject && asArray(competitionObject.competitors);
+    /** Current-season schedules carry a top-level status; `?season=` history payloads only carry it on the competition. */
+    const statusSource = asObject(event?.status) ?? (competitionObject ? asObject(competitionObject.status) : undefined);
+    const statusType = statusSource && asObject(statusSource.type);
     if (!event || !date || date >= before || statusType?.completed !== true || !competitors) continue;
     const own = competitors.map(asObject).find((competitor) => asObject(competitor?.team)?.id === teamId);
     const opponent = competitors.map(asObject).find((competitor) => competitor !== own);
     const ownTeam = own && asObject(own.team); const opponentTeam = opponent && asObject(opponent.team);
-    const ownScore = own && asText(own.score); const opponentScore = opponent && asText(opponent.score); const opponentName = opponentTeam && asText(opponentTeam.displayName);
+    const ownScore = scoreText(own); const opponentScore = scoreText(opponent); const opponentName = opponentTeam && asText(opponentTeam.displayName);
     if (!own || !ownTeam || !opponent || !opponentName || !ownScore || !opponentScore || typeof own.winner !== "boolean") continue;
     results.push({ date, opponent: opponentName, result: `${own.winner ? "W" : "L"} ${ownScore}-${opponentScore}` });
   }
@@ -199,7 +225,7 @@ const writeCache = async (cache: EspnMatchupCache | undefined, key: Request, mat
 
 /** Fetches ESPN only from the Worker, returning no matchup whenever the scoreboard identity is uncertain. */
 export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: EspnMatchupDependencies = {}): Promise<EspnMatchupResult> {
-  const key = matchupCacheRequest(input); const fromCache = await readCache(dependencies.cache, key);
+  const key = matchupCacheRequest(input, dependencies.cacheScope); const fromCache = await readCache(dependencies.cache, key);
   if (fromCache) return { status: "ok", matchup: fromCache };
   const fetcher = dependencies.fetcher ?? fetch;
   const date = gameDate(input.startsAt); const dates = scoreboardDateRange(input.startsAt);
@@ -209,9 +235,10 @@ export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: E
   const event = findEspnEvent(scoreboard, input);
   if (!event) return { status: "not-found" };
   const base = `${ESPN_BASE}/${leaguePath(input.league)}/teams`;
+  const seasonYear = new Date(input.startsAt).getUTCFullYear();
   const [awayStats, homeStats, awaySchedule, homeSchedule] = await Promise.all([
-    responseJson(fetcher, `${base}/${encodeURIComponent(event.away.team.id)}/statistics`),
-    responseJson(fetcher, `${base}/${encodeURIComponent(event.home.team.id)}/statistics`),
+    responseJson(fetcher, `${base}/${encodeURIComponent(event.away.team.id)}/statistics?season=${seasonYear}`),
+    responseJson(fetcher, `${base}/${encodeURIComponent(event.home.team.id)}/statistics?season=${seasonYear}`),
     responseJson(fetcher, `${base}/${encodeURIComponent(event.away.team.id)}/schedule`),
     responseJson(fetcher, `${base}/${encodeURIComponent(event.home.team.id)}/schedule`)
   ]);

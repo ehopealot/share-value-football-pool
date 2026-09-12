@@ -28,6 +28,8 @@ export interface Env {
   DB: D1Database; POOL_DO: DurableObjectNamespace; ODDS_API_KEY?: string; BETTER_AUTH_SECRET?: string; RESEND_API_KEY?: string;
   POOL_COMMAND_AUTHENTICATOR_KEY?: string; TURNSTILE_SECRET_KEY?: string;
   SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; OPS_SERVICE_TOKEN?: string; OPS_OPERATOR_USER_IDS?: string;
+  /** Per-deploy version metadata; the id salts the ESPN matchup cache key. */
+  CF_VERSION_METADATA?: { id: string; tag: string };
   BACKUP_ENCRYPTION_KEY?: string; BACKUPS?: R2Bucket; POOL_EVENTS?: Queue; ASSETS: Fetcher;
 }
 
@@ -46,7 +48,7 @@ const worker: ExportedHandler<Env> = {
       authAbuseGuard: createAuthAbuseGuard({ secret: env.TURNSTILE_SECRET_KEY, expectedHostname: productionTurnstileHostname, allowInsecureLocalAuth: false, limiter: authLimiter }),
       allowInsecureLocalAuth: false, queue: env.POOL_EVENTS, spaAssets: env.ASSETS, poolNotifier: createResendPoolNotifier(emailOptions), oddsConfigured: Boolean(env.ODDS_API_KEY), backupConfigured: backupConfigured(env),
       opsOperatorUserIds: env.OPS_OPERATOR_USER_IDS, opsServiceToken: env.OPS_SERVICE_TOKEN, operationalAlerts: createOperationalAlerts(env),
-      placementRefreshLimiter, matchupDetailsLimiter, matchupCache: (caches as unknown as { default: EspnMatchupCache }).default,
+      placementRefreshLimiter, matchupDetailsLimiter, matchupCache: (caches as unknown as { default: EspnMatchupCache }).default, matchupCacheScope: env.CF_VERSION_METADATA?.id,
       async refreshPlacementOdds(leagues) {
         if (!env.ODDS_API_KEY) return;
         // One shared deadline covers both odds and score requests across all ticket leagues.

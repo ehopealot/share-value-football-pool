@@ -53,6 +53,54 @@ describe("ESPN matchup lookup", () => {
       expect(headers.get("user-agent")).toBe(ESPN_USER_AGENT);
     }
   });
+  it("derives per-game stats from games played when ESPN carries only season totals", async () => {
+    const total = (name: string, value: string) => ({ name, displayName: name, displayValue: value });
+    const totalsOnly = { results: { stats: { categories: [
+      { name: "passing", stats: [total("passingYards", "431")] },
+      { name: "rushing", stats: [total("rushingYards", "245"), total("totalYards", "676")] },
+      { name: "defensive", stats: [total("sacks", "4")] },
+      { name: "scoring", stats: [total("totalTouchdowns", "6")] },
+      { name: "general", stats: [total("gamesPlayed", "2")] }
+    ] } } };
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("scoreboard")) return responseFor({ events: [game()] });
+      if (String(url).includes("statistics")) return responseFor(totalsOnly);
+      return responseFor({ events: [] });
+    });
+
+    const result = await lookupEspnMatchup(input, { fetcher });
+
+    expect(result).toMatchObject({ status: "ok", matchup: { seasonStats: [
+      { label: "Yards/game", away: "338", home: "338" },
+      { label: "Passing yards/game", away: "216", home: "216" },
+      { label: "Rushing yards/game", away: "123", home: "123" },
+      { label: "Touchdowns", away: "6", home: "6" },
+      { label: "Defensive sacks", away: "4", home: "4" }
+    ] } });
+  });
+  it("shows only current-season facts: no prior-season schedule fetch and no stats without current-season data", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) return responseFor({ events: [game()] });
+      if (value.includes("statistics")) return responseFor({ results: { stats: { categories: [] } } });
+      return responseFor({ events: [{ id: "opener", date: input.startsAt, competitions: [{ competitors: [] }] }] });
+    });
+
+    const result = await lookupEspnMatchup(input, { fetcher });
+
+    expect(result).toMatchObject({ status: "ok", matchup: { away: { recentResults: [] }, home: { recentResults: [] }, seasonStats: [] } });
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher.mock.calls.map((call) => String(call[0])).some((url) => url.includes("/schedule?season="))).toBe(false);
+    expect(fetcher.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("statistics?season=2026")).length).toBe(2);
+  });
+  it("salts the matchup cache key per deploy scope so each deploy starts cold", async () => {
+    expect(matchupCacheRequest(input, "deploy-1").url).not.toBe(matchupCacheRequest(input, "deploy-2").url);
+    expect(matchupCacheRequest(input, "deploy-1").url).toContain("/deploy-1/nfl/2026-09-13/");
+    const cache = new MemoryCache();
+    await lookupEspnMatchup(input, { fetcher: successfulFetcher(), cache, cacheScope: "deploy-1" });
+    expect(cache.entries.get(matchupCacheRequest(input, "deploy-1").url)).toBeDefined();
+    expect(cache.entries.get(matchupCacheRequest(input, "deploy-2").url)).toBeUndefined();
+  });
   it("uses an exact home/away/date scoreboard match and returns cacheable, normalized detail", async () => {
     const fetcher = successfulFetcher();
     const cache = new MemoryCache();

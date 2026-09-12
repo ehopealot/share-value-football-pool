@@ -34,9 +34,10 @@ describe("in-app matchup details", () => {
     expect(html).toContain("Acrisure Stadium");
     expect(html).toContain("Atlanta Falcons");
     expect(html).toContain("1-0");
-    expect(html).toContain('<caption>Season team stats</caption>');
+    expect(html).toContain("<h2 class=\"table-ribbon\">Season team stats</h2>");
     expect(html).toContain('<th scope="col">Atlanta Falcons</th>');
-    expect(html).toContain('<h2>Recent results</h2>');
+    expect(html).toContain("<h2 class=\"table-ribbon\">Recent results</h2>");
+    expect(html).toContain("matchup-team-ribbon");
     expect(html).toContain("W 24-17");
   });
 
