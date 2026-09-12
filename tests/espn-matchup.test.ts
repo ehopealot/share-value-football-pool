@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { lookupEspnMatchup, matchupCacheRequest, type EspnMatchupCache, type EspnMatchupInput } from "../src/services/espn-matchup";
+import { lookupEspnMatchup, matchupCacheRequest, ESPN_USER_AGENT, type EspnMatchupCache, type EspnMatchupInput } from "../src/services/espn-matchup";
 
 const input: EspnMatchupInput = {
   league: "nfl", startsAt: "2026-09-13T17:00:00.000Z", awayTeam: "Atlanta Falcons", homeTeam: "Pittsburgh Steelers"
@@ -44,6 +44,15 @@ const successfulFetcher = () => vi.fn(async (url: string | URL | Request) => {
 });
 
 describe("ESPN matchup lookup", () => {
+  it("sends a recognized client User-Agent on every outbound ESPN request", async () => {
+    const fetcher = successfulFetcher();
+    await lookupEspnMatchup(input, { fetcher });
+    expect(fetcher.mock.calls.length).toBeGreaterThan(0);
+    for (const [url, init] of fetcher.mock.calls as unknown as Array<[string, RequestInit | undefined]>) {
+      const headers = new Request(url, { headers: init?.headers }).headers;
+      expect(headers.get("user-agent")).toBe(ESPN_USER_AGENT);
+    }
+  });
   it("uses an exact home/away/date scoreboard match and returns cacheable, normalized detail", async () => {
     const fetcher = successfulFetcher();
     const cache = new MemoryCache();

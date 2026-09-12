@@ -16,6 +16,12 @@ type EspnEvent = { id: string; date: string; away: EspnCompetitor; home: EspnCom
 
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/football";
 const ESPN_TIMEOUT_MS = 4_000;
+/**
+ * site.api.espn.com (Akamai) rejects requests whose User-Agent is empty, browser-like, or an unknown
+ * product token — including workerd's default header-less fetch — with 403. A recognized HTTP-client
+ * token must come first; our product token rides after it. Verified from workerd 2026-09-12.
+ */
+export const ESPN_USER_AGENT = "curl/8.5.0 office-pool-reborn/1.0";
 const MATCHUP_CACHE_SECONDS = 15 * 60;
 const leaguePath = (league: EspnLeague) => league === "nfl" ? "nfl" : "college-football";
 const asObject = (value: unknown): JsonObject | undefined => value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : undefined;
@@ -106,7 +112,7 @@ export const findEspnEvent = (scoreboard: unknown, input: EspnMatchupInput): Esp
 
 const responseJson = async (fetcher: typeof fetch, url: string): Promise<unknown | undefined> => {
   try {
-    const response = await fetcher(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(ESPN_TIMEOUT_MS) });
+    const response = await fetcher(url, { headers: { accept: "application/json", "user-agent": ESPN_USER_AGENT }, signal: AbortSignal.timeout(ESPN_TIMEOUT_MS) });
     if (!response.ok) return undefined;
     return await response.json();
   } catch { return undefined; }
