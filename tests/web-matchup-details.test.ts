@@ -158,17 +158,20 @@ describe("board lines on matchup pages", () => {
       boardLine("moneyline", [{ name: "Atlanta Falcons", price: 150 }, { name: "Pittsburgh Steelers", price: -170 }])
     ];
     const html = renderToStaticMarkup(createElement(MatchupLines, { lines }));
-    expect(html).toContain("Atlanta +3.5");
-    expect(html).toContain("O 44.5");
-    expect(html).toContain("Atlanta +157");
+    expect(html).toContain("Pittsburgh -3.5");
+    expect(html).toContain("O/U 44.5");
     expect(html).toContain("Pittsburgh -157");
+    expect(html).not.toContain("Atlanta +3.5");
+    expect(html).not.toContain("O 44.5");
+    expect((html.match(/class="matchup-line"/g) ?? []).length).toBe(3);
+    expect(html).not.toContain("Atlanta +157");
   });
 
   it("renders nothing when no lines are offered and omits missing markets", () => {
     expect(renderToStaticMarkup(createElement(MatchupLines, { lines: undefined }))).toBe("");
     expect(renderToStaticMarkup(createElement(MatchupLines, { lines: [] }))).toBe("");
     const html = renderToStaticMarkup(createElement(MatchupLines, { lines: [boardLine("total", [{ name: "Over", point: 40.5, price: -105 }, { name: "Under", point: 40.5, price: -105 }])] }));
-    expect(html).toContain("O 40.5");
+    expect(html).toContain("O/U 40.5");
     expect(html).not.toContain("+3.5");
   });
 });
@@ -203,5 +206,12 @@ describe("matchup links from member profiles", () => {
     const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/MemberProfilePage.tsx"), "utf8");
     expect(source).toContain('title="In process" slug={slug}');
     expect(source).toContain('title="Settled" slug={slug}');
+  });
+});
+
+describe("box score lines", () => {
+  it("keeps the started-game view free of board lines", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, lines: [boardLine("spread", [{ name: "Atlanta Falcons", point: 3.5, price: -110 }, { name: "Pittsburgh Steelers", point: -3.5, price: -110 }])] } }));
+    expect(html).not.toContain("matchup-lines");
   });
 });
