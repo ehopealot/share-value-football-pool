@@ -10,11 +10,11 @@ type Leg = NonNullable<Wager["legs"]>[number];
 export type ActivityMemberWeek = { memberId: string; memberDisplayName: string; performanceMicros: string; wagers: Wager[] };
 export type ActivityLegLine = { hidden: boolean; segments: Array<{ text: string; selected: boolean }> };
 
-/** Groups safe activity records by the server-projected kickoff week and member. */
-export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string): ActivityMemberWeek[] {
+/** Groups safe activity records by member, optionally restricting them to one server-projected kickoff week. */
+export function groupActivityMembers(wagers: Wager[], weekStart?: string): ActivityMemberWeek[] {
   const groups = new Map<string, ActivityMemberWeek & { performance: bigint }>();
   for (const wager of wagers) {
-    if (wager.weekStart !== weekStart) continue;
+    if (weekStart !== undefined && wager.weekStart !== weekStart) continue;
     const group = groups.get(wager.memberId) ?? { memberId: wager.memberId, memberDisplayName: wager.memberDisplayName, performanceMicros: "0", performance: 0n, wagers: [] };
     group.performance += parseIntegerText(wager.performanceMicros);
     group.wagers.push(wager);
@@ -50,10 +50,10 @@ export function activityWagerDay(wager: Wager, now: number): ActivityDayAssignme
 }
 
 /** Groups safe Activity records into local calendar-day tables without duplicating a ticket or its P&L. */
-export function groupActivityDaysForWeek(wagers: Wager[], weekStart: string, now: number): ActivityDay[] {
+export function groupActivityDaysForWeek(wagers: Wager[], weekStart: string | undefined, now: number): ActivityDay[] {
   const days = new Map<string, ActivityDay & { membersById: Map<string, ActivityMemberWeek & { performance: bigint }> }>();
   for (const wager of wagers) {
-    if (wager.weekStart !== weekStart) continue;
+    if (weekStart !== undefined && wager.weekStart !== weekStart) continue;
     const assignment = activityWagerDay(wager, now);
     const day = days.get(assignment.key) ?? { ...assignment, members: [], membersById: new Map() };
     const member = day.membersById.get(wager.memberId) ?? { memberId: wager.memberId, memberDisplayName: wager.memberDisplayName, performanceMicros: "0", performance: 0n, wagers: [] };
@@ -71,6 +71,10 @@ export function groupActivityDaysForWeek(wagers: Wager[], weekStart: string, now
 /** Filters rows while retaining each member's full, pre-filter daily P&L. */
 export function filterActivityDaysForActiveGames(days: ActivityDay[], now: number): ActivityDay[] {
   return days.map((day) => ({ ...day, members: day.members.map((member) => ({ ...member, wagers: member.wagers.filter((wager) => hasActiveActivityGame(wager, now)) })).filter((member) => member.wagers.length > 0) })).filter((day) => day.members.length > 0);
+}
+
+export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string): ActivityMemberWeek[] {
+  return groupActivityMembers(wagers, weekStart);
 }
 
 export function formatWeeklyPerformance(profitMicros: string): string {

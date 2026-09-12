@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { z } from "zod";
-import { PoolRegistry } from "../services/pool-registry";
+import { normalizeSlug, PoolRegistry } from "../services/pool-registry";
 import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
@@ -12,6 +12,7 @@ import { offerIsStale } from "../odds/ingestion";
 import type { League, ProviderEvent } from "../odds/types";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
+import { scheduleOperationalAlert, type OperationalAlert, type OperationalAlerts } from "../services/operational-alerts";
 
 export type AuthenticatedUser = { id: string; name: string };
 export type RouteDependencies = {
@@ -30,6 +31,7 @@ export type RouteDependencies = {
   /** Best-effort live refresh; failures leave the existing placement checks authoritative. */
   refreshPlacementOdds?: (leagues: League[]) => Promise<ProviderEvent[] | void>;
   placementRefreshLimiter?: RateLimiter;
+  operationalAlerts?: OperationalAlerts;
 };
 const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503 = 400) => c.json({ code }, status);
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
@@ -42,6 +44,8 @@ const csrf = (c: Context) => {
   } catch { return false; }
 };
 const quoteRequestFingerprint = (ticket: Record<string, unknown>) => JSON.stringify(ticket);
+// Expected business/authorization rejections are not incidents. Unknown technical errors are.
+const expectedWagerRejections = new Set(["BETTING_CLOSED", "FORBIDDEN", "SUSPENDED", "IDEMPOTENCY_CONFLICT", "INVALID_COMMAND", "INVALID_PLACEMENT_REPLAY_PROBE", "INVALID_QUOTE", "QUOTE_NOT_FOUND", "LINE_CHANGED", "ORDER_QUOTE_STALE", "MARKET_LOCKED", "MARKET_STALE", "MARKET_UNAVAILABLE", "NON_CANONICAL_QUOTE", "INSUFFICIENT_SHARES", "SIDE_BET_LIMIT", "WHOLE_SHARE_RISK_REQUIRED", "SEASON_CLOSED", "SEASON_NOT_ACTIVE", "SEASON_NOT_FOUND", "SHARE_ACCOUNT_NOT_FOUND", "POOL_NOT_AVAILABLE", "POOL_NOT_INITIALIZED", "INVALID_OFFER_SNAPSHOT", "INVALID_PARLAY_TERMS", "INVALID_TEASER_TERMS", "INVALID_WAGER_LEG"]);
 const recipientChunkSize = 100;
 const announcementSendIntervalMs = 250;
 const pause = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -59,6 +63,10 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   const limiter = dependencies.limiter ?? new RateLimiter();
   const placementRefreshLimiter = dependencies.placementRefreshLimiter ?? new RateLimiter(10, 60_000);
   const poolNotifier = dependencies.poolNotifier ?? dependencies.poolJoinNotifier;
+  const report = (c: Context, alert: OperationalAlert) => {
+    if (!dependencies.operationalAlerts) return;
+    try { scheduleOperationalAlert(c.executionCtx, dependencies.operationalAlerts, alert); } catch { /* context unavailable: best effort */ }
+  };
   const requireUser = async (c: Context) => {
     if (!csrf(c)) return undefined;
     return dependencies.currentUser(c.req.raw);
@@ -68,6 +76,10 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     if (user === undefined) return jsonError(c, "CSRF_REJECTED", 403);
     if (!user) return jsonError(c, "UNAUTHENTICATED", 401);
     try { return await action(user); } catch (error) {
+      const wagerAlertScope: unknown = c.get("wagerAlertScope");
+      if (typeof wagerAlertScope === "string" && /\/wagers\/(straight|teasers|parlays)\/(quote|place)$/.test(c.req.path) && !(error instanceof QuoteLineChangedError) && !(error instanceof LineChangedError) && !expectedWagerRejections.has(error instanceof Error ? error.message : "")) {
+        report(c, { kind: "placement", scope: wagerAlertScope });
+      }
       // A malformed post-commit authority response leaves the browser with an unknown outcome.
       if (error instanceof z.ZodError) return jsonError(c, "POOL_UNAVAILABLE", 503);
       const code = error instanceof Error ? error.message : "COMMAND_FAILED";
@@ -236,27 +248,34 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
       try { return { offer, payload: decodeStoredOffer(offer.payload_json, { market: offer.market as "spread" | "total" | "moneyline", canonicalBook: offer.canonical_book, homeTeam: offer.home_team, awayTeam: offer.away_team }) }; }
       catch { return null; }
     });
-    const allValid = decoded.every((item) => item !== null);
-    const allFresh = offers.every((offer) => !offerIsStale(offer.retrieved_at, now));
-    const successCoversOffers = ingestion?.last_success_at !== null && ingestion?.last_success_at !== undefined
-      && offers.every((offer) => new Date(ingestion.last_success_at!).getTime() >= new Date(offer.retrieved_at).getTime());
-    const boardIsCurrent = offers.length > 0 && !ingestion?.last_error && allValid && allFresh && successCoversOffers;
-    const rows = boardIsCurrent ? decoded.map((item) => {
-      const { offer, payload } = item!;
+    // Browsing is not wager authority. Retain valid last-known offers without hiding
+    // unrelated games, but never expose bytes lacking successful-ingestion provenance.
+    const visible = decoded.filter((item): item is NonNullable<typeof item> => item !== null
+      && ingestion?.last_success_at != null
+      && Date.parse(ingestion.last_success_at) >= Date.parse(item.offer.retrieved_at));
+    const allFresh = visible.every(({ offer }) => !offerIsStale(offer.retrieved_at, now));
+    const boardIsCurrent = visible.length > 0 && !ingestion?.last_error && allFresh;
+    const rows = visible.map(({ offer, payload }) => {
       return { eventId: offer.id, league: offer.league, homeTeam: offer.home_team, awayTeam: offer.away_team, startsAt: offer.starts_at, market: offer.market, canonicalBook: offer.canonical_book, retrievedAt: offer.retrieved_at, offerVersion: offer.offer_version, policyVersion: payload.policyVersion, outcomes: payload.outcomes };
-    }) : [];
-    // A latest failure remains truthful even when older offer bytes are retained; no failed-closed state exposes reviewable offers.
-    const status = ingestion?.last_error ? "provider-error" : boardIsCurrent ? "current" : offers.length > 0 && allValid && !allFresh ? "stale" : "no-offer";
-    const message = status === "current" ? "Odds are up to date." : status === "stale" ? "Current odds are stale; new bets are disabled." : status === "provider-error" ? "Odds provider error; accepted bets remain intact." : "No current odds are available.";
+    });
+    const status = ingestion?.last_error ? "provider-error" : boardIsCurrent ? "current" : visible.length > 0 && !allFresh ? "stale" : "no-offer";
+    const message = status === "current" ? "Odds are up to date." : status === "stale" ? "Showing last-known odds. Fresh odds are required before a bet can be accepted." : status === "provider-error" ? "Odds refresh is unavailable. Showing last-known odds where available; fresh odds are required before acceptance." : "No current odds are available.";
     return c.json(OddsBoardResponse.parse({ offers: rows, feed: { status, message, lastPolledAt: ingestion?.last_polled_at ?? null, lastSuccessAt: ingestion?.last_success_at ?? null } }));
   }));
 
   const wager = (kind: "straight" | "teasers" | "parlays", quote: boolean) => (c: Context) => mutation(c, async (user) => {
     const quoteSchema = kind === "straight" ? straightWagerQuoteRequest : kind === "teasers" ? teaserWagerQuoteRequest : parlayWagerQuoteRequest;
     const placementSchema = kind === "straight" ? straightWagerPlacementRequest : kind === "teasers" ? teaserWagerPlacementRequest : parlayWagerPlacementRequest;
-    const parsed = (quote ? quoteSchema : placementSchema).safeParse(await c.req.json());
+    let body: unknown;
+    try { body = await c.req.json(); }
+    catch { return jsonError(c, "INVALID_REQUEST"); }
+    const parsed = (quote ? quoteSchema : placementSchema).safeParse(body);
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
-    const slug = c.req.param("slug"); if (!slug) return jsonError(c, "INVALID_REQUEST");
+    let slug: string;
+    try { slug = normalizeSlug(c.req.param("slug") ?? ""); }
+    catch { return jsonError(c, "INVALID_REQUEST"); }
+    // Only validated requests may produce incidents; aliases share one cooldown scope.
+    c.set("wagerAlertScope", slug);
     const data = parsed.data as any;
     if (!quote) {
       const command = kind === "straight"
@@ -272,7 +291,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
         const leagues = [...new Set<League>(legs.map((leg: { league: League }) => leg.league))];
         let liveEvents: ProviderEvent[] | void = undefined;
         try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
-        catch { console.warn({ event: "placement_odds_refresh_failed", fallback: "stored_offer_checks" }); }
+        catch { report(c, { kind: "odds_update", scope: "global" }); console.warn({ event: "placement_odds_refresh_failed", fallback: "stored_offer_checks" }); }
         // Confirmed drift is not a provider failure and must never be swallowed.
         if (liveEvents) revalidateLiveWagerOffers(command, liveEvents);
       }
@@ -290,7 +309,26 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const seed = kind === "straight" ? { ...common, type: "PlaceStraightWager" as const, leg: data.leg }
       : kind === "teasers" ? { ...common, type: "PlaceTeaserWager" as const, teaserPoints: data.teaserPoints, legs: data.legs }
       : { ...common, type: "PlaceParlayWager" as const, legs: data.legs };
-    const canonical: any = await canonicalizeWagerQuote(dependencies.db, seed);
+    let canonical: any;
+    try { canonical = await canonicalizeWagerQuote(dependencies.db, seed); }
+    catch (error) {
+      if (!dependencies.refreshPlacementOdds || !(error instanceof Error) || !["MARKET_STALE", "MARKET_UNAVAILABLE"].includes(error.message)) throw error;
+      const legs = seed.type === "PlaceStraightWager" ? [seed.leg] : seed.legs;
+      const eventIds = [...new Set<string>(legs.map((leg: { eventId: string }) => leg.eventId))];
+      const events = await dependencies.db.prepare(`SELECT DISTINCT league FROM sports_event WHERE provider_event_id IN (${eventIds.map(() => "?").join(",")})`).bind(...eventIds).all<{ league: League }>();
+      const leagues = events.results.map(({ league }) => league).filter((league) => league === "nfl" || league === "ncaaf");
+      if (!leagues.length) throw error;
+      if (!placementRefreshLimiter.allow(user.id)) return jsonError(c, "RATE_LIMITED", 429);
+      let liveEvents: ProviderEvent[] | void = undefined;
+      try { liveEvents = await dependencies.refreshPlacementOdds(leagues); }
+      catch { report(c, { kind: "odds_update", scope: "global" }); throw error; }
+      // A refresh must actually publish fresh, valid evidence. Changed versions still
+      // require another review; never quote stale inputs just to reach placement.
+      canonical = await canonicalizeWagerQuote(dependencies.db, seed);
+      // Superseded publication can leave fresh cached bytes behind. Live evidence,
+      // including an empty result, must still veto unavailable or changed terms.
+      if (liveEvents !== undefined) revalidateLiveWagerOffers(canonical, liveEvents);
+    }
     if (!quoteRequestMatchesCanonical(data, canonical)) throw new QuoteLineChangedError();
     const view = ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
     const snapshot = kind === "straight"

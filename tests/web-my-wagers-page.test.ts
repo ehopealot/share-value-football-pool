@@ -7,8 +7,8 @@ const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"
 
 describe("My wagers page", () => {
   it("uses the compact Activity-style wager, stake, payout, and P&L layout in each status section", () => {
-    expect(source).toMatch(/orderWagers\(data\.wagers\.filter\(\(w\) => w\.status === "open"\)\)/);
-    expect(source).toMatch(/orderWagers\(data\.wagers\.filter\(\(w\) => w\.status !== "open"\)\)/);
+    expect(source).toMatch(/orderWagers\(selectedWagers\.filter\(\(w\) => w\.status === "open"\)\)/);
+    expect(source).toMatch(/orderWagers\(selectedWagers\.filter\(\(w\) => w\.status !== "open"\)\)/);
     expect(source).toContain('<h2 className="activity-member-ribbon">{title}</h2>');
     expect(source).toContain('<table className="activity-table" aria-label={title}><colgroup><col className="activity-start-column"/><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-payout-column"/><col className="activity-pnl-column"/></colgroup>');
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th>');
@@ -24,6 +24,14 @@ describe("My wagers page", () => {
     expect(source).toContain('rowSpan={legs.length}');
     expect(source).toContain('activity-wager-leg-row-leading');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td>');
+  });
+
+  it("defaults to the current week while offering All weeks before its wager weeks", () => {
+    expect(source).toContain('const currentWeek = weekStartOf(new Date()).toISOString();');
+    expect(source).toContain('wagerWeekOptions(data.wagers.map((wager) => wager.weekStart), currentWeek)');
+    expect(source).toContain('const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);');
+    expect(source).toContain('<option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map');
+    expect(source).toContain('week === undefined ? data.wagers : data.wagers.filter((wager) => wager.weekStart === week)');
   });
 
   it("uses a My Bets page title while section names appear only in their ribbons", () => {

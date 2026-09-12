@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 import { providerEventSnapshot } from "../contracts/provider";
 import { canonicalize } from "./canonicalize";
-import { canonicalTeamIdentity } from "./market-semantics";
+import { orientProviderEvent } from "./event-team-order";
 import type { Clock } from "../platform/clock";
 import { systemClock } from "../platform/clock";
 import type { EventStatus, League, OddsProvider, ProviderEvent, ProviderPoll } from "./types";
@@ -52,16 +52,17 @@ export class OddsIngestion {
     private readonly beforeClaim: () => Promise<void> = async () => undefined
   ) {}
   /** Placement refreshes bypass cadence, but not quota backoff, and never degrade last-good feed health on failure. */
-  async poll({ placementLeagues }: { placementLeagues?: readonly League[] } = {}): Promise<{ events: number; offers: number; placementEvents?: ProviderEvent[] }> {
+  async poll({ placementLeagues, operational = false }: { placementLeagues?: readonly League[]; operational?: boolean } = {}): Promise<{ events: number; offers: number; placementEvents?: ProviderEvent[]; operationalOutcome?: "published" | "not_due" | "superseded" }> {
+    const outcome = <T extends Record<string, unknown>>(value: T, state: "published" | "not_due" | "superseded") => operational ? { ...value, operationalOutcome: state } : value;
     const now = this.clock.now();
     // The preflight avoids generation and health mutation when no request is due. Its
     // snapshot is never used after the atomic claim.
     const preflight = await this.db.prepare("SELECT quota_json FROM odds_ingestion WHERE provider = 'odds'").first<{ quota_json: string | null }>();
     const preflightBackoff = backoffFrom(preflight?.quota_json);
     const requestedLeagues = placementLeagues ? [...new Set(placementLeagues)] : undefined;
-    if (requestedLeagues && preflightBackoff > 0) return { events: 0, offers: 0 };
+    if (requestedLeagues && preflightBackoff > 0) return outcome({ events: 0, offers: 0 }, "not_due");
     const preflightDue = requestedLeagues ?? await this.dueLeagues(now, preflightBackoff);
-    if (preflightDue.length === 0) return { events: 0, offers: 0 };
+    if (preflightDue.length === 0) return outcome({ events: 0, offers: 0 }, "not_due");
 
     await this.beforeClaim();
     const claimed = await this.claimGeneration();
@@ -72,26 +73,34 @@ export class OddsIngestion {
       .filter((value): value is string => value !== null)
       .reduce((latest, value) => value > latest ? value : latest);
     const claimedBackoff = backoffFrom(claimed.quota_json);
-    if (requestedLeagues && claimedBackoff > 0) return { events: 0, offers: 0 };
+    if (requestedLeagues && claimedBackoff > 0) return outcome({ events: 0, offers: 0 }, "not_due");
     const dueLeagues = requestedLeagues ?? await this.dueLeagues(now, claimedBackoff);
-    if (dueLeagues.length === 0) return { events: 0, offers: 0 }; // preserve feed health and availability exactly
+    if (dueLeagues.length === 0) return outcome({ events: 0, offers: 0 }, "not_due"); // preserve feed health and availability exactly
     let placementEvents: ProviderEvent[] | undefined;
     try {
       const fetched = await Promise.all(dueLeagues.map(async (league) => ({ league, poll: await this.provider.events(league) })));
       // Validate every completed provider response, including container identity, before canonicalization or D1 mutation.
       const parsed = fetched.map(({ league, poll }) => ({ league, events: poll.events.map((event) => providerEventSnapshot.parse(event)) }));
       assertUniqueNormalizedIds(parsed);
-      // Provider event IDs identify immutable ordered sides. Check every prior
-      // event before canonicalization or construction of any D1 mutation.
+      // Anchor neutral-site side swaps to persisted team identities before prices or scores are used.
       const existingRows = (await this.db.prepare("SELECT provider_event_id, league, home_team, away_team, status, home_score, away_score, correction_version, finalized_at FROM sports_event").all<ExistingEventRow>()).results;
       const existingById = new Map(existingRows.map((row) => [row.provider_event_id, row]));
-      for (const { events } of parsed) for (const event of events) assertPersistedOrderedSides(existingById.get(event.id), event);
-      const normalized = parsed.map(({ league, events }) => ({
+      const oriented = parsed.map(({ league, events }) => ({ league, events: events.flatMap((event) => {
+        const existing = existingById.get(event.id);
+        const normalized = existing ? orientProviderEvent({ homeTeam: existing.home_team, awayTeam: existing.away_team }, event) : event;
+        if (!normalized || event.sport !== league || (existing && existing.league !== league)) {
+          // Treat a conflicting event as unavailable: remove only its offers below, retaining result history.
+          console.warn({ event: "odds_event_identity_conflict", eventId: event.id });
+          return [];
+        }
+        return [normalized];
+      }) }));
+      const normalized = oriented.map(({ league, events }) => ({
         league, events: events.map((event) => ({ event, canonical: canonicalize(event, at) }))
       }));
       // Retain validated live evidence independently of publication: a generation
       // loss or D1 write failure must not erase a known change at placement.
-      if (requestedLeagues) placementEvents = parsed.flatMap(({ events }) => events);
+      if (requestedLeagues) placementEvents = oriented.flatMap(({ events }) => events);
       // Read all prior state and derive the complete replacement before constructing any mutation.
       const existingByLeague = new Map(normalized.map(({ league }) => [league, existingRows.filter((row) => row.league === league)] as const));
       const availability = Object.fromEntries(Object.entries(parseJson<Record<string, string[]>>(claimed.canonical_book_availability_json, {})).map(([id, markets]) => [id, [...markets]]));
@@ -130,8 +139,8 @@ export class OddsIngestion {
       statements.push(this.db.prepare("UPDATE odds_ingestion SET quota_json=COALESCE(?, quota_json), last_polled_at=?, last_success_at=?, last_error=NULL, canonical_book_availability_json=? WHERE provider='odds' AND poll_generation=?").bind(successQuota ? JSON.stringify(successQuota) : null, at, at, JSON.stringify(availability), generation));
       const results = await this.db.batch(statements);
       const evidence = placementEvents ? { placementEvents } : {};
-      if (results.at(-1)?.meta.changes !== 1) return { events: 0, offers: 0, ...evidence };
-      return { events, offers, ...evidence };
+      if (results.at(-1)?.meta.changes !== 1) return outcome({ events: 0, offers: 0, ...evidence }, "superseded");
+      return outcome({ events, offers, ...evidence }, "published");
     } catch (error) {
       if (placementEvents) return { events: 0, offers: 0, placementEvents };
       // Only the latest attempted failed response advances health; last-good event/offer bytes are retained.
@@ -170,11 +179,6 @@ const assertUniqueNormalizedIds = (responses: Array<{ league: League; events: Ar
       if (ids.has(event.id)) throw new Error(`Duplicate normalized event ID: ${event.id}`);
       ids.add(event.id);
     }
-  }
-};
-const assertPersistedOrderedSides = (existing: ExistingEventRow | undefined, event: ProviderEvent): void => {
-  if (existing && (canonicalTeamIdentity(existing.home_team) !== canonicalTeamIdentity(event.homeTeam) || canonicalTeamIdentity(existing.away_team) !== canonicalTeamIdentity(event.awayTeam))) {
-    throw new Error(`Immutable provider event sides changed: ${event.id}`);
   }
 };
 const providerFailureMessage = (error: unknown): string => {

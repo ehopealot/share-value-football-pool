@@ -492,16 +492,17 @@ describe("PoolDO wagers and settlement", () => {
     await send(slug, { type: "PlaceStraightWager", commandId: "future-place", actorId: "member", wagerId: "future-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("future-event", startsAt) });
     const kickoff = new Date(startsAt).getTime();
     expect(await reconciliation(slug, "future-event")).toMatchObject({ phase: "open", attempts: 0, next_attempt_at: startsAt });
-    let polls = 0;
+    let polls = 0; let failureAlerts = 0;
     const openSource: ResultSource = { getFinalResults: async () => { polls++; return []; } };
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, openSource, kickoff - 1));
     expect(polls).toBe(0);
     for (let current = kickoff; current < kickoff + 20 * 60 * 1000;) {
-      await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, openSource, current));
+      await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, openSource, current, () => { failureAlerts++; }));
       const row = await reconciliation(slug, "future-event");
       expect(row).toMatchObject({ phase: "open", next_attempt_at: expect.any(String) });
       current = new Date(String(row.next_attempt_at)).getTime();
     }
+    expect(failureAlerts).toBe(0);
     const beforeFinal = await reconciliation(slug, "future-event");
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, { getFinalResults: async () => [final("future-event")] }, new Date(String(beforeFinal.next_attempt_at)).getTime()));
     expect(await storage(slug, (state) => ({ wager: [...state.storage.sql.exec("SELECT status FROM wager WHERE id = 'future-wager'")][0], reconciliation: [...state.storage.sql.exec("SELECT phase, deadline_at, next_attempt_at FROM event_reconciliation WHERE event_id = 'future-event'")][0] }))).toMatchObject({ wager: { status: "won" }, reconciliation: { phase: "final_15", deadline_at: expect.any(String), next_attempt_at: expect.any(String) } });
@@ -513,8 +514,9 @@ describe("PoolDO wagers and settlement", () => {
     await send(slug, { type: "PlaceStraightWager", commandId: "outage-place", actorId: "member", wagerId: "outage-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("outage-event", startsAt) });
     let current = new Date(startsAt).getTime();
     const outage: ResultSource = { getFinalResults: async () => { throw new Error("provider unavailable"); } };
+    let failureAlerts = 0;
     for (let attempt = 0; attempt < 8; attempt++) {
-      await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, outage, current));
+      await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, outage, current, () => { failureAlerts++; throw new Error("alert unavailable"); }));
       const row = await reconciliation(slug, "outage-event");
       expect(row).toMatchObject({ phase: "open", next_attempt_at: expect.any(String) });
       const nextAttempt = new Date(String(row.next_attempt_at)).getTime();
@@ -522,6 +524,7 @@ describe("PoolDO wagers and settlement", () => {
       expect(nextAttempt - current).toBeLessThanOrEqual(60 * 60 * 1000);
       current = nextAttempt;
     }
+    expect(failureAlerts).toBe(8);
     expect(await reconciliation(slug, "outage-event")).toMatchObject({ error_attempts: 0, last_error: "RESULT_PROVIDER_RETRIES_EXHAUSTED_RECOVERING" });
     await runInDurableObject(bindings.POOL_DO.get(bindings.POOL_DO.idFromName(slug)), async (_instance, state) => runSettlementAlarm(state, bindings.DB, { getFinalResults: async () => [final("outage-event")] }, current));
     expect(await reconciliation(slug, "outage-event")).toMatchObject({ phase: "final_15" });

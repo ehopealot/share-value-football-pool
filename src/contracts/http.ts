@@ -114,7 +114,7 @@ export const OddsBoardResponse = z.object({
   }).strict()),
   feed: z.object({ status: z.enum(["current", "stale", "provider-error", "no-offer"]), message: z.string().min(1), lastPolledAt: z.string().datetime().nullable(), lastSuccessAt: z.string().datetime().nullable() }).strict()
 }).strict().superRefine((board, ctx) => {
-  if ((board.feed.status === "current") !== (board.offers.length > 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offers"], message: "Only a current board may expose reviewable offers." });
+  if ((board.feed.status === "current" && board.offers.length === 0) || (board.feed.status === "no-offer" && board.offers.length > 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offers"], message: "Offers must match the board availability status." });
   board.offers.forEach((offer, index) => {
     try {
       validateCanonicalMarket({ market: offer.market, canonicalBook: offer.canonicalBook, policyVersion: offer.policyVersion, homeTeam: offer.homeTeam, awayTeam: offer.awayTeam, outcomes: offer.outcomes });
@@ -225,7 +225,9 @@ export const auditExportResponse = z.object({ format: z.literal("share-value-poo
 export type AuditExportResponse = z.infer<typeof auditExportResponse>;
 
 export const activityOrder = z.object({ orderId: z.string().min(1), memberId: z.string().min(1), memberDisplayName: z.string().min(1), sharesMicros: decimalString, valueMicros: decimalString, priceMicros: decimalString, reason: z.string(), createdAt: z.string().datetime() }).strict();
-export const ReadStandings = z.object({ commandVersion: decimalString, standings: z.array(z.object({ rank: z.number().int().positive(), userId: z.string().min(1), displayName: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString, totalMicros: decimalString, priceMicros: decimalString, notionalValueMicros: decimalString, gainMicros: decimalString, riskedMicros: decimalString })) });
+const standing = z.object({ rank: z.number().int().positive(), userId: z.string().min(1), displayName: z.string().min(1), availableMicros: decimalString, lockedMicros: decimalString, totalMicros: decimalString, priceMicros: decimalString, notionalValueMicros: decimalString, gainMicros: decimalString, riskedMicros: decimalString });
+const weeklyStandingChange = z.object({ weekStart: z.string().datetime(), members: z.array(z.object({ userId: z.string().min(1), gainMicros: decimalString, riskedMicros: decimalString }).strict()) }).strict();
+export const ReadStandings = z.object({ commandVersion: decimalString, standings: z.array(standing), weeklyChanges: z.array(weeklyStandingChange) }).strict();
 export const ReadActivity = z.object({ commandVersion: decimalString, activity: z.object({ orders: z.array(activityOrder), wagers: z.array(activityWager) }).strict() }).strict();
 /** Exact owner-only wager response, including nullable historical effective settlement odds. */
 export const ReadMyWagers = z.object({ commandVersion: decimalString, wagers: z.array(ownerWager) }).strict();

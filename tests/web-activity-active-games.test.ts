@@ -21,7 +21,7 @@ vi.mock("../src/web/components/Layout", () => ({ Layout: ({ children }: { childr
 vi.mock("../src/web/mobile-viewport", () => ({ useCompactWagerViewport: () => false }));
 
 type Wager = ReadActivity["activity"]["wagers"][number];
-const week = "2026-09-01T04:00:00.000Z";
+const week = "2026-09-01T07:00:00.000Z";
 const leg = (eventId: string, eventStartsAt = "2026-09-06T19:00:00.000Z", grade?: string): NonNullable<Wager["legs"]>[number] => ({
   eventId, eventStartsAt, grade, league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z",
   policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalOdds: -110,
@@ -36,7 +36,7 @@ const fixtures = [mixed,
   wager("settled", { status: "won", performanceMicros: "500000000", legs: [leg("Settled", undefined, "win")] }),
   wager("future", { memberId: "future-owner", memberDisplayName: "Future owner", legs: [leg("FutureOnly", "2026-09-07T20:00:00.000Z")] }),
   wager("hidden", { memberId: "hidden-owner", memberDisplayName: "Hidden owner", legs: undefined, hiddenLegCount: 2 }),
-  wager("old-week", { weekStart: "2026-08-25T04:00:00.000Z", legs: [leg("OldWeek")] })
+  wager("old-week", { weekStart: "2026-08-25T07:00:00.000Z", legs: [leg("OldWeek")] })
 ];
 
 function elements(node: ReactNode): ReactElement<Record<string, any>>[] {
@@ -56,10 +56,11 @@ function members(page: ReactNode) {
 }
 
 beforeEach(() => {
-  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-06T20:00:00.000Z"));
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-06T20:00:00.000Z"));
   hooks.values = [{ commandVersion: "1", activity: { orders: [], wagers: fixtures } }];
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Activity active games toggle", () => {
   it("defaults off, retains full matching tickets and weekly P&L, and restores all bets when disabled", () => {
@@ -98,8 +99,9 @@ describe("Activity active games toggle", () => {
   it("applies the filter within the selected week without removing week options", () => {
     const active = toggle(renderPage(), true);
     const select = elements(active).find((element) => element.type === "select")!;
-    expect(elements(select).filter((element) => element.type === "option")).toHaveLength(2);
-    select.props.onChange({ target: { value: "2026-08-25T04:00:00.000Z" } });
+    expect(select.props.value).toBe(week);
+    expect(elements(select).filter((element) => element.type === "option").map((option) => option.props.value)).toEqual(["all", week, "2026-08-25T07:00:00.000Z"]);
+    select.props.onChange({ target: { value: "2026-08-25T07:00:00.000Z" } });
     expect(members(renderPage())[0].wagers.map((row: Wager) => row.wagerId)).toEqual(["old-week"]);
   });
 

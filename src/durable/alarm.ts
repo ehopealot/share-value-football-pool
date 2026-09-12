@@ -18,9 +18,10 @@ const normalPollDelay = (eventStartsAt: SqlStorageValue, now: number) => {
 };
 
 /** Reconciles due event lifecycles and retains terminal snapshots for multi-leg tickets. */
-export async function runSettlementAlarm(state: DurableObjectState, db: D1Database, source: ResultSource = new D1ResultSource(db), now: number | AlarmInvocationInfo = Date.now()): Promise<number | null> {
+export async function runSettlementAlarm(state: DurableObjectState, db: D1Database, source: ResultSource = new D1ResultSource(db), now: number | AlarmInvocationInfo = Date.now(), onFailure?: () => void): Promise<number | null> {
   // Cloudflare may invoke an alarm handler with implementation metadata; never let that turn a lifecycle alarm into an invalid timestamp.
   now = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
+  const reportFailure = () => { try { onFailure?.(); } catch { /* alerting cannot affect settlement retries */ } };
   const discoveryDue = [...state.storage.sql.exec<Row>("SELECT r.season_id, r.attempts, r.error_attempts FROM season_super_bowl_reconciliation r JOIN season s ON s.id = r.season_id AND s.state = 'active' LEFT JOIN season_super_bowl sb ON sb.season_id = r.season_id WHERE sb.season_id IS NULL AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at", at(now))];
   if (discoveryDue.length) try {
     const candidate = (await source.getScheduledSuperBowls?.() ?? [])[0];
@@ -40,6 +41,7 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
         state.storage.sql.exec("UPDATE season_super_bowl_reconciliation SET error_attempts = ?, next_attempt_at = ?, last_error = ? WHERE season_id = ?", exhausted ? 0 : errors, at(now + (exhausted ? 6 * 60 * 60 * 1000 : retryDelay(errors))), exhausted ? "SUPER_BOWL_PROVIDER_RETRIES_EXHAUSTED_RECOVERING" : error instanceof Error ? error.message.slice(0, 200) : "RESULT_SOURCE_FAILED", lifecycle.season_id);
       }
     });
+    reportFailure();
   }
 
   const due = [...state.storage.sql.exec<Row>("SELECT event_id, event_starts_at, phase, attempts, error_attempts, final_observed_at FROM event_reconciliation WHERE phase <> 'complete' AND next_attempt_at <= ? ORDER BY next_attempt_at", at(now))];
@@ -77,6 +79,7 @@ export async function runSettlementAlarm(state: DurableObjectState, db: D1Databa
         state.storage.sql.exec("UPDATE event_reconciliation SET error_attempts = ?, next_attempt_at = ?, last_error = ? WHERE event_id = ?", exhausted ? 0 : errors, at(now + (exhausted ? normalPollDelay(lifecycle.event_starts_at, now) : retryDelay(errors))), exhausted ? "RESULT_PROVIDER_RETRIES_EXHAUSTED_RECOVERING" : error instanceof Error ? error.message.slice(0, 200) : "RESULT_SOURCE_FAILED", lifecycle.event_id);
       }
     });
+    reportFailure();
   }
   const next = [...state.storage.sql.exec<Row>("SELECT next_attempt_at FROM (SELECT next_attempt_at FROM event_reconciliation WHERE phase <> 'complete' AND next_attempt_at IS NOT NULL UNION ALL SELECT r.next_attempt_at FROM season_super_bowl_reconciliation r JOIN season s ON s.id = r.season_id AND s.state = 'active' LEFT JOIN season_super_bowl sb ON sb.season_id = r.season_id WHERE sb.season_id IS NULL AND r.next_attempt_at IS NOT NULL) ORDER BY next_attempt_at LIMIT 1")][0];
   return next ? new Date(String(next.next_attempt_at)).getTime() : null;

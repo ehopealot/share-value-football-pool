@@ -53,6 +53,33 @@ label { display: inline-flex; flex-direction: column; gap: var(--space-1); margi
 .pool-nickname form label { flex: 1 1 10rem; min-width: 0; margin: 0; }
 .pool-nickname form button { flex: 0 0 auto; margin: 0; }
 .table-scroll { overflow-x: auto; }
+/* Operations: snapshot evidence, not a live health dashboard. Status always includes text. */
+.ops-page { min-width: 0; }
+.ops-page section { margin-top: 1.75rem; }
+.ops-page h2 { margin-bottom: var(--space-1); }
+.ops-page h3, .ops-page code { overflow-wrap: anywhere; }
+.ops-page small { display: block; margin-top: 0.25rem; color: #47525d; font-size: 0.82rem; font-weight: 400; }
+.ops-page .ops-note { color: #47525d; font-size: 0.9rem; }
+.ops-badge { display: inline-block; padding: 0.15rem 0.45rem; border: 1px solid currentColor; font-size: 0.82rem; font-weight: 700; line-height: 1.4; }
+.ops-badge--good { color: #17603a; background: #edf8f0; }
+.ops-badge--attention { color: #754700; background: #fff5d6; }
+.ops-badge--bad { color: #9b1c1c; background: #fff2f2; }
+.ops-badge--neutral { color: #47525d; background: #f0f2f4; }
+.ops-time { display: block; font-variant-numeric: tabular-nums; }
+.ops-configuration { padding: 0; list-style: none; }
+.ops-configuration li { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0.4rem 0; border-bottom: 1px solid #d5dbe0; }
+.ops-configuration li > span:first-child { min-width: 9rem; }
+.ops-page td, .ops-page th { vertical-align: top; }
+.ops-page td { min-width: 9rem; }
+.ops-page .table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.ops-details { margin: var(--space-3) 0; }
+.ops-details > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid #d5dbe0; }
+.ops-details dt { font-weight: 700; }
+.ops-details dd { margin: 0; }
+.ops-details dd .ops-time { margin-top: var(--space-1); }
+.ops-inspect-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
+.ops-inspect-controls label { margin: 0; flex: 1 1 14rem; }
+@media (max-width: 600px) { .ops-details > div { grid-template-columns: minmax(0, 1fr); } }
 .table-scroll button { white-space: nowrap; }
 .confirmation-terms { border: 1px solid var(--line); background: var(--table-gray); padding: var(--space-2); margin: var(--space-2) 0; }
 fieldset { border: 1px solid var(--line); margin: var(--space-2) 0; }
@@ -114,7 +141,19 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .bet-slip-error { min-height: 1.45rem; margin: var(--space-1) 0 0; color: #9b1c1c; font-weight: 700; }
 .main-content:has(.standings-page) { max-width: none; }
 /* Mobile standings stay more spacious than the Activity / My Bets tables. */
-@media (max-width: 600px) { .standings-page table { font-size: 0.875rem; } .standings-page th, .standings-page td { padding: 0.35rem; } }
+@media (max-width: 600px) {
+  .standings-page table { font-size: 0.875rem; }
+  .standings-page th, .standings-page td { padding: 0.35rem; }
+  /* Four weekly metrics use the content width instead of retaining the all-weeks scroll layout. */
+  .standings-weekly-table { width: 100%; table-layout: fixed; }
+  .standings-weekly-table th, .standings-weekly-table td { padding-inline: 0.25rem; }
+  .standings-weekly-table th:nth-child(1), .standings-weekly-table td:nth-child(1) { width: 11%; }
+  .standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { width: 39%; }
+  .standings-weekly-table th:nth-child(2), .standings-weekly-table td:nth-child(2) { overflow-wrap: anywhere; }
+  .standings-weekly-table th:nth-child(3), .standings-weekly-table td:nth-child(3), .standings-weekly-table th:nth-child(4), .standings-weekly-table td:nth-child(4) { width: 25%; }
+  .standings-weekly-table th:nth-child(3), .standings-weekly-table th:nth-child(4) { text-align: right; }
+  .standings-weekly-table td:nth-child(3), .standings-weekly-table td:nth-child(4) { white-space: normal; overflow-wrap: anywhere; text-align: right; font-size: clamp(0.68rem, 3vw, 0.875rem); font-variant-numeric: tabular-nums; letter-spacing: -0.025em; }
+}
 .corrections-page td { overflow-wrap: anywhere; vertical-align: top; }
 .corrections-page .activity-leg-push { color: var(--ink); }
 .correction-wager-meta, .correction-wager-id, .correction-wager-leg > small { display: block; }
@@ -210,7 +249,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 @media (max-width: 600px) { .tray-actions button, .tray-actions .primary-action { min-height: 44px; } }
 @media (max-width: 600px) { .selection-tray { margin-top: var(--space-1); padding-block: 0.2rem; } .selection-tray h2 { font-size: 0.9rem; } .pool-balance { font-size: 0.7rem; overflow-x: auto; } .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
 /* Mobile Games board prioritizes compact tappable prices over repeated team names. */
-.odds-mobile-start { display: none; }
+.odds-kickoff-row { display: none; }
 @media (max-width: 600px) {
   .odds-board { min-width: 0; table-layout: fixed; font-size: 0.8rem; }
   .odds-board th, .odds-board td { padding: 0.25rem 0.15rem; }
@@ -219,7 +258,10 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
   .odds-board thead th:nth-child(2) { width: 5.5rem; }
   .odds-board thead th:nth-child(3), .odds-board thead th:nth-child(4), .odds-board thead th:nth-child(5) { width: 4.25rem; }
   .odds-board .odds-matchup { width: auto; padding-inline: var(--space-1); }
-  .odds-mobile-start { display: block; margin-top: 0.2rem; color: #3b4046; font-size: 0.72rem; font-weight: 400; }
+  .odds-kickoff-row { display: table-row; }
+  .odds-kickoff-heading { display: flex; justify-content: space-between; gap: var(--space-1); }
+  /* Match My Bets' thin date ribbons without inheriting ordinary odds-cell padding. */
+  .odds-board .odds-kickoff-row th { padding: 0 0.25rem; background: var(--blue); color: #fff; font-size: 0.78rem; line-height: 1.1; text-size-adjust: none; -webkit-text-size-adjust: none; }
   .odds-board .odds-cell { padding: 0.25rem 0.1rem; text-align: center; }
   .odds-board .odds-game-top, .odds-board .odds-game-bottom { height: 2.1rem; }
   .odds-board .odds-cell, .odds-board .odds-matchup { height: 2.1rem; }

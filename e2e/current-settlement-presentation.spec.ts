@@ -11,6 +11,7 @@ async function signInOwner(page: import("@playwright/test").Page, baseURL: strin
   await page.getByLabel("Email address").fill("settlement-owner@example.test");
   await page.getByLabel("Password").fill("first-password");
   await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page).toHaveURL(`${baseURL}/`);
 }
 
 async function createAndFundPool(page: import("@playwright/test").Page, baseURL: string, slug: string) {
@@ -95,9 +96,12 @@ test("My Wagers shows only the current settlement economics after real regrades 
     await member.getByLabel("Email address").fill("settlement-member@example.test");
     await member.getByLabel("Password").fill("first-password");
     await member.getByRole("button", { name: "Log in" }).click();
+    // Click completion does not wait for the async sign-in/session redirect.
+    await expect(member).toHaveURL(`${worker.baseURL}/`);
     await member.goto(`${worker.baseURL}/p/${slug}`);
     await member.getByLabel("Pool password").fill("settlement-password");
     await member.getByRole("button", { name: "Join pool" }).click();
+    await expect(member).toHaveURL(`${worker.baseURL}/p/${slug}/odds`);
     await member.goto(`${worker.baseURL}/p/${slug}/my-wagers`);
     await expect(member.getByRole("heading", { name: "Open bets" })).toBeVisible();
     await expect(member.getByRole("heading", { name: "Settled bets" })).toBeVisible();

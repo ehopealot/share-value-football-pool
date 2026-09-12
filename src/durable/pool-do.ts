@@ -6,7 +6,7 @@ import { validateTeaser } from "../domain/grading";
 import type { TeaserLeg } from "../domain/types";
 import { calculateSharePriceMicros, OrderQuoteStaleError } from "./accounting-repository";
 import { poolCommandSchema, type PoolCommand, type PoolCommandResult } from "./pool-commands";
-import { assertBettingOpen } from "../domain/betting-week";
+import { assertBettingOpen, nextWeekStart, weekStartOf } from "../domain/betting-week";
 import { placeWager, SideBetLimitError } from "./wager-commands";
 import { runSettlementAlarm } from "./alarm";
 import { correctWager, voidWager } from "./settlement";
@@ -15,6 +15,9 @@ import { shapeActivityWagers, shapeWagers } from "./views";
 import { infrastructureAuditExport, memberAuditExport } from "../services/audit-export";
 import { SHARE_POOL_RULESET_ID } from "../domain/teaser-table";
 import { parlayOdds } from "../domain/parlay";
+import { schedulingInspection } from "./scheduling";
+import { countOverdueWagers } from "./overdue-settlements";
+import { createOperationalAlerts, scheduleOperationalAlert, type OperationalAlerts } from "../services/operational-alerts";
 
 /**
  * Grace only covers post-command drain scheduling. Vitest compiles it far-future,
@@ -70,7 +73,9 @@ const legacyPostRequestFingerprint = (command: Extract<PoolCommand, { type: "Cre
  * provider evidence for settlement.
  */
 export class PoolDO {
-  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
+  private readonly operationalAlerts: OperationalAlerts | undefined;
+  constructor(protected readonly state: DurableObjectState, protected readonly env: { POOL_COMMAND_AUTHENTICATOR_KEY?: string; SETTLEMENT_SERVICE_TOKEN?: string; POOL_PROJECTION_SERVICE_TOKEN?: string; POOL_BACKUP_SERVICE_TOKEN?: string; OPS_SERVICE_TOKEN?: string; RESEND_API_KEY?: string; OPS_OPERATOR_USER_IDS?: string; DB?: D1Database; POOL_EVENTS?: Queue<import("./outbox").PoolOutboxMessage> }) {
+    this.operationalAlerts = createOperationalAlerts(env);
     for (const statement of poolSchema) this.state.storage.sql.exec(statement);
     this.state.storage.transactionSync(() => {
       migrateAdditivePoolStorage(this.state.storage.sql);
@@ -79,11 +84,35 @@ export class PoolDO {
   }
 
   async fetch(request: Request): Promise<Response> {
-    if (new URL(request.url).pathname === "/internal/projection") {
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/internal/ops/overdue-settlements") {
+      if (request.method !== "GET" || !this.env.OPS_SERVICE_TOKEN?.trim() || request.headers.get("x-ops-service-token") !== this.env.OPS_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
+      if (!this.env.DB) return new Response("Inspection unavailable", { status: 503 });
+      return Response.json({ overdueWagers: await countOverdueWagers(this.state.storage.sql, this.env.DB) });
+    }
+    if (pathname === "/internal/ops/inspection") {
+      if (request.method !== "GET" || !this.env.OPS_SERVICE_TOKEN?.trim() || request.headers.get("x-ops-service-token") !== this.env.OPS_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
+      const inspection = schedulingInspection(this.state.storage.sql);
+      const alarm = await this.state.storage.getAlarm();
+      return Response.json({
+        initialized: inspection.initialized,
+        status: inspection.initialized && !inspection.corrupt ? "observed" : "unknown",
+        sampledAt: new Date().toISOString(),
+        reconciliationRetryAt: inspection.reconciliationRetryAt,
+        discoveryRetryAt: inspection.discoveryRetryAt,
+        outboxRetryAt: inspection.outboxRetryAt,
+        alarmAt: alarm === null ? null : new Date(alarm).toISOString(),
+        pendingReconciliationCount: inspection.pendingReconciliationCount,
+        pendingOutboxCount: inspection.pendingOutboxCount,
+        exhaustedOutboxCount: inspection.exhaustedOutboxCount,
+        exhaustedOutboxCategories: inspection.exhaustedOutboxCategories
+      });
+    }
+    if (pathname === "/internal/projection") {
       if (request.method !== "GET" || !this.env.POOL_PROJECTION_SERVICE_TOKEN || request.headers.get("x-projection-service-token") !== this.env.POOL_PROJECTION_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       return Response.json(this.projectionSnapshot(this.state.storage.sql));
     }
-    if (new URL(request.url).pathname === "/internal/audit-export") {
+    if (pathname === "/internal/audit-export") {
       if (request.method !== "GET" || !this.env.POOL_BACKUP_SERVICE_TOKEN || request.headers.get("x-backup-service-token") !== this.env.POOL_BACKUP_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       try {
         return Response.json(infrastructureAuditExport(this.state.storage.sql));
@@ -91,7 +120,7 @@ export class PoolDO {
         return new Response("Internal Server Error", { status: 500 });
       }
     }
-    if (new URL(request.url).pathname === "/internal/settle") {
+    if (pathname === "/internal/settle") {
       if (request.method !== "POST" || !this.env.SETTLEMENT_SERVICE_TOKEN || request.headers.get("x-settlement-service-token") !== this.env.SETTLEMENT_SERVICE_TOKEN) return new Response("Not found", { status: 404 });
       await this.alarm();
       return Response.json({ ok: true });
@@ -232,7 +261,10 @@ export class PoolDO {
       return this.createMessageBoardPost(sql, command);
     }
     if (command.type === "ReplyToMessageBoardPost") return this.replyToMessageBoardPost(sql, command);
-    if (command.type === "ReadStandings") return { commandVersion: String(pool.command_version), standings: this.standings(sql, pool.active_season_id) };
+    if (command.type === "ReadStandings") {
+      const standings = this.standings(sql, pool.active_season_id);
+      return { commandVersion: String(pool.command_version), standings, weeklyChanges: this.standingWeeklyChanges(sql, pool.active_season_id, standings, this.authoritativeTime()) };
+    }
     if (command.type === "ReadActivity") return { commandVersion: String(pool.command_version), activity: this.activity(sql, command.actorId) };
     if (command.type === "ReadSeasonHistory") return { commandVersion: String(pool.command_version), ...this.history(sql, command.seasonId, command.actorId) };
     if (command.type === "ReadWagers") return { commandVersion: String(pool.command_version), ...shapeWagers(sql, command.actorId, this.authoritativeTime()) };
@@ -461,7 +493,15 @@ export class PoolDO {
   }
 
   protected async alarm(currentTime: number | AlarmInvocationInfo = Date.now()): Promise<void> {
-    const settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime) : null;
+    const reportFailure = () => {
+      try {
+        const poolId = first(this.state.storage.sql, "SELECT id FROM pool LIMIT 1")?.id ?? this.state.id.toString();
+        scheduleOperationalAlert(this.state, this.operationalAlerts, { kind: "settlement", scope: String(poolId) });
+      } catch { /* reporting cannot replace the original failure */ }
+    };
+    let settlementDeadline: number | null;
+    try { settlementDeadline = this.env.DB ? await runSettlementAlarm(this.state, this.env.DB, undefined, currentTime, reportFailure) : null; }
+    catch (error) { reportFailure(); throw error; }
     await drainOutbox(this.state, this.env.POOL_EVENTS, new Date(), this.env.DB);
     const outboxDeadline = this.env.POOL_EVENTS ? nextOutboxAttempt(this.state) : null;
     const deadlines = [settlementDeadline, outboxDeadline].filter((deadline): deadline is number => deadline !== null && Number.isFinite(deadline));
@@ -506,6 +546,72 @@ export class PoolDO {
     return rows.map(({ row, holdings, issuedMicros, riskedMicros }, index) => {
       const value = divideRoundHalfEven(holdings * price, MICROS_PER_UNIT);
       return { rank: index + 1, userId: String(row.user_id), displayName: String(row.display_name), availableMicros: String(row.available_micros), lockedMicros: String(row.locked_micros), totalMicros: holdings.toString(), priceMicros: price.toString(), notionalValueMicros: value.toString(), gainMicros: (value - issuedMicros).toString(), riskedMicros: riskedMicros.toString() };
+    });
+  }
+
+  /**
+   * Weekly SVG is the change between authoritative accounting snapshots at [week start, week end).
+   * Each snapshot rebuilds holdings, pool price, and issued basis from immutable ledger/order timestamps;
+   * risked mirrors season standings by excluding wagers whose current status is refunded.
+   */
+  private standingWeeklyChanges(sql: SqlStorage, seasonId: SqlStorageValue | undefined, standings: Array<{ userId: string }>, asOf: Date) {
+    if (seasonId === null || seasonId === undefined) return [];
+    const season = first(sql, "SELECT opened_at FROM season WHERE id = ?", seasonId);
+    const currentWeek = weekStartOf(asOf);
+    let week = weekStartOf(new Date(String(season?.opened_at ?? asOf.toISOString())));
+    if (week > currentWeek) week = currentWeek;
+    const weeks: Date[] = [];
+    while (week <= currentWeek) { weeks.push(week); week = nextWeekStart(week); }
+
+    // A currently refunded ticket is absent from weekly standings entirely. Settlement
+    // applications use the wager ID; correction reversals use the reversed settlement ID.
+    const refundedWagers = new Set<string>();
+    const refundedReversals = new Set<string>();
+    for (const row of sql.exec<Row>("SELECT w.id AS wager_id, s.id AS settlement_id FROM wager w LEFT JOIN settlement s ON s.wager_id = w.id WHERE w.season_id = ? AND w.status = 'refunded'", seasonId)) {
+      refundedWagers.add(String(row.wager_id));
+      if (row.settlement_id !== null && row.settlement_id !== undefined) refundedReversals.add(`reversal:${String(row.settlement_id)}`);
+    }
+    const ledger = [...sql.exec<Row>("SELECT member_id, available_delta, locked_delta, float_delta, notional_delta, causation_id, kind, created_at FROM ledger_entry WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
+    const orders = [...sql.exec<Row>("SELECT member_id, value_micros, created_at FROM share_order WHERE season_id = ? ORDER BY created_at, rowid", seasonId)];
+    const wagers = [...sql.exec<Row>("SELECT owner_id, risk_micros, status, confirmed_at FROM wager WHERE season_id = ? ORDER BY confirmed_at, rowid", seasonId)];
+    const gainsAt = (cutoff: string): Map<string, bigint> => {
+      let float = 0n; let notional = 0n;
+      const holdings = new Map<string, bigint>();
+      for (const entry of ledger) {
+        if (String(entry.created_at) >= cutoff) break;
+        // Causation IDs have separate namespaces by kind; client wager IDs can match order IDs.
+        const causation = String(entry.causation_id);
+        if ((entry.kind === "wager_lock" || entry.kind === "settlement") && refundedWagers.has(causation)) continue;
+        if (entry.kind === "settlement_reversal" && refundedReversals.has(causation)) continue;
+        const memberId = String(entry.member_id);
+        holdings.set(memberId, (holdings.get(memberId) ?? 0n) + BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)));
+        float += BigInt(String(entry.float_delta));
+        notional += BigInt(String(entry.notional_delta));
+      }
+      const issued = new Map<string, bigint>();
+      for (const order of orders) {
+        if (String(order.created_at) >= cutoff) break;
+        const memberId = String(order.member_id);
+        issued.set(memberId, (issued.get(memberId) ?? 0n) + BigInt(String(order.value_micros)));
+      }
+      const price = calculateSharePriceMicros(float, notional);
+      return new Map(standings.map(({ userId }) => [userId, divideRoundHalfEven((holdings.get(userId) ?? 0n) * price, MICROS_PER_UNIT) - (issued.get(userId) ?? 0n)]));
+    };
+
+    return weeks.reverse().map((weekStart) => {
+      const start = weekStart.toISOString();
+      // Stored timestamps have millisecond precision. Advance only the live cutoff so
+      // entries committed at asOf are included; completed weeks remain [start, nextStart).
+      const end = weekStart.getTime() === currentWeek.getTime() ? new Date(asOf.getTime() + 1).toISOString() : nextWeekStart(weekStart).toISOString();
+      const startGains = gainsAt(start); const endGains = gainsAt(end);
+      const risked = new Map<string, bigint>();
+      for (const wager of wagers) {
+        const confirmedAt = String(wager.confirmed_at);
+        if (confirmedAt < start || confirmedAt >= end || wager.status === "refunded") continue;
+        const memberId = String(wager.owner_id);
+        risked.set(memberId, (risked.get(memberId) ?? 0n) + BigInt(String(wager.risk_micros)));
+      }
+      return { weekStart: start, members: standings.map(({ userId }) => ({ userId, gainMicros: ((endGains.get(userId) ?? 0n) - (startGains.get(userId) ?? 0n)).toString(), riskedMicros: (risked.get(userId) ?? 0n).toString() })) };
     });
   }
 

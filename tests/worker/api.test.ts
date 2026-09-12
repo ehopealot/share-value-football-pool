@@ -1,10 +1,14 @@
 import { applyD1Migrations, env, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
+import pollGenerationMigration from "../../src/db/migrations/0002_odds_poll_generation.sql?raw";
+import { OddsIngestion } from "../../src/odds/ingestion";
+import type { ProviderEvent } from "../../src/odds/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
 import { selectionForOutcome } from "../../src/web/selection-matcher";
 import { poolCommandSchema } from "../../src/durable/pool-commands";
 import { RateLimiter } from "../../src/security/rate-limit";
+import { createOperationalAlerts } from "../../src/services/operational-alerts";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; POOL_COMMAND_AUTHENTICATOR_KEY: string };
 let migrated = false;
@@ -24,7 +28,7 @@ async function setupPool(poolId: string, slug: string) {
 }
 
 beforeEach(async () => {
-  if (!migrated) { await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }]); migrated = true; }
+  if (!migrated) { await applyD1Migrations(bindings.DB, [{ name: "0001_initial.sql", queries: migration.split(";\n").filter(Boolean) }, { name: "0002_odds_poll_generation.sql", queries: pollGenerationMigration.split(";\n").filter(Boolean) }]); migrated = true; }
   await bindings.DB.exec("DELETE FROM market_offer; DELETE FROM sports_event; DELETE FROM odds_ingestion; DELETE FROM pool_registry_command_response; DELETE FROM pool_registry; INSERT OR IGNORE INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('owner', 'Owner', 'owner-api@example.test', 1, 0, 0), ('member', 'Member', 'member-api@example.test', 1, 0, 0); INSERT INTO odds_ingestion (provider, last_polled_at, last_success_at, last_error) VALUES ('odds', '2100-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z', NULL);");
 });
 
@@ -461,14 +465,14 @@ describe("later wager and member HTTP API", () => {
     await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ?").bind(new Date(Date.now() - 29 * 60 * 1000).toISOString()).run();
     expect((await odds()).feed.status).toBe("current");
     await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = ?").bind(new Date(Date.now() - 30 * 60 * 1000 - 1).toISOString()).run();
-    expect((await odds()).feed).toEqual({ status: "stale", message: "Current odds are stale; new bets are disabled.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
+    expect((await odds()).feed).toEqual({ status: "stale", message: "Showing last-known odds. Fresh odds are required before a bet can be accepted.", lastPolledAt: "2030-09-01T10:03:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
     await bindings.DB.prepare("UPDATE odds_ingestion SET last_polled_at = '2030-09-01T10:04:00.000Z', last_error = 'upstream failed'").run();
-    expect((await odds()).feed).toEqual({ status: "provider-error", message: "Odds provider error; accepted bets remain intact.", lastPolledAt: "2030-09-01T10:04:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
+    expect((await odds()).feed).toEqual({ status: "provider-error", message: "Odds refresh is unavailable. Showing last-known odds where available; fresh odds are required before acceptance.", lastPolledAt: "2030-09-01T10:04:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" });
     await bindings.DB.exec("DELETE FROM market_offer; UPDATE odds_ingestion SET last_polled_at = '2030-09-01T10:05:00.000Z', last_error = NULL");
     expect(await odds()).toEqual({ offers: [], feed: { status: "no-offer", message: "No current odds are available.", lastPolledAt: "2030-09-01T10:05:00.000Z", lastSuccessAt: "2030-09-01T10:03:00.000Z" } });
   }, 90_000);
 
-  it("fails the whole odds board closed when stored offers lack strict payload or successful-ingestion provenance", async () => {
+  it("shows only valid, previously published offers even during staleness or provider errors", async () => {
     const poolId = `api-attested-${crypto.randomUUID()}`;
     const slug = `api-attested-${crypto.randomUUID()}`;
     await setupPool(poolId, slug);
@@ -492,16 +496,113 @@ describe("later wager and member HTTP API", () => {
     await expectUnavailable("no-offer");
     await bindings.DB.prepare("UPDATE odds_ingestion SET last_success_at = ?, last_error = NULL").bind(retrievedAt).run();
     await bindings.DB.prepare("UPDATE market_offer SET payload_json = ? WHERE event_id = 'attested-one'").bind(JSON.stringify({ outcomes: [{ name: "Home", price: -110, point: -3 }] })).run();
-    await expectUnavailable("no-offer");
+    expect(await odds()).toMatchObject({ offers: [expect.objectContaining({ eventId: "attested-two" })], feed: { status: "current" } });
     await bindings.DB.prepare("UPDATE market_offer SET payload_json = ? WHERE event_id = 'attested-one'").bind(valid).run();
     await bindings.DB.prepare("UPDATE market_offer SET payload_json = ? WHERE event_id = 'attested-two'").bind(JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: "-110", point: -3 }] })).run();
-    await expectUnavailable("no-offer");
+    expect(await odds()).toMatchObject({ offers: [expect.objectContaining({ eventId: "attested-one" })], feed: { status: "current" } });
     await bindings.DB.prepare("UPDATE market_offer SET payload_json = ? WHERE event_id = 'attested-two'").bind(valid).run();
     await bindings.DB.prepare("UPDATE market_offer SET retrieved_at = '2000-01-01T00:00:00.000Z'").run();
-    await expectUnavailable("stale");
+    expect(await odds()).toMatchObject({ offers: [expect.objectContaining({ eventId: "attested-one" }), expect.objectContaining({ eventId: "attested-two" })], feed: { status: "stale" } });
     await bindings.DB.prepare("UPDATE odds_ingestion SET last_polled_at = ?, last_error = 'upstream failed'").bind(new Date(Date.now() + 1000).toISOString()).run();
-    await expectUnavailable("provider-error");
+    expect(await odds()).toMatchObject({ offers: [expect.objectContaining({ eventId: "attested-one" }), expect.objectContaining({ eventId: "attested-two" })], feed: { status: "provider-error" } });
   }, 90_000);
+
+  it.each(["malformed-json", "invalid-slug"] as const)("does not email or reserve alert cooldowns for invalid wager input: %s", async (invalid) => {
+    await bindings.DB.exec("DROP TABLE IF EXISTS operational_alert_throttle");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}"));
+    const operationalAlerts = createOperationalAlerts({ DB: bindings.DB, RESEND_API_KEY: "test-only-key", OPS_OPERATOR_USER_IDS: "member" }, { fetcher });
+    expect(operationalAlerts).toBeDefined();
+    const get = vi.fn();
+    const pools = { idFromName: bindings.POOL_DO.idFromName.bind(bindings.POOL_DO), get } as unknown as DurableObjectNamespace;
+    const tasks: Promise<unknown>[] = [];
+    const app = createWorkerApp({ db: bindings.DB, pools, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), operationalAlerts });
+    const validQuote = { quoteKey: "invalid-input", commandId: "invalid-input", wagerId: "invalid-input", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event:spread:home", offerVersion: "v1" } };
+    const paths = invalid === "malformed-json"
+      ? ["straight", "teasers", "parlays"].flatMap(kind => ["quote", "place"].map(action => `/api/p/arbitrary-${kind}-${action}/wagers/${kind}/${action}`))
+      : ["bad_slug", "bad!slug", "--"].map(slug => `/api/p/${slug}/wagers/straight/quote`);
+    for (const path of paths) {
+      const response = await app.fetch(new Request(`${origin}${path}`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: invalid === "malformed-json" ? "{" : JSON.stringify(validQuote) }), {}, { waitUntil: (task: Promise<unknown>) => tasks.push(task) } as unknown as ExecutionContext);
+      await Promise.all(tasks);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ code: "INVALID_REQUEST" });
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect((await bindings.DB.prepare("SELECT name FROM sqlite_master WHERE name='operational_alert_throttle'").all()).results).toEqual([]);
+  });
+
+  it.each(["POOL_UNAVAILABLE", "INSUFFICIENT_SHARES", "LINE_CHANGED", "malformed-authority-json"])("only alerts on technical wager failures with a canonical scope: %s", async (failure) => {
+    const code = failure === "malformed-authority-json" ? "POOL_UNAVAILABLE" : failure;
+    const poolId = `alert-placement-${crypto.randomUUID()}`;
+    await setupPool(poolId, poolId);
+    const report = vi.fn().mockRejectedValue(new Error("mail unavailable"));
+    const tasks: Promise<unknown>[] = [];
+    const pools = { idFromName: (id: string) => bindings.POOL_DO.idFromName(id), get: () => ({ fetch: async () => failure === "malformed-authority-json" ? new Response("{") : Response.json({ code }, { status: code === "POOL_UNAVAILABLE" ? 503 : 400 }) }) } as unknown as DurableObjectNamespace;
+    const app = createWorkerApp({ db: bindings.DB, pools, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), operationalAlerts: { report } });
+    const response = await app.fetch(request(`/api/p/${poolId.toUpperCase()}/wagers/straight/quote`, { quoteKey: "alert-quote", commandId: "alert-quote", wagerId: "alert-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "event", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "event:spread:home", offerVersion: "v1" } }), {}, { waitUntil: (task: Promise<unknown>) => tasks.push(task) } as unknown as ExecutionContext);
+    expect(response.status).toBe(code === "POOL_UNAVAILABLE" ? 503 : 400);
+    expect(await response.json()).toMatchObject({ code });
+    await Promise.all(tasks);
+    expect(report).toHaveBeenCalledTimes(code === "POOL_UNAVAILABLE" ? 1 : 0);
+    if (code === "POOL_UNAVAILABLE") expect(report).toHaveBeenCalledWith({ kind: "placement", scope: poolId });
+  });
+
+  it.each(["recovered", "changed", "failed"] as const)("refreshes stale offers before quoting while preserving acceptance checks: %s", async (outcome) => {
+    const poolId = `api-recovery-${crypto.randomUUID()}`; const slug = poolId;
+    await setupPool(poolId, slug);
+    const payload = JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }] });
+    await bindings.DB.prepare("INSERT INTO sports_event (id, provider_event_id, league, home_team, away_team, starts_at, status, correction_version) VALUES ('recover', 'recover', 'nfl', 'Home', 'Away', '2099-09-10T20:00:00.000Z', 'scheduled', '1')").run();
+    await bindings.DB.prepare("INSERT INTO market_offer (event_id,market,canonical_book,retrieved_at,offer_version,payload_json) VALUES ('recover','spread','DraftKings','2000-01-01T00:00:00.000Z','v1',?)").bind(payload).run();
+    await bindings.DB.prepare("UPDATE odds_ingestion SET last_error='failed poll'").run();
+    const refreshPlacementOdds = vi.fn(async () => {
+      if (outcome === "failed") throw new Error("provider unavailable");
+      await bindings.DB.prepare("UPDATE market_offer SET retrieved_at=?, offer_version=?").bind(new Date().toISOString(), outcome === "changed" ? "v2" : "v1").run();
+      await bindings.DB.prepare("UPDATE odds_ingestion SET last_error=NULL").run();
+    });
+    const report = vi.fn().mockResolvedValue(undefined);
+    const tasks: Promise<unknown>[] = [];
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds, operationalAlerts: { report } });
+    const response = await app.fetch(request(`/api/p/${slug}/wagers/straight/quote`, { quoteKey: "recover-quote", commandId: "recover-quote", wagerId: "recover-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "recover", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "recover:spread:home", offerVersion: "v1" } }), {}, { waitUntil: (task: Promise<unknown>) => tasks.push(task) } as unknown as ExecutionContext);
+    await Promise.all(tasks);
+    expect(report.mock.calls.map(([alert]) => alert)).toEqual(outcome === "failed" ? [{ kind: "odds_update", scope: "global" }] : []);
+    expect(refreshPlacementOdds).toHaveBeenCalledExactlyOnceWith(["nfl"]);
+    expect(response.status).toBe(outcome === "recovered" ? 200 : 400);
+    if (outcome !== "recovered") expect(await response.json()).toMatchObject({ code: outcome === "changed" ? "LINE_CHANGED" : "MARKET_STALE" });
+  }, 60_000);
+
+  it.each(["conflict", "changed", "unchanged"] as const)("preserves live quote-recovery evidence when another league supersedes publication: %s", async (outcome) => {
+    const poolId = `api-recovery-race-${crypto.randomUUID()}`; const slug = poolId;
+    await setupPool(poolId, slug);
+    const retrievedAt = new Date().toISOString();
+    const payload = JSON.stringify({ policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes: [{ name: "Home", price: -110, point: -3 }, { name: "Away", price: -110, point: 3 }] });
+    await bindings.DB.prepare("INSERT INTO sports_event (id,provider_event_id,league,home_team,away_team,starts_at,status,correction_version) VALUES ('recovery-race','recovery-race','nfl','Home','Away','2099-09-10T20:00:00.000Z','scheduled','1')").run();
+    await bindings.DB.prepare("INSERT INTO market_offer (event_id,market,canonical_book,retrieved_at,offer_version,payload_json) VALUES ('recovery-race','spread','DraftKings',?,'v1',?)").bind(retrievedAt, payload).run();
+    await bindings.DB.prepare("UPDATE odds_ingestion SET last_polled_at=?,last_success_at=?,last_error='prior provider error'").bind(retrievedAt, retrievedAt).run();
+    const refreshPlacementOdds = vi.fn(async () => {
+      const incoming: ProviderEvent = {
+        id: "recovery-race", sport: "nfl", homeTeam: outcome === "conflict" ? "Different team" : "Home", awayTeam: "Away", commenceTime: "2099-09-10T20:00:00.000Z", status: "scheduled",
+        bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spread", outcomes: [{ name: "Home", price: -110, point: outcome === "changed" ? -4 : -3 }, { name: "Away", price: -110, point: outcome === "changed" ? 4 : 3 }] }] }]
+      };
+      const refreshed = await new OddsIngestion(bindings.DB, { events: async () => {
+        // The NFL generation is already claimed. NCAAF now wins publication and
+        // clears global health without replacing the still-fresh NFL offer.
+        await new OddsIngestion(bindings.DB, { events: async () => ({ events: [] }) }).poll({ placementLeagues: ["ncaaf"] });
+        return { events: [incoming] };
+      } }).poll({ placementLeagues: ["nfl"] });
+      expect(refreshed).toMatchObject({ events: 0, offers: 0 });
+      expect(refreshed.placementEvents).toHaveLength(outcome === "conflict" ? 0 : 1);
+      return refreshed.placementEvents;
+    });
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), refreshPlacementOdds });
+    const response = await app.fetch(request(`/api/p/${slug}/wagers/straight/quote`, { quoteKey: "race-quote", commandId: "race-quote", wagerId: "race-wager", seasonId: "s1", riskMicros: "1000000", rulesetVersion: "SHARE_POOL_2026_V1", leg: { eventId: "recovery-race", canonicalBook: "DraftKings", market: "spread", selection: "home", offerId: "recovery-race:spread:home", offerVersion: "v1" } }));
+    expect(refreshPlacementOdds).toHaveBeenCalledExactlyOnceWith(["nfl"]);
+    expect(await bindings.DB.prepare("SELECT offer_version,retrieved_at FROM market_offer WHERE event_id='recovery-race'").first()).toEqual({ offer_version: "v1", retrieved_at: retrievedAt });
+    expect(await bindings.DB.prepare("SELECT last_error FROM odds_ingestion WHERE provider='odds'").first()).toEqual({ last_error: null });
+    expect(response.status).toBe(outcome === "unchanged" ? 200 : 400);
+    if (outcome !== "unchanged") expect(await response.json()).toMatchObject({ code: outcome === "conflict" ? "MARKET_UNAVAILABLE" : "LINE_CHANGED" });
+    const stub = bindings.POOL_DO.get(bindings.POOL_DO.idFromName(poolId));
+    expect(await runInDurableObject(stub, (_instance, state) => [...state.storage.sql.exec("SELECT COUNT(*) AS count FROM wager_quote WHERE quote_key='race-quote'")][0])).toEqual({ count: outcome === "unchanged" ? 1 : 0 });
+  }, 60_000);
 
   it("carries a punctuation-distinct board click through the real Worker quote boundary", async () => {
     const poolId = `api-punctuation-${crypto.randomUUID()}`; const slug = `api-punctuation-${crypto.randomUUID()}`;
@@ -601,7 +702,7 @@ describe("later wager and member HTTP API", () => {
     }
   }, 180_000);
 
-  it.each(["unchanged", "changed", "timeout", "superseded-changed", "superseded-unchanged"] as const)("checks live odds before teaser placement: %s", async (outcome) => {
+  it.each(["unchanged", "changed", "timeout", "superseded-changed", "superseded-unchanged", "swapped"] as const)("checks live odds before teaser placement: %s", async (outcome) => {
     const poolId = `api-live-${crypto.randomUUID()}`; const slug = `api-live-${outcome}`;
     await setupPool(poolId, slug);
     const fundingQuote = await (await send(poolId, { type: "QuoteShareOrder", commandId: "fund-live-quote", actorId: "owner", seasonId: "s1", memberId: "member", mode: "shares", amountMicros: "2000000" })).json() as { priceMicros: string; commandVersion: string };
@@ -613,8 +714,8 @@ describe("later wager and member HTTP API", () => {
     }
     const refreshPlacementOdds = vi.fn(async () => {
       if (outcome === "timeout") throw new DOMException("Timed out", "TimeoutError");
-      if (outcome.startsWith("superseded")) return ["live-one", "live-two"].map(id => ({
-        id, sport: "nfl" as const, homeTeam: "Home", awayTeam: "Away", commenceTime: "2099-09-10T20:00:00.000Z", status: "scheduled" as const,
+      if (outcome.startsWith("superseded") || outcome === "swapped") return ["live-one", "live-two"].map(id => ({
+        id, sport: "nfl" as const, homeTeam: outcome === "swapped" ? "Away" : "Home", awayTeam: outcome === "swapped" ? "Home" : "Away", commenceTime: "2099-09-10T20:00:00.000Z", status: "scheduled" as const,
         bookmakers: [{ key: "draftkings", title: "DraftKings", markets: [{ key: "spread" as const, outcomes: JSON.parse(payload(outcome === "superseded-changed" && id === "live-one" ? -4 : -3)).outcomes }] }]
       }));
       await bindings.DB.prepare("UPDATE market_offer SET offer_version = 'live', payload_json = ? WHERE event_id = 'live-one'").bind(payload(outcome === "changed" ? -4 : -3)).run();

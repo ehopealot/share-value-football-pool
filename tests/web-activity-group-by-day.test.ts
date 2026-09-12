@@ -6,7 +6,7 @@ import { filterActivityDaysForActiveGames, groupActivityDaysForWeek } from "../s
 import { ActivityPageBody } from "../src/web/pages/ActivityPage";
 
 type Wager = ReadActivity["activity"]["wagers"][number];
-const week = "2026-09-08T04:00:00.000Z";
+const week = "2026-09-08T07:00:00.000Z";
 const leg = (eventId: string, eventStartsAt: string, grade?: string): NonNullable<Wager["legs"]>[number] => ({
   eventId, eventStartsAt, grade, league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-09-01T00:00:00.000Z",
   policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "away", originalOdds: -110,
@@ -35,6 +35,14 @@ describe("Activity day groups", () => {
     expect(days[1]!.members).toEqual([expect.objectContaining({ memberId: "member", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "live" }), expect.objectContaining({ wagerId: "won-sun" })] })]);
     expect(days[2]!.members.map((member) => ({ id: member.memberId, wagers: member.wagers.map((row) => row.wagerId) }))).toEqual([{ id: "future", wagers: ["future"] }, { id: "hidden", wagers: ["hidden"] }]);
     expect(days.flatMap((day) => day.members.flatMap((member) => member.wagers)).map((row) => row.wagerId).sort()).toEqual(dailyFixtures.map((row) => row.wagerId).sort());
+  });
+
+  it("includes all weeks when no week is selected, without merging distinct calendar days", () => {
+    const older = wager("older", { weekStart: "2026-09-01T07:00:00.000Z", performanceMicros: "1000000", legs: [leg("older-sun", "2026-09-06T18:00:00.000Z", "win")] });
+    const days = groupActivityDaysForWeek([...dailyFixtures, older], undefined, now);
+    expect(days.filter((day) => day.label === "Sun")).toHaveLength(2);
+    expect(days.flatMap((day) => day.members.flatMap((member) => member.wagers))).toHaveLength(dailyFixtures.length + 1);
+    expect(groupActivityDaysForWeek([...dailyFixtures, older], week, now).flatMap((day) => day.members.flatMap((member) => member.wagers))).toHaveLength(dailyFixtures.length);
   });
 
   it("retains unfiltered day P&L when Active games only removes settled tickets", () => {
@@ -74,11 +82,12 @@ function toggleCheckbox(page: ReactNode, index: number, checked: boolean) {
 }
 
 beforeEach(() => {
-  vi.spyOn(Date, "now").mockReturnValue(now);
+  vi.useFakeTimers();
+  vi.setSystemTime(now);
   hooks.compact = false;
   hooks.values = [{ commandVersion: "1", activity: { orders: [], wagers: dailyFixtures } }];
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Activity Group by day control and tables", () => {
   it("is an independent desktop checkbox and renders player-linked in-table daily ribbons", () => {
@@ -119,6 +128,16 @@ describe("Activity Group by day control and tables", () => {
     const upcoming = html.split('<h3 class="activity-day-ribbon">Upcoming</h3>')[1]!;
     expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Mon, Sep 14</th></tr>');
     expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Upcoming</th></tr>');
+  });
+
+  it("keeps daily tables visible when the new All weeks option is selected", () => {
+    const initial = renderPage();
+    const select = elements(initial).find((element) => element.type === "select")!;
+    const allWeeks = elements(select.props.children).find((element) => element.type === "option" && element.props.children === "All weeks")!;
+    select.props.onChange({ target: { value: allWeeks.props.value } });
+    const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
+    expect(html).toContain('<h3 class="activity-day-ribbon">Thu</h3>');
+    expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming</h3>');
   });
 
   it("preserves a daily P&L ribbon after filtering to an active ticket", () => {
