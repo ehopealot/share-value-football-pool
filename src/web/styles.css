@@ -230,7 +230,9 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .activity-active-toggle input, .activity-group-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }
 /* Compact Activity filters collapse into a select-sized control that opens an overlay menu. */
 .activity-options { position: relative; }
-.activity-options summary { position: relative; display: flex; align-items: center; padding: 0.35rem 2.2rem 0.35rem 0.35rem; border: 1px solid var(--line); border-radius: 0; background: #fff; font: inherit; cursor: pointer; list-style: none; }
+/* Native selects ignore line-height, so both controls pin one explicit height for exact parity. */
+.activity-filters select, .activity-options summary { height: 2.5rem; padding-block: 0; }
+.activity-options summary { position: relative; display: flex; align-items: center; padding-inline: 0.35rem 2.2rem; border: 1px solid var(--line); border-radius: 0; background: #fff; font: inherit; cursor: pointer; list-style: none; }
 .activity-options summary::-webkit-details-marker { display: none; }
 .activity-options summary::after { content: ""; position: absolute; top: 50%; right: 0.75rem; width: 0.45rem; height: 0.45rem; margin-top: -0.3rem; border-right: 2px solid var(--ink); border-bottom: 2px solid var(--ink); transform: rotate(45deg); transition: transform 120ms ease; }
 .activity-options[open] summary::after { transform: rotate(225deg); }
