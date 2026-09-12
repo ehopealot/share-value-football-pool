@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { MatchupDetails, MatchupBoxScore, matchupUnavailableMessage } from "../src/web/pages/MatchupDetailsPage";
+import { MatchupDetails, MatchupBoxScore, matchupUnavailableMessage, matchupPageView } from "../src/web/pages/MatchupDetailsPage";
 import { MatchupLegLink } from "../src/web/components/MatchupLegLink";
 import { ApiError } from "../src/web/api";
 import { OddsBoardTable, matchupDetailsAvailable, type GameRow } from "../src/web/pages/OddsPage";
@@ -90,5 +90,18 @@ describe("box score view", () => {
     expect(html).toContain('class="matchup-link"');
     expect(html).not.toContain("leg-2");
     expect(styles).toMatch(/\.matchup-link,\s*\.odds-matchup-link\s*\{\s*text-decoration:\s*none/);
+  });
+});
+
+describe("matchup page view precedence", () => {
+  it("shows the box score for started games even when the pregame details call failed", () => {
+    expect(matchupPageView({ error: "Matchup details aren't available for this game.", box: liveBox }).kind).toBe("box");
+    expect(matchupPageView({ error: "Matchup details aren't available for this game.", box: { ...liveBox, state: "final" } }).kind).toBe("box");
+  });
+  it("keeps the error, loading, and details states for everything else", () => {
+    expect(matchupPageView({ error: "broken", box: undefined, matchup: undefined }).kind).toBe("error");
+    expect(matchupPageView({ error: "broken", box: { ...liveBox, state: "pregame" }, matchup: undefined }).kind).toBe("error");
+    expect(matchupPageView({ error: "", box: undefined, matchup: undefined }).kind).toBe("loading");
+    expect(matchupPageView({ error: "", box: { ...liveBox, state: "pregame" }, matchup: { league: "nfl", startsAt: game.startsAt, away: { name: "Atlanta Falcons", recentResults: [] }, home: { name: "Pittsburgh Steelers", recentResults: [] }, seasonStats: [] } }).kind).toBe("details");
   });
 });

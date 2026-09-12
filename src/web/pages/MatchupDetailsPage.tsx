@@ -47,6 +47,15 @@ export function MatchupDetails({ matchup }: { matchup: EspnMatchupResponse }) {
   </article>;
 }
 
+/** A started game always has a view: box state outranks a pregame-details failure. */
+export type MatchupPageView = { kind: "box"; box: EspnBoxScore } | { kind: "error" } | { kind: "loading" } | { kind: "details"; matchup: EspnMatchupResponse };
+export const matchupPageView = (state: { error: string; box?: EspnBoxScore; matchup?: EspnMatchupResponse }): MatchupPageView => {
+  if (state.box && state.box.state !== "pregame") return { kind: "box", box: state.box };
+  if (state.error) return { kind: "error" };
+  if (!state.matchup) return { kind: "loading" };
+  return { kind: "details", matchup: state.matchup };
+};
+
 /** An in-app detail route leaves the odds page's pool-scoped selection tray intact in browser storage. */
 export function MatchupDetailsPage() {
   const { slug = "", eventId = "" } = useParams();
@@ -64,8 +73,9 @@ export function MatchupDetailsPage() {
     return () => { clearInterval(timer); };
   }, [box?.state, slug, eventId]);
   const back = <p className="matchup-details-back"><Link to={`/p/${slug}/odds`}>Back to odds board</Link></p>;
-  if (error) return <Layout><h1>Matchup details</h1><p role="alert" className="error-summary">{error}</p>{back}</Layout>;
-  if (box && box.state !== "pregame") return <Layout><MatchupBoxScore box={box}/>{back}</Layout>;
-  if (!matchup) return <Layout><h1>Matchup details</h1><p role="status">Loading matchup details…</p>{back}</Layout>;
-  return <Layout><MatchupDetails matchup={matchup}/>{back}</Layout>;
+  const view = matchupPageView({ error, box, matchup });
+  if (view.kind === "error") return <Layout><h1>Matchup details</h1><p role="alert" className="error-summary">{error}</p>{back}</Layout>;
+  if (view.kind === "box") return <Layout><MatchupBoxScore box={view.box}/>{back}</Layout>;
+  if (view.kind === "loading") return <Layout><h1>Matchup details</h1><p role="status">Loading matchup details…</p>{back}</Layout>;
+  return <Layout><MatchupDetails matchup={view.matchup}/>{back}</Layout>;
 }
