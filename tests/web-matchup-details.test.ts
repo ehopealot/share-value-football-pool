@@ -187,3 +187,13 @@ describe("matchup hint", () => {
     expect(myWagersSource).toContain("{(week === undefined || week === currentWeek) && <MatchupHint/>}");
   });
 });
+
+describe("quarter grid completeness", () => {
+  it("always renders four quarter columns with blank unplayed cells", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2" }, { label: "Q3" }, { label: "Q4" }] } }));
+    expect(html).toContain(">Q1<");
+    expect(html).toContain(">Q4<");
+    const emptyCells = html.match(/<td><\/td>/g) ?? [];
+    expect(emptyCells.length).toBe(6);
+  });
+});

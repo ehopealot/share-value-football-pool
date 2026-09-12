@@ -58,8 +58,8 @@ export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
     </header>
     {box.quarters.length > 0 && <section aria-label="Scoring by quarter" className="table-ribbon-section"><h2 className="table-ribbon">Scoring by quarter</h2>
       <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats matchup-box-quarters"><thead><tr><th scope="col"><span className="visually-hidden">Team</span></th>{box.quarters.map((quarter) => <th key={quarter.label} scope="col">{quarter.label}</th>)}</tr></thead><tbody>
-        <tr><th scope="row">{box.away.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.away ?? "—"}</td>)}</tr>
-        <tr><th scope="row">{box.home.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.home ?? "—"}</td>)}</tr>
+        <tr><th scope="row">{box.away.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.away ?? ""}</td>)}</tr>
+        <tr><th scope="row">{box.home.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.home ?? ""}</td>)}</tr>
       </tbody></table></div>
     </section>}
     {box.stats.length > 0 && <section aria-label="Team stats" className="table-ribbon-section"><h2 className="table-ribbon">Team stats</h2>
