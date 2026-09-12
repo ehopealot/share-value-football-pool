@@ -208,3 +208,10 @@ describe("matchup links from member profiles", () => {
     expect(source).toContain('title="Settled" slug={slug}');
   });
 });
+
+describe("box score lines", () => {
+  it("keeps the started-game view free of board lines", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, lines: [boardLine("spread", [{ name: "Atlanta Falcons", point: 3.5, price: -110 }, { name: "Pittsburgh Steelers", point: -3.5, price: -110 }])] } }));
+    expect(html).not.toContain("matchup-lines");
+  });
+});
