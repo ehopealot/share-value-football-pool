@@ -78,29 +78,20 @@ describe("ESPN matchup lookup", () => {
       { label: "Defensive sacks", away: "4", home: "4" }
     ] } });
   });
-  it("falls back to the prior season's schedule for recent results before a season's first game", async () => {
-    const priorGame = (teamId: string, teamName: string, opponentId: string, opponentName: string) => ({
-      id: `${teamId}-prior`, date: "2025-12-28T18:00:00.000Z",
-      competitions: [{ status: { type: { completed: true } }, competitors: [
-        { homeAway: "away", winner: true, score: { value: 24, displayValue: "24" }, team: team(teamId, teamName) },
-        { homeAway: "home", winner: false, score: { value: 17, displayValue: "17" }, team: team(opponentId, opponentName) }
-      ] }]
-    });
+  it("shows only current-season facts: no prior-season schedule fetch and no stats without current-season data", async () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const value = String(url);
       if (value.includes("scoreboard")) return responseFor({ events: [game()] });
-      if (value.includes("statistics")) return responseFor(stats("350"));
-      if (value.includes("season=2025")) return responseFor({ events: [value.includes("teams/away/") ? priorGame("away", "Atlanta Falcons", "saints", "New Orleans Saints") : priorGame("home", "Pittsburgh Steelers", "bengals", "Cincinnati Bengals")] });
+      if (value.includes("statistics")) return responseFor({ results: { stats: { categories: [] } } });
       return responseFor({ events: [{ id: "opener", date: input.startsAt, competitions: [{ competitors: [] }] }] });
     });
 
     const result = await lookupEspnMatchup(input, { fetcher });
 
-    expect(result).toMatchObject({ status: "ok", matchup: {
-      away: { recentResults: [{ opponent: "New Orleans Saints", result: "W 24-17" }] },
-      home: { recentResults: [{ opponent: "Cincinnati Bengals", result: "W 24-17" }] }
-    } });
-    expect(fetcher.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("season=2025")).length).toBe(2);
+    expect(result).toMatchObject({ status: "ok", matchup: { away: { recentResults: [] }, home: { recentResults: [] }, seasonStats: [] } });
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher.mock.calls.map((call) => String(call[0])).some((url) => url.includes("/schedule?season="))).toBe(false);
+    expect(fetcher.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("statistics?season=2026")).length).toBe(2);
   });
   it("salts the matchup cache key per deploy scope so each deploy starts cold", async () => {
     expect(matchupCacheRequest(input, "deploy-1").url).not.toBe(matchupCacheRequest(input, "deploy-2").url);

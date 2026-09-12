@@ -237,24 +237,17 @@ export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: E
   const base = `${ESPN_BASE}/${leaguePath(input.league)}/teams`;
   const seasonYear = new Date(input.startsAt).getUTCFullYear();
   const [awayStats, homeStats, awaySchedule, homeSchedule] = await Promise.all([
-    responseJson(fetcher, `${base}/${encodeURIComponent(event.away.team.id)}/statistics`),
-    responseJson(fetcher, `${base}/${encodeURIComponent(event.home.team.id)}/statistics`),
+    responseJson(fetcher, `${base}/${encodeURIComponent(event.away.team.id)}/statistics?season=${seasonYear}`),
+    responseJson(fetcher, `${base}/${encodeURIComponent(event.home.team.id)}/statistics?season=${seasonYear}`),
     responseJson(fetcher, `${base}/${encodeURIComponent(event.away.team.id)}/schedule`),
     responseJson(fetcher, `${base}/${encodeURIComponent(event.home.team.id)}/schedule`)
   ]);
   const away = teamSeasonStats(awayStats); const home = teamSeasonStats(homeStats);
   const seasonStats = Object.keys(away).map((label) => ({ label, ...(away[label] ? { away: away[label] } : {}), ...(home[label] ? { home: home[label] } : {}) })).filter((stat) => stat.away || stat.home);
-  const matchupTeams = async (competitor: { team: { id: string } }, schedule: unknown): Promise<EspnRecentResult[]> => {
-    const current = scheduleResults(schedule, competitor.team.id, input.startsAt);
-    if (current.length) return current;
-    /** At season start the bare schedule lists only future games, so recent form comes from the prior season. */
-    const previous = await responseJson(fetcher, `${base}/${encodeURIComponent(competitor.team.id)}/schedule?season=${seasonYear - 1}`);
-    return previous ? scheduleResults(previous, competitor.team.id, input.startsAt) : [];
-  };
   const matchup: EspnMatchup = {
     league: input.league, startsAt: input.startsAt, ...(event.venue ? { venue: event.venue } : {}),
-    away: { name: event.away.team.displayName, ...(event.away.record ? { record: event.away.record } : {}), ...(event.away.team.logo ? { logo: event.away.team.logo } : {}), recentResults: await matchupTeams(event.away, awaySchedule) },
-    home: { name: event.home.team.displayName, ...(event.home.record ? { record: event.home.record } : {}), ...(event.home.team.logo ? { logo: event.home.team.logo } : {}), recentResults: await matchupTeams(event.home, homeSchedule) },
+    away: { name: event.away.team.displayName, ...(event.away.record ? { record: event.away.record } : {}), ...(event.away.team.logo ? { logo: event.away.team.logo } : {}), recentResults: scheduleResults(awaySchedule, event.away.team.id, input.startsAt) },
+    home: { name: event.home.team.displayName, ...(event.home.record ? { record: event.home.record } : {}), ...(event.home.team.logo ? { logo: event.home.team.logo } : {}), recentResults: scheduleResults(homeSchedule, event.home.team.id, input.startsAt) },
     seasonStats
   };
   // Keep the score/record view available during a partial ESPN outage, but retry it rather than caching an empty details page.
