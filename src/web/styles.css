@@ -292,7 +292,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .matchup-recent-team li + li { border-top: 1px solid var(--line); }
 .matchup-recent-team li { padding-block: 0.25rem; }
 .matchup-stats { margin: 0 0 var(--space-2); }
-.matchup-stats th, .matchup-stats td { padding: 0.35rem 0.5rem; vertical-align: top; }
+/* Stats tables are activity tables: identical min-widths, font sizes, and cell paddings. */
 .matchup-details-back { margin: var(--space-3) 0 0; }
 .odds-kickoff-row { display: none; }
 @media (max-width: 600px) {
@@ -318,7 +318,6 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
   .matchup-details { gap: var(--space-2); }
   .matchup-team-records, .matchup-recent-results, .matchup-box-scoreline { grid-template-columns: 1fr; }  .matchup-team-record, .matchup-recent-results > section { padding: var(--space-2); }
   .matchup-details .table-scroll { margin-inline: calc(-1 * var(--space-2)); }
-  .matchup-details .matchup-stats { min-width: 26rem; }
 }
 /* Message board threads stay compact while preserving clear parent/reply hierarchy. */
 .nav-new { display: inline-block; margin-left: 0.25rem; padding: 0.05rem 0.28rem; background: #ffdf7e; color: #4a2100; font-size: 0.78rem; font-weight: 700; text-decoration: none; }

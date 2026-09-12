@@ -46,13 +46,13 @@ export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
       <p className="matchup-box-state" role="status">{box.statusDetail}{live && box.clock && box.period ? ` · ${box.period <= 4 ? `Q${box.period}` : box.period === 5 ? "OT" : `${box.period - 4}OT`} ${box.clock}` : ""}</p>
     </header>
     {box.quarters.length > 0 && <section aria-label="Scoring by quarter" className="table-ribbon-section"><h2 className="table-ribbon">Scoring by quarter</h2>
-      <div className="table-scroll" tabIndex={0}><table className="matchup-stats matchup-box-quarters"><thead><tr><th scope="col"><span className="visually-hidden">Team</span></th>{box.quarters.map((quarter) => <th key={quarter.label} scope="col">{quarter.label}</th>)}</tr></thead><tbody>
+      <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats matchup-box-quarters"><thead><tr><th scope="col"><span className="visually-hidden">Team</span></th>{box.quarters.map((quarter) => <th key={quarter.label} scope="col">{quarter.label}</th>)}</tr></thead><tbody>
         <tr><th scope="row">{box.away.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.away ?? "—"}</td>)}</tr>
         <tr><th scope="row">{box.home.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.home ?? "—"}</td>)}</tr>
       </tbody></table></div>
     </section>}
     {box.stats.length > 0 && <section aria-label="Team stats" className="table-ribbon-section"><h2 className="table-ribbon">Team stats</h2>
-      <div className="table-scroll" tabIndex={0}><table className="matchup-stats"><thead><tr><th scope="col">{box.away.name}</th><th scope="col">{box.home.name}</th></tr></thead><tbody>{box.stats.map((stat) => <tr key={stat.label}><th scope="row">{stat.label}</th><td>{stat.away ?? "—"}</td><td>{stat.home ?? "—"}</td></tr>)}</tbody></table></div>
+      <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats"><thead><tr><th scope="col"><span className="visually-hidden">Stat</span></th><th scope="col">{box.away.name}</th><th scope="col">{box.home.name}</th></tr></thead><tbody>{box.stats.map((stat) => <tr key={stat.label}><th scope="row">{stat.label}</th><td>{stat.away ?? "—"}</td><td>{stat.home ?? "—"}</td></tr>)}</tbody></table></div>
     </section>}
   </article>;
 }
@@ -65,7 +65,7 @@ export function MatchupDetails({ matchup }: { matchup: EspnMatchupResponse }) {
     <section aria-label="Team records" className="table-ribbon-section"><h2 className="table-ribbon">Team records</h2>
       <div className="matchup-team-records">{teams.map((team) => <div key={team.name} className="matchup-team-record"><h3 className="matchup-team-ribbon"><span>{team.name}</span>{team.logo && <img src={team.logo} alt="" width="24" height="24"/>}</h3><p><strong>Record:</strong> {team.record ?? "Not available"}</p></div>)}</div>
     </section>
-    <section aria-label="Season team stats" className="table-ribbon-section"><h2 className="table-ribbon">Season team stats</h2>{matchup.seasonStats.length > 0 ? <div className="table-scroll" tabIndex={0}><table className="matchup-stats"><thead><tr><th scope="col">{matchup.away.name}</th><th scope="col">{matchup.home.name}</th></tr></thead><tbody>{matchup.seasonStats.map((stat) => <tr key={stat.label}><th scope="row">{stat.label}</th><td>{stat.away ?? "—"}</td><td>{stat.home ?? "—"}</td></tr>)}</tbody></table></div> : <p className="state-notice">Season team stats are not available from ESPN yet.</p>}</section>
+    <section aria-label="Season team stats" className="table-ribbon-section"><h2 className="table-ribbon">Season team stats</h2>{matchup.seasonStats.length > 0 ? <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats"><thead><tr><th scope="col"><span className="visually-hidden">Stat</span></th><th scope="col">{matchup.away.name}</th><th scope="col">{matchup.home.name}</th></tr></thead><tbody>{matchup.seasonStats.map((stat) => <tr key={stat.label}><th scope="row">{stat.label}</th><td>{stat.away ?? "—"}</td><td>{stat.home ?? "—"}</td></tr>)}</tbody></table></div> : <p className="state-notice">Season team stats are not available from ESPN yet.</p>}</section>
     <section aria-label="Recent results" className="table-ribbon-section"><h2 className="table-ribbon">Recent results</h2>
       <div className="matchup-recent-results">{teams.map((team) => <section key={team.name} className="matchup-recent-team"><h3 className="matchup-team-ribbon"><span>{team.name}</span></h3>{team.recentResults.length > 0 ? <ul>{team.recentResults.map((result) => <li key={`${result.date}-${result.opponent}`}><time dateTime={result.date}>{formatKickoff(result.date)}</time> · {result.result} vs {result.opponent}</li>)}</ul> : <p>Recent results are not available.</p>}</section>)}</div>
     </section>
