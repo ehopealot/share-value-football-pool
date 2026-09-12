@@ -239,7 +239,8 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const slug = c.req.param("slug"); const eventId = c.req.param("eventId");
     if (!slug || !eventId) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
     ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
-    const event = await dependencies.db.prepare("SELECT id, league, home_team, away_team, starts_at FROM sports_event WHERE id = ? AND status = 'scheduled'").bind(eventId).first<{ id: string; league: string; home_team: string; away_team: string; starts_at: string }>();
+    /** Started and finished events also serve pregame detail fields, so status is not a filter; ESPN state decides the page's view. */
+    const event = await dependencies.db.prepare("SELECT id, league, home_team, away_team, starts_at FROM sports_event WHERE id = ?").bind(eventId).first<{ id: string; league: string; home_team: string; away_team: string; starts_at: string }>();
     const activeWeek = weekStartOf(new Date()).toISOString();
     if (!event || (event.league !== "nfl" && event.league !== "ncaaf") || !inWeek(event.starts_at, activeWeek)) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
     if (!matchupDetailsLimiter.allow(`matchup:${user.id}`)) return jsonError(c, "RATE_LIMITED", 429);
