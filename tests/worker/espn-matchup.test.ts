@@ -92,6 +92,18 @@ describe("matchup details HTTP boundary", () => {
     expect(details.status).toBe(200);
     expect(await details.json()).toMatchObject({ league: "nfl", away: { name: activeEvent.awayTeam } });
   }, 90_000);
+  it("serves pool exposure for a started event and hides prior-week events", async () => {
+    const poolId = `exposure-matchup-${crypto.randomUUID()}`; const slug = `exposure-matchup-${crypto.randomUUID()}`;
+    await setupPool(poolId, slug); await insertEvent();
+    await bindings.DB.prepare("UPDATE sports_event SET status = 'in_progress' WHERE id = ?").bind(activeEvent.id).run();
+    const app = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), matchupFetcher: espnFetcher(), matchupCache: new MemoryCache() });
+
+    const response = await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/${activeEvent.id}/exposure`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ eventId: activeEvent.id, wagers: [] });
+    expect((await app.fetch(new Request(`${origin}/api/p/${slug}/matchups/prior-week/exposure`))).status).toBe(404);
+  }, 90_000);
+
   it("rate limits repeated member lookup requests before they amplify ESPN traffic", async () => {
     const poolId = `limited-matchup-${crypto.randomUUID()}`; const slug = `limited-matchup-${crypto.randomUUID()}`;
     await setupPool(poolId, slug); await insertEvent();

@@ -107,6 +107,11 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .matchup-box-points { font-size: 1.5rem; }
 .matchup-box-state { margin: 0 0 var(--space-3); font-weight: 700; }
 .matchup-box .table-ribbon-section { margin: var(--space-3) 0 var(--space-4, 1.75rem); }
+/* Pool exposure reuses the activity day/member ribbon language. */
+.matchup-exposure .table-ribbon { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.matchup-exposure .table-ribbon small { font-size: 0.85rem; }
+.matchup-exposure .table-ribbon-section { margin: var(--space-3) 0 var(--space-4, 1.75rem); }
+.matchup-exposure .activity-day-member-ribbon span { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
 .odds-matchup-team { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
 .odds-matchup-at { display: block; font-weight: 400; line-height: 1; }
 .odds-empty { background: var(--table-gray); }

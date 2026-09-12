@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { MatchupDetails, MatchupBoxScore, matchupUnavailableMessage, matchupPageView } from "../src/web/pages/MatchupDetailsPage";
+import { MatchupDetails, MatchupBoxScore, PoolExposure, matchupUnavailableMessage, matchupPageView } from "../src/web/pages/MatchupDetailsPage";
+import type { PoolExposureResponse } from "../src/contracts/http";
 import { MatchupLegLink } from "../src/web/components/MatchupLegLink";
 import { ApiError } from "../src/web/api";
 import { OddsBoardTable, matchupDetailsAvailable, type GameRow } from "../src/web/pages/OddsPage";
@@ -103,5 +104,39 @@ describe("matchup page view precedence", () => {
     expect(matchupPageView({ error: "broken", box: { ...liveBox, state: "pregame" }, matchup: undefined }).kind).toBe("error");
     expect(matchupPageView({ error: "", box: undefined, matchup: undefined }).kind).toBe("loading");
     expect(matchupPageView({ error: "", box: { ...liveBox, state: "pregame" }, matchup: { league: "nfl", startsAt: game.startsAt, away: { name: "Atlanta Falcons", recentResults: [] }, home: { name: "Pittsburgh Steelers", recentResults: [] }, seasonStats: [] } }).kind).toBe("details");
+  });
+});
+
+type ExposureLeg = NonNullable<PoolExposureResponse["wagers"][number]["legs"]>[number];
+const leg = (eventId: string, market: string, selection: string, line?: string): ExposureLeg => ({ eventId, league: "nfl", canonicalBook: "book", retrievedAt: "2026-09-10T17:00:00.000Z", policyVersion: "1", offerVersion: "1", market, selection, ...(line ? { originalLine: line } : {}), originalOdds: -110, eventStartsAt: game.startsAt, homeTeam: "Pittsburgh Steelers", awayTeam: "Atlanta Falcons" } as ExposureLeg);
+const exposureWager = (over: Partial<PoolExposureResponse["wagers"][number]>) => ({
+  wagerId: `w-${Math.random().toString(36).slice(2, 8)}`, seasonId: "s1", memberId: "m1", memberDisplayName: "Member One", type: "straight", status: "won",
+  confirmedAt: "2026-09-12T15:00:00.000Z", weekStart: "2026-09-08T07:00:00.000Z", performanceMicros: "0", legs: [leg("atl-pit", "spread", "Falcons +3.5")], ...over
+} as PoolExposureResponse["wagers"][number]);
+
+describe("pool exposure table", () => {
+  it("groups bets under member ribbons and sums the pool net including double-counted parlays", () => {
+    const wagers = [
+      exposureWager({ wagerId: "w1", memberId: "m1", memberDisplayName: "Alice", type: "parlay", performanceMicros: "90000000", riskMicros: "50000000", acceptedOdds: 280, legs: [leg("atl-pit", "spread", "away", "3.5"), leg("other-game", "total", "over", "44.5")] }),
+      exposureWager({ wagerId: "w2", memberId: "m1", memberDisplayName: "Alice", status: "open", performanceMicros: "0", riskMicros: "25000000", acceptedOdds: -110, legs: [leg("atl-pit", "total", "over", "40.5")] }),
+      exposureWager({ wagerId: "w3", memberId: "m2", memberDisplayName: "Bob", status: "lost", performanceMicros: "-30000000", riskMicros: "30000000", acceptedOdds: -100, legs: [leg("atl-pit", "moneyline", "home")] })
+    ];
+    const html = renderToStaticMarkup(createElement(MemoryRouter, {}, createElement(PoolExposure, { wagers, slug: "pool" })));
+    expect(html).toContain("Pool exposure");
+    expect(html).toContain("Pool net +60.00 shares");
+    expect(html).toContain("activity-day-member-ribbon");
+    expect(html).toContain("Alice");
+    expect(html).toContain("Bob");
+    expect(html).toContain("Bob");
+    expect(html).toContain("-30.00 shares");
+    expect(html).toContain("+90.00 shares");
+    expect(html).toContain("Atlanta (+3.5)");
+    expect(html).toContain("O40.5");
+  });
+
+  it("shows a truthful notice when the pool has no bets on the game", () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, {}, createElement(PoolExposure, { wagers: [], slug: "pool" })));
+    expect(html).toContain("No pool bets on this game.");
+    expect(html).toContain("Pool net +0.00 shares");
   });
 });

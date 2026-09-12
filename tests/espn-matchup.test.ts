@@ -241,13 +241,17 @@ const boxEvent = (status: Record<string, unknown>, competitors: Record<string, u
 const boxCompetitor = (side: "away" | "home", name: string, score: string, linescores: Array<number | null>) => ({ homeAway: side, team: team(side, name), score, linescores: linescores.map((value) => ({ value })) });
 
 describe("ESPN box score", () => {
-  it("serves a live box score from the scoreboard payload without touching the summary endpoint", async () => {
+  it("serves a live box score with in-progress team stats from the summary endpoint", async () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const value = String(url);
       if (value.includes("scoreboard")) return responseFor(boxEvent({ type: { state: "in", shortDetail: "2nd Qtr - 5:22" }, displayClock: "5:22", period: { number: 2 } }, [
         boxCompetitor("away", "Atlanta Falcons", "14", [7, 7, null, null]),
         boxCompetitor("home", "Pittsburgh Steelers", "10", [3, 7])
       ]));
+      if (value.includes("summary?event=espn-game")) return responseFor({ boxscore: { teams: [
+        { homeAway: "away", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "212" }] },
+        { homeAway: "home", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "150" }] }
+      ] } });
       throw new Error(`unexpected ESPN call: ${value}`);
     });
 
@@ -257,9 +261,9 @@ describe("ESPN box score", () => {
       state: "live", statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2,
       away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
       quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
-      stats: []
+      stats: [{ label: "Total Yards", away: "212", home: "150" }]
     } });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("adds curated team stats from the summary payload once final", async () => {
