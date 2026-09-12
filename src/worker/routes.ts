@@ -12,7 +12,7 @@ import { offerIsStale } from "../odds/ingestion";
 import type { League, ProviderEvent } from "../odds/types";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
-import { lookupEspnMatchup, type EspnMatchupCache } from "../services/espn-matchup";
+import { lookupEspnMatchup, lookupEspnBoxScore, type EspnMatchupCache } from "../services/espn-matchup";
 import { inWeek, weekStartOf } from "../domain/betting-week";
 import { scheduleOperationalAlert, type OperationalAlert, type OperationalAlerts } from "../services/operational-alerts";
 
@@ -364,6 +364,20 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const type = kind === "straight" ? "QuoteStraightWager" : kind === "teasers" ? "QuoteTeaserWager" : "QuoteParlayWager";
     return c.json(await router.send(slug, { type, commandId: data.quoteKey, actorId: user.id, projection, identity: { actorId: user.id, quoteKey: data.quoteKey, fingerprint } } as any));
   });
+  app.get("/api/p/:slug/matchups/:eventId/box", (c) => memberRead(c, async (user) => {
+    const slug = c.req.param("slug"); const eventId = c.req.param("eventId");
+    if (!slug || !eventId) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
+    ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
+    /** Live and finished events both serve box state, so unlike the details route the DB status is not a filter here. */
+    const event = await dependencies.db.prepare("SELECT id, league, home_team, away_team, starts_at FROM sports_event WHERE id = ?").bind(eventId).first<{ id: string; league: string; home_team: string; away_team: string; starts_at: string }>();
+    const activeWeek = weekStartOf(new Date()).toISOString();
+    if (!event || (event.league !== "nfl" && event.league !== "ncaaf") || !inWeek(event.starts_at, activeWeek)) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
+    if (!matchupDetailsLimiter.allow(`matchup:${user.id}`)) return jsonError(c, "RATE_LIMITED", 429);
+    const box = await lookupEspnBoxScore({ league: event.league, startsAt: event.starts_at, awayTeam: event.away_team, homeTeam: event.home_team }, { cache: dependencies.matchupCache, fetcher: dependencies.matchupFetcher, cacheScope: dependencies.matchupCacheScope });
+    if (box.status === "upstream-unavailable") return jsonError(c, "ESPN_UNAVAILABLE", 503);
+    if (box.status === "not-found") return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
+    return c.json(box.box);
+  }));
   app.post("/api/p/:slug/wagers/straight/quote", wager("straight", true));
   app.post("/api/p/:slug/wagers/straight/place", wager("straight", false));
   app.post("/api/p/:slug/wagers/teasers/quote", wager("teasers", true));

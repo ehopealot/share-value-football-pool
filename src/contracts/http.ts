@@ -135,6 +135,16 @@ export const EspnMatchupResponse = z.object({
 }).strict();
 export type EspnMatchupResponse = z.infer<typeof EspnMatchupResponse>;
 
+/** Live/final box state for the same events; 60s server cache upstream. */
+export const EspnBoxScoreResponse = z.object({
+  state: z.enum(["pregame", "live", "final"]), startsAt: z.string().datetime(), statusDetail: z.string().min(1), clock: z.string().min(1).optional(), period: z.number().int().optional(),
+  away: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
+  home: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
+  quarters: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict()).max(10),
+  stats: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict().refine((stat) => stat.away !== undefined || stat.home !== undefined)).max(6)
+}).strict();
+export type EspnBoxScoreResponse = z.infer<typeof EspnBoxScoreResponse>;
+
 const wagerType = z.enum(["straight", "teaser", "parlay"]);
 const wagerStatus = z.enum(["open", "won", "lost", "refunded"]);
 const settledOdds = z.number().int().safe().refine((odds) => odds !== 0);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { lookupEspnMatchup, matchupCacheRequest, ESPN_USER_AGENT, type EspnMatchupCache, type EspnMatchupInput } from "../src/services/espn-matchup";
+import { lookupEspnMatchup, lookupEspnBoxScore, matchupCacheRequest, boxCacheRequest, ESPN_USER_AGENT, type EspnMatchupCache, type EspnMatchupInput } from "../src/services/espn-matchup";
 
 const input: EspnMatchupInput = {
   league: "nfl", startsAt: "2026-09-13T17:00:00.000Z", awayTeam: "Atlanta Falcons", homeTeam: "Pittsburgh Steelers"
@@ -234,5 +234,89 @@ describe("ESPN matchup lookup", () => {
     const fetcher = vi.fn(async () => responseFor({ unexpected: true }));
 
     await expect(lookupEspnMatchup(input, { fetcher })).resolves.toEqual({ status: "upstream-unavailable" });
+  });
+});
+
+const boxEvent = (status: Record<string, unknown>, competitors: Record<string, unknown>[]) => ({ events: [{ id: "espn-game", date: input.startsAt, status, competitions: [{ venue: { fullName: "Acrisure Stadium" }, competitors }] }] });
+const boxCompetitor = (side: "away" | "home", name: string, score: string, linescores: Array<number | null>) => ({ homeAway: side, team: team(side, name), score, linescores: linescores.map((value) => ({ value })) });
+
+describe("ESPN box score", () => {
+  it("serves a live box score from the scoreboard payload without touching the summary endpoint", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) return responseFor(boxEvent({ type: { state: "in", shortDetail: "2nd Qtr - 5:22" }, displayClock: "5:22", period: { number: 2 } }, [
+        boxCompetitor("away", "Atlanta Falcons", "14", [7, 7, null, null]),
+        boxCompetitor("home", "Pittsburgh Steelers", "10", [3, 7])
+      ]));
+      throw new Error(`unexpected ESPN call: ${value}`);
+    });
+
+    const result = await lookupEspnBoxScore(input, { fetcher });
+
+    expect(result).toMatchObject({ status: "ok", box: {
+      state: "live", statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2,
+      away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
+      quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
+      stats: []
+    } });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds curated team stats from the summary payload once final", async () => {
+    const summary = { boxscore: { teams: [
+      { homeAway: "away", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "340" }, { name: "firstDowns", label: "1st Downs", displayValue: "16" }, { name: "thirdDownEff", label: "3rd down efficiency", displayValue: "5-16" }, { name: "fumbleLost", label: "Fumbles lost", displayValue: "1" }] },
+      { homeAway: "home", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "208" }, { name: "firstDowns", label: "1st Downs", displayValue: "14" }, { name: "thirdDownEff", label: "3rd down efficiency", displayValue: "4-14" }] }
+    ] } };
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) return responseFor(boxEvent({ type: { state: "post", shortDetail: "Final" } }, [
+        boxCompetitor("away", "Atlanta Falcons", "19", [7, 3, 3, 6]),
+        boxCompetitor("home", "Pittsburgh Steelers", "17", [0, 7, 3, 7])
+      ]));
+      if (value.includes("summary?event=espn-game")) return responseFor(summary);
+      throw new Error(`unexpected ESPN call: ${value}`);
+    });
+
+    const result = await lookupEspnBoxScore(input, { fetcher });
+
+    expect(result).toMatchObject({ status: "ok", box: {
+      state: "final", statusDetail: "Final",
+      away: { score: "19" }, home: { score: "17" },
+      quarters: [{ label: "Q1", away: "7", home: "0" }, { label: "Q2", away: "3", home: "7" }, { label: "Q3", away: "3", home: "3" }, { label: "Q4", away: "6", home: "7" }],
+      stats: [
+        { label: "Total Yards", away: "340", home: "208" },
+        { label: "1st Downs", away: "16", home: "14" },
+        { label: "3rd down efficiency", away: "5-16", home: "4-14" }
+      ]
+    } });
+    expect("clock" in (result as { status: "ok"; box: Record<string, unknown> }).box).toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps pregame box reads cheap: no quarters, no summary call", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("scoreboard")) return responseFor(boxEvent({ type: { state: "pre", shortDetail: "Sun 1:00 PM" } }, [
+        boxCompetitor("away", "Atlanta Falcons", "0", []),
+        boxCompetitor("home", "Pittsburgh Steelers", "0", [])
+      ]));
+      throw new Error(`unexpected ESPN call: ${url}`);
+    });
+
+    await expect(lookupEspnBoxScore(input, { fetcher })).resolves.toMatchObject({ status: "ok", box: { state: "pregame", statusDetail: "Sun 1:00 PM", quarters: [], stats: [] } });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches the box score under a deploy-scoped one-minute key", async () => {
+    const boxFetch = async (url: string | URL | Request) => {
+      if (String(url).includes("scoreboard")) return responseFor(boxEvent({ type: { state: "post", shortDetail: "Final" } }, [boxCompetitor("away", "Atlanta Falcons", "19", [7, 3, 3, 6]), boxCompetitor("home", "Pittsburgh Steelers", "17", [0, 7, 3, 7])]));
+      return responseFor({ boxscore: { teams: [] } });
+    };
+    const cache = new MemoryCache();
+    await lookupEspnBoxScore(input, { fetcher: vi.fn(boxFetch), cache, cacheScope: "deploy-1" });
+    expect(cache.entries.get(boxCacheRequest(input, "deploy-1").url)).toBeDefined();
+    expect(cache.entries.get(boxCacheRequest(input, "deploy-2").url)).toBeUndefined();
+    const throwing = vi.fn(async () => { throw new Error("ESPN should not be called for a box cache hit"); });
+    await expect(lookupEspnBoxScore(input, { fetcher: throwing, cache, cacheScope: "deploy-1" })).resolves.toMatchObject({ status: "ok", box: { state: "final" } });
+    expect(throwing).not.toHaveBeenCalled();
   });
 });
