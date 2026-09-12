@@ -105,7 +105,10 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .matchup-box-team img { flex: 0 0 auto; width: 28px; height: 28px; object-fit: contain; }
 .matchup-box-team-name { flex: 1 1 auto; font-weight: 700; }
 .matchup-box-points { font-size: 1.5rem; }
-.matchup-box-state { margin: 0 0 var(--space-3); font-weight: 700; }
+.matchup-box-state { margin: 0 0 var(--space-2); font-weight: 700; }
+/* Board-line chips share the odds board's compact visual language. */
+.matchup-lines { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0 0 var(--space-3); }
+.matchup-line { padding: 0.15rem 0.4rem; border: 1px solid var(--line); background: var(--table-gray); font-size: 0.85rem; white-space: nowrap; }
 .matchup-box .table-ribbon-section { margin: var(--space-3) 0 var(--space-4, 1.75rem); }
 /* Pool exposure reuses the activity day/member ribbon language. */
 .matchup-exposure .table-ribbon { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
