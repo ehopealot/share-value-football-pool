@@ -123,12 +123,12 @@ describe("Activity Group by day control and tables", () => {
     expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(2);
   });
 
-  it("labels visible Upcoming kickoff days on mobile without exposing hidden dates", () => {
+  it("labels only dated Upcoming tickets and skips redundant Upcoming ribbons", () => {
     hooks.compact = true;
     const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
     const upcoming = html.split('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>')[1]!;
     expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Mon, Sep 14</th></tr>');
-    expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Upcoming</th></tr>');
+    expect(upcoming).not.toContain('<tr class="wager-date-row"><th colSpan="4">Upcoming</th></tr>');
   });
 
   it("keeps daily tables visible when the new All weeks option is selected", () => {
