@@ -39,10 +39,11 @@ export const displayWagerDateLabel = (wager: WagerWithStartTime): string => {
   return start ? dateLabel(start) : "Upcoming";
 };
 
-export const displayWagerStartTimeOnly = (wager: WagerWithStartTime): string[] => {
+/** An optional table-day anchor keeps cross-day legs labeled by their short weekday in grouped Activity. */
+export const displayWagerStartTimeOnly = (wager: WagerWithStartTime, dayAnchorStartsAt?: string): string[] => {
   const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   const dates = new Set(legs.filter((leg) => Number.isFinite(Date.parse(leg.eventStartsAt))).map((leg) => new Date(leg.eventStartsAt).toDateString()));
-  const anchor = representativeWagerStartTime(wager);
+  const anchor = dayAnchorStartsAt ?? representativeWagerStartTime(wager);
   const anchorDate = anchor ? new Date(anchor).toDateString() : "";
   return legs.map((leg) => {
     if (!Number.isFinite(Date.parse(leg.eventStartsAt))) return "";

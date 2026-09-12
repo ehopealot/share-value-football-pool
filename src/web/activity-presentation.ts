@@ -23,6 +23,56 @@ export function groupActivityMembers(wagers: Wager[], weekStart?: string): Activ
   return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByAnchorTime(group.wagers) }));
 }
 
+/** A selected-week table group whose member summaries are calculated before any view filtering. */
+export type ActivityDay = { key: string; label: string; startsAt?: string; upcoming: boolean; members: ActivityMemberWeek[] };
+
+type ActivityDayAssignment = Pick<ActivityDay, "key" | "label" | "startsAt" | "upcoming">;
+
+const validActivityLegs = (wager: Wager) => (wager.legs ?? []).filter((leg) => Number.isFinite(Date.parse(leg.eventStartsAt)));
+const byStart = (left: { eventStartsAt: string }, right: { eventStartsAt: string }) => Date.parse(left.eventStartsAt) - Date.parse(right.eventStartsAt);
+const dayKey = (startsAt: string) => {
+  const date = new Date(startsAt);
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+};
+const dayLabel = (startsAt: string) => new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(new Date(startsAt));
+const upcomingActivityDay: ActivityDayAssignment = { key: "upcoming", label: "Upcoming", upcoming: true };
+
+/**
+ * Assigns a ticket to its first visible losing-leg day, otherwise its latest started-leg day.
+ * Redacted or wholly unstarted tickets cannot disclose a kickoff day and stay in Upcoming.
+ */
+export function activityWagerDay(wager: Wager, now: number): ActivityDayAssignment {
+  const legs = validActivityLegs(wager);
+  const firstLoss = legs.filter((leg) => leg.grade === "loss").sort(byStart)[0];
+  const latestStarted = legs.filter((leg) => Date.parse(leg.eventStartsAt) <= now).sort(byStart).at(-1);
+  const startsAt = firstLoss?.eventStartsAt ?? latestStarted?.eventStartsAt;
+  return startsAt ? { key: dayKey(startsAt), label: dayLabel(startsAt), startsAt, upcoming: false } : upcomingActivityDay;
+}
+
+/** Groups safe Activity records into local calendar-day tables without duplicating a ticket or its P&L. */
+export function groupActivityDaysForWeek(wagers: Wager[], weekStart: string | undefined, now: number): ActivityDay[] {
+  const days = new Map<string, ActivityDay & { membersById: Map<string, ActivityMemberWeek & { performance: bigint }> }>();
+  for (const wager of wagers) {
+    if (weekStart !== undefined && wager.weekStart !== weekStart) continue;
+    const assignment = activityWagerDay(wager, now);
+    const day = days.get(assignment.key) ?? { ...assignment, members: [], membersById: new Map() };
+    const member = day.membersById.get(wager.memberId) ?? { memberId: wager.memberId, memberDisplayName: wager.memberDisplayName, performanceMicros: "0", performance: 0n, wagers: [] };
+    member.performance += parseIntegerText(wager.performanceMicros);
+    member.wagers.push(wager);
+    day.membersById.set(wager.memberId, member);
+    days.set(assignment.key, day);
+  }
+  return [...days.values()].map(({ membersById, ...day }) => ({
+    ...day,
+    members: [...membersById.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...member }) => ({ ...member, performanceMicros: performance.toString(), wagers: sortWagersByAnchorTime(member.wagers) }))
+  })).sort((left, right) => Number(left.upcoming) - Number(right.upcoming) || (left.startsAt ?? "").localeCompare(right.startsAt ?? ""));
+}
+
+/** Filters rows while retaining each member's full, pre-filter daily P&L. */
+export function filterActivityDaysForActiveGames(days: ActivityDay[], now: number): ActivityDay[] {
+  return days.map((day) => ({ ...day, members: day.members.map((member) => ({ ...member, wagers: member.wagers.filter((wager) => hasActiveActivityGame(wager, now)) })).filter((member) => member.wagers.length > 0) })).filter((day) => day.members.length > 0);
+}
+
 export function groupActivityMembersForWeek(wagers: Wager[], weekStart: string): ActivityMemberWeek[] {
   return groupActivityMembers(wagers, weekStart);
 }
