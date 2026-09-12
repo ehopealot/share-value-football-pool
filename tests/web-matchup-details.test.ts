@@ -197,3 +197,11 @@ describe("quarter grid completeness", () => {
     expect(emptyCells.length).toBe(6);
   });
 });
+
+describe("matchup links from member profiles", () => {
+  it("threads the pool slug into profile activity sections so links resolve", async () => {
+    const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/MemberProfilePage.tsx"), "utf8");
+    expect(source).toContain('title="In process" slug={slug}');
+    expect(source).toContain('title="Settled" slug={slug}');
+  });
+});
