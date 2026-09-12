@@ -23,8 +23,8 @@ export function groupActivityMembers(wagers: Wager[], weekStart?: string): Activ
   return [...groups.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...group }) => ({ ...group, performanceMicros: performance.toString(), wagers: sortWagersByAnchorTime(group.wagers) }));
 }
 
-/** A selected-week table group whose member summaries are calculated before any view filtering. */
-export type ActivityDay = { key: string; label: string; startsAt?: string; upcoming: boolean; members: ActivityMemberWeek[] };
+/** A selected-week table group whose day and member summaries are calculated before any view filtering. */
+export type ActivityDay = { key: string; label: string; startsAt?: string; upcoming: boolean; performanceMicros: string; members: ActivityMemberWeek[] };
 
 type ActivityDayAssignment = Pick<ActivityDay, "key" | "label" | "startsAt" | "upcoming">;
 
@@ -51,19 +51,21 @@ export function activityWagerDay(wager: Wager, now: number): ActivityDayAssignme
 
 /** Groups safe Activity records into local calendar-day tables without duplicating a ticket or its P&L. */
 export function groupActivityDaysForWeek(wagers: Wager[], weekStart: string | undefined, now: number): ActivityDay[] {
-  const days = new Map<string, ActivityDay & { membersById: Map<string, ActivityMemberWeek & { performance: bigint }> }>();
+  const days = new Map<string, ActivityDay & { performance: bigint; membersById: Map<string, ActivityMemberWeek & { performance: bigint }> }>();
   for (const wager of wagers) {
     if (weekStart !== undefined && wager.weekStart !== weekStart) continue;
     const assignment = activityWagerDay(wager, now);
-    const day = days.get(assignment.key) ?? { ...assignment, members: [], membersById: new Map() };
+    const day = days.get(assignment.key) ?? { ...assignment, performanceMicros: "0", performance: 0n, members: [], membersById: new Map() };
     const member = day.membersById.get(wager.memberId) ?? { memberId: wager.memberId, memberDisplayName: wager.memberDisplayName, performanceMicros: "0", performance: 0n, wagers: [] };
     member.performance += parseIntegerText(wager.performanceMicros);
+    day.performance += parseIntegerText(wager.performanceMicros);
     member.wagers.push(wager);
     day.membersById.set(wager.memberId, member);
     days.set(assignment.key, day);
   }
-  return [...days.values()].map(({ membersById, ...day }) => ({
+  return [...days.values()].map(({ membersById, performance, ...day }) => ({
     ...day,
+    performanceMicros: performance.toString(),
     members: [...membersById.values()].sort((left, right) => left.memberDisplayName.localeCompare(right.memberDisplayName)).map(({ performance, ...member }) => ({ ...member, performanceMicros: performance.toString(), wagers: sortWagersByAnchorTime(member.wagers) }))
   })).sort((left, right) => Number(left.upcoming) - Number(right.upcoming) || (left.startsAt ?? "").localeCompare(right.startsAt ?? ""));
 }

@@ -31,6 +31,7 @@ describe("Activity day groups", () => {
     const days = groupActivityDaysForWeek(dailyFixtures, week, now);
 
     expect(days.map((day) => day.label)).toEqual(["Thu", "Sun", "Upcoming"]);
+    expect(days.map((day) => day.performanceMicros)).toEqual(["-150000000", "200000000", "0"]);
     expect(days[0]!.members).toEqual([expect.objectContaining({ memberId: "member", performanceMicros: "-150000000", wagers: [expect.objectContaining({ wagerId: "first-loss" })] })]);
     expect(days[1]!.members).toEqual([expect.objectContaining({ memberId: "member", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "live" }), expect.objectContaining({ wagerId: "won-sun" })] })]);
     expect(days[2]!.members.map((member) => ({ id: member.memberId, wagers: member.wagers.map((row) => row.wagerId) }))).toEqual([{ id: "future", wagers: ["future"] }, { id: "hidden", wagers: ["hidden"] }]);
@@ -49,7 +50,7 @@ describe("Activity day groups", () => {
     const days = groupActivityDaysForWeek(dailyFixtures, week, now);
     const active = filterActivityDaysForActiveGames(days, now);
 
-    expect(active).toEqual([expect.objectContaining({ label: "Sun", members: [expect.objectContaining({ memberId: "member", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "live" })] })] })]);
+    expect(active).toEqual([expect.objectContaining({ label: "Sun", performanceMicros: "200000000", members: [expect.objectContaining({ memberId: "member", performanceMicros: "200000000", wagers: [expect.objectContaining({ wagerId: "live" })] })] })]);
   });
 });
 
@@ -101,9 +102,9 @@ describe("Activity Group by day control and tables", () => {
     const grouped = toggleCheckbox(initial, 1, true);
     const html = renderToStaticMarkup(grouped);
     expect(html).toContain('<section class="activity-day-section">');
-    expect(html).toContain('<h3 class="activity-day-ribbon">Thu</h3>');
-    expect(html).toContain('<h3 class="activity-day-ribbon">Sun</h3>');
-    expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming</h3>');
+    expect(html).toContain('<h3 class="activity-day-ribbon">Thu<small>Pool net -150.00 shares</small></h3>');
+    expect(html).toContain('<h3 class="activity-day-ribbon">Sun<small>Pool net +200.00 shares</small></h3>');
+    expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>');
     expect(html).toContain('class="activity-day-member-ribbon"');
     expect(html).toContain('<a href="/p/pool/member/member">Member</a>');
     expect(html).toContain('<small>+200.00 shares</small>');
@@ -125,7 +126,7 @@ describe("Activity Group by day control and tables", () => {
   it("labels visible Upcoming kickoff days on mobile without exposing hidden dates", () => {
     hooks.compact = true;
     const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
-    const upcoming = html.split('<h3 class="activity-day-ribbon">Upcoming</h3>')[1]!;
+    const upcoming = html.split('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>')[1]!;
     expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Mon, Sep 14</th></tr>');
     expect(upcoming).toContain('<tr class="wager-date-row"><th colSpan="4">Upcoming</th></tr>');
   });
@@ -136,8 +137,8 @@ describe("Activity Group by day control and tables", () => {
     const allWeeks = elements(select.props.children).find((element) => element.type === "option" && element.props.children === "All weeks")!;
     select.props.onChange({ target: { value: allWeeks.props.value } });
     const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
-    expect(html).toContain('<h3 class="activity-day-ribbon">Thu</h3>');
-    expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming</h3>');
+    expect(html).toContain('<h3 class="activity-day-ribbon">Thu<small>Pool net -150.00 shares</small></h3>');
+    expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>');
   });
 
   it("preserves a daily P&L ribbon after filtering to an active ticket", () => {
