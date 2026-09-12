@@ -158,17 +158,20 @@ describe("board lines on matchup pages", () => {
       boardLine("moneyline", [{ name: "Atlanta Falcons", price: 150 }, { name: "Pittsburgh Steelers", price: -170 }])
     ];
     const html = renderToStaticMarkup(createElement(MatchupLines, { lines }));
-    expect(html).toContain("Atlanta +3.5");
-    expect(html).toContain("O 44.5");
-    expect(html).toContain("Atlanta +157");
+    expect(html).toContain("Pittsburgh -3.5");
+    expect(html).toContain("O/U 44.5");
     expect(html).toContain("Pittsburgh -157");
+    expect(html).not.toContain("Atlanta +3.5");
+    expect(html).not.toContain("O 44.5");
+    expect((html.match(/class="matchup-line"/g) ?? []).length).toBe(3);
+    expect(html).not.toContain("Atlanta +157");
   });
 
   it("renders nothing when no lines are offered and omits missing markets", () => {
     expect(renderToStaticMarkup(createElement(MatchupLines, { lines: undefined }))).toBe("");
     expect(renderToStaticMarkup(createElement(MatchupLines, { lines: [] }))).toBe("");
     const html = renderToStaticMarkup(createElement(MatchupLines, { lines: [boardLine("total", [{ name: "Over", point: 40.5, price: -105 }, { name: "Under", point: 40.5, price: -105 }])] }));
-    expect(html).toContain("O 40.5");
+    expect(html).toContain("O/U 40.5");
     expect(html).not.toContain("+3.5");
   });
 });

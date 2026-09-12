@@ -35,13 +35,19 @@ export function PoolExposure({ wagers, slug }: { wagers: PoolExposureResponse["w
   </section>;
 }
 
-/** Board lines "if offered": a compact chip strip using the odds board's own grouping and formatting. */
+/** One chip per market, home-relative: the spread and moneyline from the home side, the total as an O/U number. */
 export function MatchupLines({ lines }: { lines?: EspnBoxScore["lines"] }) {
   const game = groupBoardByEvent(lines ?? [])[0];
   if (!game) return null;
-  const cells: MarketCell[] = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away, game.markets.spread.home, game.markets.total.under, game.markets.moneyline.home].filter((cell): cell is MarketCell => Boolean(cell));
-  if (!cells.length) return null;
-  return <p className="matchup-lines" aria-label="Board lines">{cells.map((cell) => <span key={cell.label} className="matchup-line">{cell.label}</span>)}</p>;
+  const chips: Array<{ key: string; text: string }> = [];
+  const spread = game.markets.spread.home ?? game.markets.spread.away;
+  if (spread) chips.push({ key: "spread", text: spread.label });
+  const total = game.markets.total.over ?? game.markets.total.under;
+  if (total) chips.push({ key: "total", text: `O/U ${total.odds}` });
+  const moneyline = game.markets.moneyline.home;
+  if (moneyline) chips.push({ key: "moneyline", text: moneyline.label });
+  if (!chips.length) return null;
+  return <p className="matchup-lines" aria-label="Board lines">{chips.map((chip) => <span key={chip.key} className="matchup-line">{chip.text}</span>)}</p>;
 }
 
 /** The live/final view: state banner, quarter breakdown, and team stats. */
