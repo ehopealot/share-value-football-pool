@@ -4,7 +4,7 @@ import { normalizeSlug, PoolRegistry } from "../services/pool-registry";
 import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
-import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, EspnMatchupResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
+import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateLiveWagerOffers } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -12,8 +12,6 @@ import { offerIsStale } from "../odds/ingestion";
 import type { League, ProviderEvent } from "../odds/types";
 import { MICROS_PER_UNIT } from "../domain/fixed-point";
 import type { PoolJoinNotifier, PoolNotifier } from "../auth/email-sender";
-import { lookupEspnMatchup, type EspnMatchupCache } from "../services/espn-matchup";
-import { inWeek, weekStartOf } from "../domain/betting-week";
 import { scheduleOperationalAlert, type OperationalAlert, type OperationalAlerts } from "../services/operational-alerts";
 
 export type AuthenticatedUser = { id: string; name: string };
@@ -33,13 +31,9 @@ export type RouteDependencies = {
   /** Best-effort live refresh; failures leave the existing placement checks authoritative. */
   refreshPlacementOdds?: (leagues: League[]) => Promise<ProviderEvent[] | void>;
   placementRefreshLimiter?: RateLimiter;
-  /** Matchup data stays outside D1: ESPN reads use this ephemeral Cache API blob store. */
-  matchupCache?: EspnMatchupCache;
-  matchupFetcher?: typeof fetch;
-  matchupDetailsLimiter?: RateLimiter;
   operationalAlerts?: OperationalAlerts;
 };
-const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 404 | 429 | 503 = 400) => c.json({ code }, status);
+const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 429 | 503 = 400) => c.json({ code }, status);
 const clientIp = (c: Context) => c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
 const csrf = (c: Context) => {
   const origin = c.req.header("origin");
@@ -68,7 +62,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   const router = new PoolCommandRouter(registry, dependencies.pools, dependencies.db);
   const limiter = dependencies.limiter ?? new RateLimiter();
   const placementRefreshLimiter = dependencies.placementRefreshLimiter ?? new RateLimiter(10, 60_000);
-  const matchupDetailsLimiter = dependencies.matchupDetailsLimiter ?? new RateLimiter(30, 60_000);
   const poolNotifier = dependencies.poolNotifier ?? dependencies.poolJoinNotifier;
   const report = (c: Context, alert: OperationalAlert) => {
     if (!dependencies.operationalAlerts) return;
@@ -230,21 +223,6 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const legacyReplay = legacyMessageBoardReplyReplayResponse.safeParse(raw);
     if (!legacyReplay.success) throw new z.ZodError([]);
     return c.json(MessageBoardMutationResponse.parse({ commandVersion: legacyReplay.data.commandVersion }));
-  }));
-
-  /** Canonical odds-event IDs prevent callers from choosing arbitrary ESPN teams; details are current-week only. */
-  app.get("/api/p/:slug/matchups/:eventId", (c) => memberRead(c, async (user) => {
-    const slug = c.req.param("slug"); const eventId = c.req.param("eventId");
-    if (!slug || !eventId) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
-    ReadPoolView.parse(await router.send(slug, { type: "ReadPoolView", commandId: crypto.randomUUID(), actorId: user.id }));
-    const event = await dependencies.db.prepare("SELECT id, league, home_team, away_team, starts_at FROM sports_event WHERE id = ? AND status = 'scheduled'").bind(eventId).first<{ id: string; league: string; home_team: string; away_team: string; starts_at: string }>();
-    const activeWeek = weekStartOf(new Date()).toISOString();
-    if (!event || (event.league !== "nfl" && event.league !== "ncaaf") || !inWeek(event.starts_at, activeWeek)) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
-    if (!matchupDetailsLimiter.allow(`matchup:${user.id}`)) return jsonError(c, "RATE_LIMITED", 429);
-    const matchup = await lookupEspnMatchup({ league: event.league, startsAt: event.starts_at, awayTeam: event.away_team, homeTeam: event.home_team }, { cache: dependencies.matchupCache, fetcher: dependencies.matchupFetcher });
-    if (matchup.status === "upstream-unavailable") return jsonError(c, "ESPN_UNAVAILABLE", 503);
-    if (matchup.status === "not-found") return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
-    return c.json(EspnMatchupResponse.parse(matchup.matchup));
   }));
 
   /** D1 supplies only canonical public offers; the PoolDO read inside this handler is the access boundary. */

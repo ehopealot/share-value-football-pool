@@ -125,16 +125,6 @@ export const OddsBoardResponse = z.object({
 });
 export type OddsBoardResponse = z.infer<typeof OddsBoardResponse>;
 
-/** ESPN is an upstream display source only; this validates the Worker-normalized matchup response. */
-const espnRecentResult = z.object({ date: z.string().datetime(), opponent: z.string().min(1), result: z.string().min(1) }).strict();
-const espnMatchupTeam = z.object({ name: z.string().min(1), record: z.string().min(1).optional(), logo: z.string().url().optional(), recentResults: z.array(espnRecentResult).max(3) }).strict();
-export const EspnMatchupResponse = z.object({
-  league: z.enum(["nfl", "ncaaf"]), startsAt: z.string().datetime(), venue: z.string().min(1).optional(),
-  away: espnMatchupTeam, home: espnMatchupTeam,
-  seasonStats: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict().refine((stat) => stat.away !== undefined || stat.home !== undefined)).max(5)
-}).strict();
-export type EspnMatchupResponse = z.infer<typeof EspnMatchupResponse>;
-
 const wagerType = z.enum(["straight", "teaser", "parlay"]);
 const wagerStatus = z.enum(["open", "won", "lost", "refunded"]);
 const settledOdds = z.number().int().safe().refine((odds) => odds !== 0);

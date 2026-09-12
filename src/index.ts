@@ -10,7 +10,6 @@ import { createAuthAbuseGuard } from "./security/turnstile";
 import { consumeProjectionQueue } from "./worker/queue";
 import { handleInternalSettlement } from "./worker/internal-settlement";
 import { backupConfigured, runBackupCron } from "./worker/backup-cron";
-import type { EspnMatchupCache } from "./services/espn-matchup";
 import { jobAttemptKey, recordJobStatus } from "./worker/job-status";
 import { createOperationalAlerts, scheduleOperationalAlert } from "./services/operational-alerts";
 import { runSettlementAlertCron } from "./worker/settlement-alert-cron";
@@ -18,7 +17,6 @@ import { runSettlementAlertCron } from "./worker/settlement-alert-cron";
 const authLimiter = new RateLimiter(5);
 const poolMutationLimiter = new RateLimiter();
 const placementRefreshLimiter = new RateLimiter(10, 60_000);
-const matchupDetailsLimiter = new RateLimiter(30, 60_000);
 const productionAuthOrigin = "https://officepool.football";
 const productionTurnstileHostname = new URL(productionAuthOrigin).hostname;
 const productionEmailFrom = "Yourfootballpool <noreply@officepool.football>";
@@ -46,7 +44,7 @@ const worker: ExportedHandler<Env> = {
       authAbuseGuard: createAuthAbuseGuard({ secret: env.TURNSTILE_SECRET_KEY, expectedHostname: productionTurnstileHostname, allowInsecureLocalAuth: false, limiter: authLimiter }),
       allowInsecureLocalAuth: false, queue: env.POOL_EVENTS, spaAssets: env.ASSETS, poolNotifier: createResendPoolNotifier(emailOptions), oddsConfigured: Boolean(env.ODDS_API_KEY), backupConfigured: backupConfigured(env),
       opsOperatorUserIds: env.OPS_OPERATOR_USER_IDS, opsServiceToken: env.OPS_SERVICE_TOKEN, operationalAlerts: createOperationalAlerts(env),
-      placementRefreshLimiter, matchupDetailsLimiter, matchupCache: (caches as unknown as { default: EspnMatchupCache }).default,
+      placementRefreshLimiter,
       async refreshPlacementOdds(leagues) {
         if (!env.ODDS_API_KEY) return;
         // One shared deadline covers both odds and score requests across all ticket leagues.
