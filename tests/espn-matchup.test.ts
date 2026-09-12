@@ -324,7 +324,7 @@ describe("ESPN box score", () => {
 
     expect(result).toMatchObject({ status: "ok", box: {
       away: { name: "Atlanta Falcons", score: "10" }, home: { name: "Pittsburgh Steelers", score: "0" },
-      quarters: [{ label: "Q1", away: "10", home: "0" }]
+      quarters: [{ label: "Q1", away: "10", home: "0" }, { label: "Q2" }, { label: "Q3" }, { label: "Q4" }]
     } });
   });
 

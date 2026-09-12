@@ -4,7 +4,7 @@ import { normalizeSlug, PoolRegistry } from "../services/pool-registry";
 import { DurablePoolCommandClient } from "../services/pool-command-client";
 import { freeSeasonEntitlement, type SeasonEntitlementService } from "../services/season-entitlement";
 import { PoolCommandError, PoolCommandRouter } from "./do-router";
-import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, EspnMatchupResponse, PoolExposureResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
+import { auditExportResponse, createPoolRequest, createSeasonRequest, decimalString, executeShareOrderRequest, joinPoolRequest, memberStatusRequest, messageBoardMutationRequest, messageBoardPostRequest, messageBoardReadRequest, MessageBoardMutationResponse, MessageBoardPostResponse, OddsBoardResponse, EspnMatchupResponse, EspnBoxScoreResponse, PoolExposureResponse, parlayWagerPlacementRequest, parlayWagerQuoteRequest, parlayWagerQuoteSnapshot, ReadActivity, ReadMessageBoardResponse, ReadMyWagers, ReadPoolView, ReadSeasonHistory, ReadStandings, regradeWagerRequest, reverseShareOrderRequest, seasonAnnotationRequest, seasonCommandRequest, shareOrderQuoteRequest, straightWagerPlacementRequest, straightWagerQuoteRequest, straightWagerQuoteSnapshot, teaserWagerPlacementRequest, teaserWagerQuoteRequest, teaserWagerQuoteSnapshot, transferCommissionerRequest, updateMemberNicknameRequest, updatePoolSettingsRequest, voidWagerRequest } from "../contracts/http";
 import { LineChangedError, QuoteLineChangedError, canonicalizeWagerQuote, decodeStoredOffer, quoteRequestMatchesCanonical, revalidateLiveWagerOffers } from "./offer-quotes";
 import { RateLimiter } from "../security/rate-limit";
 import { verifyTurnstile } from "../security/turnstile";
@@ -377,7 +377,15 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const box = await lookupEspnBoxScore({ league: event.league, startsAt: event.starts_at, awayTeam: event.away_team, homeTeam: event.home_team }, { cache: dependencies.matchupCache, fetcher: dependencies.matchupFetcher, cacheScope: dependencies.matchupCacheScope });
     if (box.status === "upstream-unavailable") return jsonError(c, "ESPN_UNAVAILABLE", 503);
     if (box.status === "not-found") return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
-    return c.json(box.box);
+    /** Closing lines persist in market_offer after kickoff, so the strip works pregame and live. */
+    const offerRows = (await dependencies.db.prepare("SELECT e.id, e.league, e.home_team, e.away_team, e.starts_at, o.market, o.canonical_book, o.retrieved_at, o.offer_version, o.payload_json FROM sports_event e JOIN market_offer o ON o.event_id = e.id WHERE e.id = ? ORDER BY o.market").bind(eventId).all<{ id: string; league: string; home_team: string; away_team: string; starts_at: string; market: string; canonical_book: string; retrieved_at: string; offer_version: string; payload_json: string }>()).results;
+    const lines = offerRows.flatMap((offer) => {
+      try {
+        const payload = decodeStoredOffer(offer.payload_json, { market: offer.market as "spread" | "total" | "moneyline", canonicalBook: offer.canonical_book, homeTeam: offer.home_team, awayTeam: offer.away_team });
+        return [{ eventId: offer.id, league: offer.league === "ncaaf" ? "ncaaf" as const : "nfl" as const, homeTeam: offer.home_team, awayTeam: offer.away_team, startsAt: offer.starts_at, market: offer.market as "spread" | "total" | "moneyline", canonicalBook: offer.canonical_book, retrievedAt: offer.retrieved_at, offerVersion: offer.offer_version, policyVersion: payload.policyVersion, outcomes: payload.outcomes }];
+      } catch { return []; }
+    });
+    return c.json(EspnBoxScoreResponse.parse({ ...box.box, ...(lines.length ? { lines } : {}) }));
   }));
   app.get("/api/p/:slug/matchups/:eventId/exposure", (c) => memberRead(c, async (user) => {
     const slug = c.req.param("slug"); const eventId = c.req.param("eventId");

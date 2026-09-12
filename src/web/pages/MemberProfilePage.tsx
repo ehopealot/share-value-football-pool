@@ -72,8 +72,8 @@ function MemberProfileBody({ slug, memberId }: { slug: string; memberId: string 
       <section><h2>Bets</h2>
         <label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         {inProcess.length + settled.length > 0 ? <>
-          {inProcess.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, inProcess)} title="In process"/>}
-          {settled.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, settled)} title="Settled"/>}
+          {inProcess.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, inProcess)} title="In process" slug={slug}/>}
+          {settled.length > 0 && <MemberActivitySection member={sectionMember(memberId, member.displayName, settled)} title="Settled" slug={slug}/>}
         </> : unstarted.length > 0 ? <p className="state-notice">Selections not visible yet.</p> : <p className="state-notice">No bets{week === undefined ? "." : " this week."}</p>}</section>
     </> : <p className="state-notice">No active season. Member profiles cover the active season.</p>}
     <p><Link to={`/p/${slug}/standings`}>Standings</Link> · <Link to={`/p/${slug}/overview`}>Pool home</Link></p>

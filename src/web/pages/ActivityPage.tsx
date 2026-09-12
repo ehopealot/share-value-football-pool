@@ -8,7 +8,7 @@ import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../wee
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { WagerLine } from "../components/WagerLine";
-import { MatchupLegLink } from "../components/MatchupLegLink";
+import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
 
@@ -81,6 +81,7 @@ export function ActivityPageBody({ slug }: { slug: string }) {
         <label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         {compact ? <details className="activity-options"><summary>Options</summary><div>{controls}</div></details> : controls}
       </div>
+      {(week === undefined || week === currentWeek) && <MatchupHint/>}
       {groupByDay ? days.length ? days.map((day) => <DayActivitySection key={day.key} day={day} memberProfilePath={(memberId) => `/p/${slug}/member/${memberId}`} slug={slug}/>) : <p role="status">There are no bets right now</p> : members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} slug={slug} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}
     </section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>

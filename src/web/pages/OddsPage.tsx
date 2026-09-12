@@ -11,6 +11,7 @@ import { readSelectionTray, resolveTrayItem, straightBatchRiskError, teaserEligi
 import { formatMicros, MICROS_PER_UNIT, parseIntegerText } from "../../domain/fixed-point";
 import { SHARE_POOL_RULESET_ID } from "../../domain/teaser-table";
 import { formatAmericanOdds, formatKickoff, formatSignedLine } from "../odds-format";
+import { MatchupHint } from "../components/MatchupLegLink";
 import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
 import { displayTeamName } from "../team-display";
@@ -423,6 +424,7 @@ export function OddsPage() {
     <div className="odds-board-filters"><label>League <select value={league} onChange={e => setLeague(e.target.value)}><option value="">All football</option><option value="nfl">NFL</option><option value="ncaaf">NCAA football</option></select></label>
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
     <label>Filter teams <input type="search" value={teamFilter} placeholder="Search team names" onChange={e => setTeamFilter(e.target.value)} /></label></div>
+    {week === currentWeek && <MatchupHint/>}
     <OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={!bettingOpen || parlayTransferPending} onToggle={toggle} slug={slug}/>
     {board && games.length === 0 && <p>{teamFilter.trim() ? "No teams match this filter." : "No games to show for this week."}</p>}
     <section aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}

@@ -4,8 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { MatchupDetails, MatchupBoxScore, PoolExposure, matchupUnavailableMessage, matchupPageView } from "../src/web/pages/MatchupDetailsPage";
-import type { PoolExposureResponse } from "../src/contracts/http";
+import { MatchupDetails, MatchupBoxScore, MatchupLines, PoolExposure, matchupUnavailableMessage, matchupPageView } from "../src/web/pages/MatchupDetailsPage";
+import type { EspnBoxScoreResponse as EspnBoxScore, PoolExposureResponse } from "../src/contracts/http";
 import { MatchupLegLink } from "../src/web/components/MatchupLegLink";
 import { ApiError } from "../src/web/api";
 import { OddsBoardTable, matchupDetailsAvailable, type GameRow } from "../src/web/pages/OddsPage";
@@ -142,5 +142,66 @@ describe("pool exposure table", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, {}, createElement(PoolExposure, { wagers: [], slug: "pool" })));
     expect(html).toContain("No pool bets on this game.");
     expect(html).toContain("Pool net +0.00 shares");
+  });
+});
+
+const boardLine = (market: "spread" | "total" | "moneyline", outcomes: Array<{ name: string; price: number; point?: number }>): NonNullable<EspnBoxScore["lines"]>[number] => ({
+  eventId: "atl-pit", league: "nfl", homeTeam: "Pittsburgh Steelers", awayTeam: "Atlanta Falcons", startsAt: game.startsAt,
+  market, canonicalBook: "DraftKings", retrievedAt: "2026-09-12T15:00:00.000Z", offerVersion: "v1", policyVersion: "CANONICAL_BOOKS_2026_V1", outcomes
+} as NonNullable<EspnBoxScore["lines"]>[number]);
+
+describe("board lines on matchup pages", () => {
+  it("renders spread, total, and moneyline chips when offered", () => {
+    const lines = [
+      boardLine("spread", [{ name: "Atlanta Falcons", point: 3.5, price: -110 }, { name: "Pittsburgh Steelers", point: -3.5, price: -110 }]),
+      boardLine("total", [{ name: "Over", point: 44.5, price: -110 }, { name: "Under", point: 44.5, price: -110 }]),
+      boardLine("moneyline", [{ name: "Atlanta Falcons", price: 150 }, { name: "Pittsburgh Steelers", price: -170 }])
+    ];
+    const html = renderToStaticMarkup(createElement(MatchupLines, { lines }));
+    expect(html).toContain("Atlanta +3.5");
+    expect(html).toContain("O 44.5");
+    expect(html).toContain("Atlanta +157");
+    expect(html).toContain("Pittsburgh -157");
+  });
+
+  it("renders nothing when no lines are offered and omits missing markets", () => {
+    expect(renderToStaticMarkup(createElement(MatchupLines, { lines: undefined }))).toBe("");
+    expect(renderToStaticMarkup(createElement(MatchupLines, { lines: [] }))).toBe("");
+    const html = renderToStaticMarkup(createElement(MatchupLines, { lines: [boardLine("total", [{ name: "Over", point: 40.5, price: -105 }, { name: "Under", point: 40.5, price: -105 }])] }));
+    expect(html).toContain("O 40.5");
+    expect(html).not.toContain("+3.5");
+  });
+});
+
+describe("matchup hint", () => {
+  it("renders the tap hint smaller than the pickers, only where matchups link", async () => {
+    const { MatchupHint, matchupHintText } = await import("../src/web/components/MatchupLegLink");
+    const html = renderToStaticMarkup(createElement(MatchupHint));
+    expect(html).toContain(matchupHintText);
+    expect(styles).toMatch(/\.matchup-hint\s*\{[^}]*font-size:\s*0\.78rem/);
+    const oddsSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
+    const activitySource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/ActivityPage.tsx"), "utf8");
+    const myWagersSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/MyWagersPage.tsx"), "utf8");
+    expect(oddsSource).toContain("{week === currentWeek && <MatchupHint/>}");
+    expect(activitySource).toContain("{(week === undefined || week === currentWeek) && <MatchupHint/>}");
+    expect(myWagersSource).toContain("{(week === undefined || week === currentWeek) && <MatchupHint/>}");
+  });
+});
+
+describe("quarter grid completeness", () => {
+  it("always renders four quarter columns with blank unplayed cells", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2" }, { label: "Q3" }, { label: "Q4" }] } }));
+    expect(html).toContain(">Q1<");
+    expect(html).toContain(">Q4<");
+    const emptyCells = html.match(/<td><\/td>/g) ?? [];
+    expect(emptyCells.length).toBe(6);
+  });
+});
+
+describe("matchup links from member profiles", () => {
+  it("threads the pool slug into profile activity sections so links resolve", async () => {
+    const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/MemberProfilePage.tsx"), "utf8");
+    expect(source).toContain('title="In process" slug={slug}');
+    expect(source).toContain('title="Settled" slug={slug}');
   });
 });

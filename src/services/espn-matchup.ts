@@ -340,7 +340,8 @@ export async function lookupEspnBoxScore(input: EspnMatchupInput, dependencies: 
   const event = findEspnEvent(scoreboard, input);
   if (!event) return { status: "not-found" };
   const state = event.state === "in" ? "live" : event.state === "post" ? "final" : "pregame";
-  const periods = Math.max(event.away.lineScores?.length ?? 0, event.home.lineScores?.length ?? 0);
+  /** The quarter grid always shows Q1-Q4; unplayed quarters stay blank rather than absent or zero. */
+  const periods = state === "pregame" ? Math.max(event.away.lineScores?.length ?? 0, event.home.lineScores?.length ?? 0) : Math.max(4, event.away.lineScores?.length ?? 0, event.home.lineScores?.length ?? 0);
   const quarters: EspnBoxQuarter[] = Array.from({ length: periods }, (_, index) => {
     const awayValue = event.away.lineScores?.[index]; const homeValue = event.home.lineScores?.[index];
     return { label: quarterLabel(index + 1), ...(typeof awayValue === "number" ? { away: String(awayValue) } : {}), ...(typeof homeValue === "number" ? { home: String(homeValue) } : {}) };

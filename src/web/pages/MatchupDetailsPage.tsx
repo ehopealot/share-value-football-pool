@@ -6,6 +6,7 @@ import { api } from "../api";
 import { Layout } from "../components/Layout";
 import { formatKickoff } from "../odds-format";
 import { WagerLines } from "./ActivityPage";
+import { groupBoardByEvent, type MarketCell } from "./OddsPage";
 import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
 import { parseIntegerText } from "../../domain/fixed-point";
 
@@ -34,6 +35,15 @@ export function PoolExposure({ wagers, slug }: { wagers: PoolExposureResponse["w
   </section>;
 }
 
+/** Board lines "if offered": a compact chip strip using the odds board's own grouping and formatting. */
+export function MatchupLines({ lines }: { lines?: EspnBoxScore["lines"] }) {
+  const game = groupBoardByEvent(lines ?? [])[0];
+  if (!game) return null;
+  const cells: MarketCell[] = [game.markets.spread.away, game.markets.total.over, game.markets.moneyline.away, game.markets.spread.home, game.markets.total.under, game.markets.moneyline.home].filter((cell): cell is MarketCell => Boolean(cell));
+  if (!cells.length) return null;
+  return <p className="matchup-lines" aria-label="Board lines">{cells.map((cell) => <span key={cell.label} className="matchup-line">{cell.label}</span>)}</p>;
+}
+
 /** The live/final view: state banner, quarter breakdown, and team stats. */
 export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
   const live = box.state === "live";
@@ -44,11 +54,12 @@ export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
         <div className="matchup-box-team"><span className="matchup-box-team-name">{box.home.name}</span>{box.home.logo && <img src={box.home.logo} alt="" width="24" height="24"/>}<strong className="matchup-box-points">{box.home.score ?? "—"}</strong></div>
       </div>
       <p className="matchup-box-state" role="status">{box.statusDetail}{live && box.clock && box.period ? ` · ${box.period <= 4 ? `Q${box.period}` : box.period === 5 ? "OT" : `${box.period - 4}OT`} ${box.clock}` : ""}</p>
+      <MatchupLines lines={box.lines}/>
     </header>
     {box.quarters.length > 0 && <section aria-label="Scoring by quarter" className="table-ribbon-section"><h2 className="table-ribbon">Scoring by quarter</h2>
       <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats matchup-box-quarters"><thead><tr><th scope="col"><span className="visually-hidden">Team</span></th>{box.quarters.map((quarter) => <th key={quarter.label} scope="col">{quarter.label}</th>)}</tr></thead><tbody>
-        <tr><th scope="row">{box.away.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.away ?? "—"}</td>)}</tr>
-        <tr><th scope="row">{box.home.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.home ?? "—"}</td>)}</tr>
+        <tr><th scope="row">{box.away.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.away ?? ""}</td>)}</tr>
+        <tr><th scope="row">{box.home.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.home ?? ""}</td>)}</tr>
       </tbody></table></div>
     </section>}
     {box.stats.length > 0 && <section aria-label="Team stats" className="table-ribbon-section"><h2 className="table-ribbon">Team stats</h2>
@@ -58,10 +69,10 @@ export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
 }
 
 /** Side-by-side ESPN facts stay readable when an upstream field is unavailable. */
-export function MatchupDetails({ matchup }: { matchup: EspnMatchupResponse }) {
+export function MatchupDetails({ matchup, lines }: { matchup: EspnMatchupResponse; lines?: EspnBoxScore["lines"] }) {
   const teams = [matchup.away, matchup.home] as const;
   return <article className="matchup-details">
-    <header className="matchup-details-header"><p className="pool-context">ESPN matchup details</p><h1>{matchup.away.name} at {matchup.home.name}</h1><p><strong>Kickoff:</strong> <time dateTime={matchup.startsAt}>{formatKickoff(matchup.startsAt)}</time>{matchup.venue && <> · {matchup.venue}</>}</p></header>
+    <header className="matchup-details-header"><p className="pool-context">ESPN matchup details</p><h1>{matchup.away.name} at {matchup.home.name}</h1><p><strong>Kickoff:</strong> <time dateTime={matchup.startsAt}>{formatKickoff(matchup.startsAt)}</time>{matchup.venue && <> · {matchup.venue}</>}</p><MatchupLines lines={lines}/></header>
     <section aria-label="Team records" className="table-ribbon-section"><h2 className="table-ribbon">Team records</h2>
       <div className="matchup-team-records">{teams.map((team) => <div key={team.name} className="matchup-team-record"><h3 className="matchup-team-ribbon"><span>{team.name}</span>{team.logo && <img src={team.logo} alt="" width="24" height="24"/>}</h3><p><strong>Record:</strong> {team.record ?? "Not available"}</p></div>)}</div>
     </section>
@@ -113,5 +124,5 @@ export function MatchupDetailsPage() {
   if (view.kind === "error") return <Layout><h1>Matchup details</h1><p role="alert" className="error-summary">{error}</p>{back}</Layout>;
   if (view.kind === "box") return <Layout><MatchupBoxScore box={view.box}/><PoolExposure wagers={exposure?.wagers ?? []} slug={slug}/>{back}</Layout>;
   if (view.kind === "loading") return <Layout><h1>Matchup details</h1><p role="status">Loading matchup details…</p>{back}</Layout>;
-  return <Layout><MatchupDetails matchup={view.matchup}/>{back}</Layout>;
+  return <Layout><MatchupDetails matchup={view.matchup} lines={box?.lines}/>{back}</Layout>;
 }
