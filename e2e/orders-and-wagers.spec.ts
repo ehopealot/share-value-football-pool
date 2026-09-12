@@ -1025,7 +1025,7 @@ test("ORDER_QUOTE_STALE discards review, unmounts confirmation, and requires a f
     ).toBeVisible();
     await expect(
       page.getByText(
-        /Locked price: \$1.00 per share/,
+        /Locked price: \$1.000 per share/,
       ),
     ).toBeVisible();
     await page.getByRole("button", { name: "Confirm order" }).click();
