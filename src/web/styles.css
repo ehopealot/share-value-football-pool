@@ -277,6 +277,8 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 /* Mobile Games board prioritizes compact tappable prices over repeated team names. */
 /* ESPN matchup facts use the odds board's compact, information-first visual language. */
 .matchup-details { display: grid; gap: var(--space-1); }
+/* Grid children must shrink so wide tables scroll inside .table-scroll at the page's width, exactly like Activity. */
+.matchup-details > * { min-width: 0; }
 .matchup-details-header { margin-bottom: var(--space-2); }
 .matchup-details-header > p { margin: 0; }
 .matchup-details-header h1 { margin-bottom: var(--space-1); }
