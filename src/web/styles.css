@@ -155,14 +155,14 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 /* Activity groups each member's week under one ribbon and compact wager table. */
 .main-content:has(.activity-page), .main-content:has(.member-profile-page) { max-width: none; }
 .activity-page > section > label, .member-profile-page > section > label { margin: 0 0 var(--space-1); }
-.table-ribbon-section, .activity-member-section { margin: var(--space-2) 0 var(--space-3); }
-.table-ribbon, .activity-member-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }
+.table-ribbon-section, .activity-member-section, .activity-day-section { margin: var(--space-2) 0 var(--space-3); }
+.table-ribbon, .activity-member-ribbon, .activity-day-ribbon { margin: 0; padding: var(--space-1) var(--space-2); background: var(--navy); color: #fff; font-size: 1rem; }
 .table-ribbon-section > table, .table-ribbon-section > .table-scroll > table { margin: 0 0 var(--space-2); }
 .activity-member-ribbon small { display: block; font-size: 0.85rem; }
 .activity-member-ribbon a { color: #fff; }
 .activity-member-ribbon a:focus-visible { outline-color: var(--focus-on-dark); }
 .profile-record-note { margin: 0 0 var(--space-2); font-size: 0.85rem; }
-.activity-member-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
+.activity-member-section .activity-table, .activity-day-section .activity-table { margin: 0 0 var(--space-2); table-layout: fixed; }
 .activity-start-column { width: 7rem; }
 .activity-wager-column { width: 52%; }
 .activity-staked-column { width: 16%; }
@@ -178,7 +178,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .activity-table .activity-leg-loss, .activity-table .activity-leg-win, .activity-table .activity-leg-push, .activity-table .activity-leg-neutral { display: block; white-space: normal; overflow-wrap: anywhere; }
 .my-wagers-page .activity-leg-loss, .my-wagers-page .activity-leg-win, .my-wagers-page .activity-leg-push, .my-wagers-page .activity-leg-neutral { white-space: nowrap; }
 .activity-wager-lines > span { display: block; white-space: nowrap; }
-.activity-member-section .activity-wager-lines > span { white-space: normal; overflow-wrap: anywhere; }
+.activity-member-section .activity-wager-lines > span, .activity-day-section .activity-wager-lines > span { white-space: normal; overflow-wrap: anywhere; }
 .activity-wager-lines > span + span { margin-top: 0.15rem; }
 .activity-performance-won { color: #137333; }
 .activity-performance-lost { color: #b42318; }
@@ -187,7 +187,16 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 /* Filter labels run inline on one shared baseline so the checkbox lines up with the week select. */
 .activity-filters label { flex-direction: row; align-items: center; gap: var(--space-1); margin: 0; }
 .activity-active-toggle { min-height: 44px; cursor: pointer; }
-.activity-active-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }
+.activity-group-toggle { min-height: 44px; cursor: pointer; }
+.activity-active-toggle input, .activity-group-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }
+.activity-options { min-height: 44px; }
+.activity-options summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.activity-options > div { display: grid; gap: var(--space-1); padding: var(--space-1) 0; }
+.activity-day-member-ribbon > th { padding: var(--space-1) var(--space-2); background: var(--blue); color: #fff; text-align: left; }
+.activity-day-member-ribbon > th > span { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.activity-day-member-ribbon a { color: #fff; }
+.activity-day-member-ribbon a:focus-visible { outline-color: var(--focus-on-dark); }
+.activity-day-member-ribbon small { font-size: 0.85rem; white-space: nowrap; }
 /* Order-history grouping toggle shares the touch-target sizing of the activity filter toggles. */
 .order-group-toggle { min-height: 44px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: var(--space-1); margin: 0; }
 .order-group-toggle input { width: 1rem; height: 1rem; margin: 0; padding: 0; }

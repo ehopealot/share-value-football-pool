@@ -37,6 +37,7 @@ describe("owner ticket presentation", () => {
 
     expect(displayWagerDateLabel(multiDay)).toBe("Mon, Sep 7");
     expect(displayWagerStartTimeOnly(multiDay)).toEqual(["Sun", formatKickoff("2026-09-07T20:00:00.000Z").split(" ")[1], "Tue"]);
+    expect(displayWagerStartTimeOnly(multiDay, "2026-09-06T18:00:00.000Z")).toEqual([formatKickoff("2026-09-06T18:00:00.000Z").split(" ")[1], "Mon", "Tue"]);
     expect(sortWagersByStartTime([nextDay, multiDay]).map((item) => item.wagerId)).toEqual(["wager", "next-day"]);
 
     const completed = wager({ legs: [{ eventStartsAt: "2026-09-06T18:00:00.000Z", grade: "win" }, { eventStartsAt: "2026-09-08T20:00:00.000Z", grade: "loss" }] });
