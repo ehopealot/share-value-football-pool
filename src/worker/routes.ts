@@ -37,6 +37,8 @@ export type RouteDependencies = {
   matchupCache?: EspnMatchupCache;
   matchupFetcher?: typeof fetch;
   matchupDetailsLimiter?: RateLimiter;
+  /** Deploy-scoped salt so each deploy starts with a cold matchup cache while iterating. */
+  matchupCacheScope?: string;
   operationalAlerts?: OperationalAlerts;
 };
 const jsonError = (c: Context, code: string, status: 400 | 401 | 403 | 404 | 429 | 503 = 400) => c.json({ code }, status);
@@ -241,7 +243,7 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
     const activeWeek = weekStartOf(new Date()).toISOString();
     if (!event || (event.league !== "nfl" && event.league !== "ncaaf") || !inWeek(event.starts_at, activeWeek)) return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
     if (!matchupDetailsLimiter.allow(`matchup:${user.id}`)) return jsonError(c, "RATE_LIMITED", 429);
-    const matchup = await lookupEspnMatchup({ league: event.league, startsAt: event.starts_at, awayTeam: event.away_team, homeTeam: event.home_team }, { cache: dependencies.matchupCache, fetcher: dependencies.matchupFetcher });
+    const matchup = await lookupEspnMatchup({ league: event.league, startsAt: event.starts_at, awayTeam: event.away_team, homeTeam: event.home_team }, { cache: dependencies.matchupCache, fetcher: dependencies.matchupFetcher, cacheScope: dependencies.matchupCacheScope });
     if (matchup.status === "upstream-unavailable") return jsonError(c, "ESPN_UNAVAILABLE", 503);
     if (matchup.status === "not-found") return jsonError(c, "MATCHUP_NOT_AVAILABLE", 404);
     return c.json(EspnMatchupResponse.parse(matchup.matchup));

@@ -260,19 +260,21 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 @media (max-width: 600px) { .selection-tray { margin-top: var(--space-1); padding-block: 0.2rem; } .selection-tray h2 { font-size: 0.9rem; } .pool-balance { font-size: 0.7rem; overflow-x: auto; } .selection-tray-list li { display: grid; grid-template-columns: minmax(0, 1fr) 4.5rem auto; grid-template-areas: "selection risk remove"; column-gap: var(--space-1); align-items: center; padding-block: 0.2rem; } .tray-item-label { grid-area: selection; } .selection-tray-amount { grid-area: risk; width: 4.5rem; } .selection-tray-amount input { width: 100%; } .selection-tray-remove { grid-area: remove; align-self: center; min-height: 44px; } }
 /* Mobile Games board prioritizes compact tappable prices over repeated team names. */
 /* ESPN matchup facts use the odds board's compact, information-first visual language. */
-.matchup-details { display: grid; gap: var(--space-3); }
+.matchup-details { display: grid; gap: var(--space-1); }
+.matchup-details-header { margin-bottom: var(--space-2); }
 .matchup-details-header > p { margin: 0; }
 .matchup-details-header h1 { margin-bottom: var(--space-1); }
-.matchup-team-records, .matchup-recent-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-.matchup-team-record { min-width: 0; padding: var(--space-2); border: 1px solid var(--line); background: #f6f8fa; }
-.matchup-team-record img { float: right; width: 48px; height: 48px; object-fit: contain; margin-left: var(--space-1); }
-.matchup-team-record h2, .matchup-recent-results h3 { margin: 0; font-size: 1rem; }
-.matchup-team-record p { margin: var(--space-1) 0 0; }
-.matchup-details h2 { margin: 0 0 var(--space-1); font-size: 1.1rem; }
-.matchup-stats { margin: 0; }
-.matchup-recent-results > section { min-width: 0; padding: var(--space-2); border-left: 3px solid var(--blue); background: #f6f8fa; }
-.matchup-recent-results ul { margin: var(--space-1) 0 0; padding-left: 1.2rem; }
-.matchup-recent-results p { margin: var(--space-1) 0 0; }
+/* Team panels share the odds board's card + blue-ribbon language; tables share the activity table's sizing. */
+.matchup-team-records, .matchup-recent-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-2); }
+.matchup-team-record, .matchup-recent-team { min-width: 0; border: 1px solid var(--line); background: #f6f8fa; }
+.matchup-team-ribbon { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin: 0; padding: 0.25rem 0.5rem; background: var(--blue); color: #fff; font-size: 0.875rem; line-height: 1.1; }
+.matchup-team-ribbon img { flex: 0 0 auto; width: 24px; height: 24px; object-fit: contain; }
+.matchup-team-record p, .matchup-recent-team ul, .matchup-recent-team p { margin: 0; padding: var(--space-1) 0.5rem; }
+.matchup-recent-team ul { padding: var(--space-1) 0.5rem var(--space-2); list-style: none; }
+.matchup-recent-team li + li { border-top: 1px solid var(--line); }
+.matchup-recent-team li { padding-block: 0.25rem; }
+.matchup-stats { margin: 0 0 var(--space-2); }
+.matchup-stats th, .matchup-stats td { padding: 0.35rem 0.5rem; vertical-align: top; }
 .matchup-details-back { margin: var(--space-3) 0 0; }
 .odds-kickoff-row { display: none; }
 @media (max-width: 600px) {
@@ -296,8 +298,7 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
   .odds-option:not(.odds-option-total) .odds-option-name { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .odds-option-total .odds-option-name { font-weight: 700; }
   .matchup-details { gap: var(--space-2); }
-  .matchup-team-records, .matchup-recent-results { grid-template-columns: 1fr; }
-  .matchup-team-record, .matchup-recent-results > section { padding: var(--space-2); }
+  .matchup-team-records, .matchup-recent-results { grid-template-columns: 1fr; }  .matchup-team-record, .matchup-recent-results > section { padding: var(--space-2); }
   .matchup-details .table-scroll { margin-inline: calc(-1 * var(--space-2)); }
   .matchup-details .matchup-stats { min-width: 26rem; }
 }

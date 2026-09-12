@@ -23,6 +23,7 @@
       "migrations_dir": "src/db/migrations"
     }
   ],
+  "bindings": [{ "type": "version_metadata", "name": "CF_VERSION_METADATA" }],
   "durable_objects": {
     "bindings": [
       { "name": "POOL_DO", "class_name": "PoolDO" }
