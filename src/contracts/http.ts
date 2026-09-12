@@ -138,7 +138,7 @@ export type EspnMatchupResponse = z.infer<typeof EspnMatchupResponse>;
 
 /** Live/final box state for the same events; 60s server cache upstream. */
 export const EspnBoxScoreResponse = z.object({
-  state: z.enum(["pregame", "live", "final"]), startsAt: z.string().datetime(), statusDetail: z.string().min(1), clock: z.string().min(1).optional(), period: z.number().int().optional(),
+  state: z.enum(["pregame", "live", "final"]), startsAt: z.string().datetime(), statusDetail: z.string().min(1), clock: z.string().min(1).optional(), period: z.number().int().optional(), possession: z.enum(["away", "home"]).optional(), downDistance: z.string().min(1).optional(),
   away: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
   home: z.object({ name: z.string().min(1), logo: z.string().url().optional(), score: z.string().min(1).optional() }).strict(),
   quarters: z.array(z.object({ label: z.string().min(1), away: z.string().min(1).optional(), home: z.string().min(1).optional() }).strict()).max(10),
