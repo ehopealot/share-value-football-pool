@@ -59,7 +59,7 @@ describe("in-app matchup details", () => {
 });
 
 const liveBox = {
-  state: "live" as const, startsAt: game.startsAt, statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2,
+  state: "live" as const, startsAt: game.startsAt, statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2, possession: "away" as const, downDistance: "1st & 10 at ATL 25",
   away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
   quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
   stats: []
@@ -71,7 +71,9 @@ describe("box score view", () => {
     expect(html).toContain("ESPN box score");
     expect(html).toContain("14");
     expect(html).toContain("10");
-    expect(html).toContain("2nd Qtr - 5:22");
+    expect(html).toContain("2nd Qtr - 5:22 · 1st &amp; 10 at ATL 25");
+    expect(html).not.toContain("Q2 5:22");
+    expect(html).toContain("🏈");
     expect(html).toContain("Scoring by quarter");
     expect(html).toContain(">Q4<");
     expect(html).not.toContain("Team stats");

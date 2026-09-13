@@ -237,7 +237,7 @@ describe("ESPN matchup lookup", () => {
   });
 });
 
-const boxEvent = (status: Record<string, unknown>, competitors: Record<string, unknown>[]) => ({ events: [{ id: "espn-game", date: input.startsAt, status, competitions: [{ venue: { fullName: "Acrisure Stadium" }, competitors }] }] });
+const boxEvent = (status: Record<string, unknown>, competitors: Record<string, unknown>[], situation?: Record<string, unknown>) => ({ events: [{ id: "espn-game", date: input.startsAt, status, competitions: [{ venue: { fullName: "Acrisure Stadium" }, ...(situation ? { situation } : {}), competitors }] }] });
 const boxCompetitor = (side: "away" | "home", name: string, score: string, linescores: Array<number | null>) => ({ homeAway: side, team: team(side, name), score, linescores: linescores.map((value) => ({ value })) });
 
 describe("ESPN box score", () => {
@@ -247,7 +247,7 @@ describe("ESPN box score", () => {
       if (value.includes("scoreboard")) return responseFor(boxEvent({ type: { state: "in", shortDetail: "2nd Qtr - 5:22" }, displayClock: "5:22", period: { number: 2 } }, [
         boxCompetitor("away", "Atlanta Falcons", "14", [7, 7, null, null]),
         boxCompetitor("home", "Pittsburgh Steelers", "10", [3, 7])
-      ]));
+      ], { possession: "away", downDistanceText: "1st & 10 at ATL 25" }));
       if (value.includes("summary?event=espn-game")) return responseFor({ boxscore: { teams: [
         { homeAway: "away", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "212" }] },
         { homeAway: "home", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "150" }] }
@@ -258,7 +258,7 @@ describe("ESPN box score", () => {
     const result = await lookupEspnBoxScore(input, { fetcher });
 
     expect(result).toMatchObject({ status: "ok", box: {
-      state: "live", statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2,
+      state: "live", statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2, possession: "away", downDistance: "1st & 10 at ATL 25",
       away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
       quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
       stats: [{ label: "Total Yards", away: "212", home: "150" }]

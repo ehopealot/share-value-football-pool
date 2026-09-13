@@ -56,10 +56,10 @@ export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
   return <article className="matchup-details matchup-box">
     <header className="matchup-details-header"><p className="pool-context">ESPN box score</p>
       <div className="matchup-box-scoreline">
-        <div className="matchup-box-team"><span className="matchup-box-team-name">{box.away.name}</span>{box.away.logo && <img src={box.away.logo} alt="" width="24" height="24"/>}<strong className="matchup-box-points">{box.away.score ?? "—"}</strong></div>
-        <div className="matchup-box-team"><span className="matchup-box-team-name">{box.home.name}</span>{box.home.logo && <img src={box.home.logo} alt="" width="24" height="24"/>}<strong className="matchup-box-points">{box.home.score ?? "—"}</strong></div>
+        <div className="matchup-box-team">{box.possession === "away" && <span className="matchup-box-possession" title="Possession" aria-label="Possession">🏈</span>}<span className="matchup-box-team-name">{box.away.name}</span>{box.away.logo && <img src={box.away.logo} alt="" width="24" height="24"/>}<strong className="matchup-box-points">{box.away.score ?? "—"}</strong></div>
+        <div className="matchup-box-team">{box.possession === "home" && <span className="matchup-box-possession" title="Possession" aria-label="Possession">🏈</span>}<span className="matchup-box-team-name">{box.home.name}</span>{box.home.logo && <img src={box.home.logo} alt="" width="24" height="24"/>}<strong className="matchup-box-points">{box.home.score ?? "—"}</strong></div>
       </div>
-      <p className="matchup-box-state" role="status">{box.statusDetail}{live && box.clock && box.period ? ` · ${box.period <= 4 ? `Q${box.period}` : box.period === 5 ? "OT" : `${box.period - 4}OT`} ${box.clock}` : ""}</p>
+      <p className="matchup-box-state" role="status">{box.statusDetail}{live && box.downDistance ? ` · ${box.downDistance}` : ""}</p>
     </header>
     {box.quarters.length > 0 && <section aria-label="Scoring by quarter" className="table-ribbon-section"><h2 className="table-ribbon">Scoring by quarter</h2>
       <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats matchup-box-quarters"><thead><tr><th scope="col"><span className="visually-hidden">Team</span></th>{box.quarters.map((quarter) => <th key={quarter.label} scope="col">{quarter.label}</th>)}</tr></thead><tbody>
