@@ -67,6 +67,9 @@ export function MatchupBoxScore({ box }: { box: EspnBoxScore }) {
         <tr><th scope="row">{box.home.name}</th>{box.quarters.map((quarter) => <td key={quarter.label}>{quarter.home ?? ""}</td>)}</tr>
       </tbody></table></div>
     </section>}
+    {box.scoringPlays.length > 0 && <section aria-label="Scoring plays" className="table-ribbon-section"><h2 className="table-ribbon">Scoring plays</h2>
+      <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats"><thead><tr><th scope="col"><span className="visually-hidden">Quarter</span></th><th scope="col">Play</th><th scope="col">Score</th></tr></thead><tbody>{box.scoringPlays.map((play) => <tr key={play.id}><th scope="row">{play.quarter} {play.clock}</th><td><strong>{play.team}</strong> — {play.text}</td><td>{play.away}-{play.home}</td></tr>)}</tbody></table></div>
+    </section>}
     {box.stats.length > 0 && <section aria-label="Team stats" className="table-ribbon-section"><h2 className="table-ribbon">Team stats</h2>
       <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats"><thead><tr><th scope="col"><span className="visually-hidden">Stat</span></th><th scope="col">{box.away.name}</th><th scope="col">{box.home.name}</th></tr></thead><tbody>{box.stats.map((stat) => <tr key={stat.label}><th scope="row">{stat.label}</th><td>{stat.away ?? "—"}</td><td>{stat.home ?? "—"}</td></tr>)}</tbody></table></div>
     </section>}
