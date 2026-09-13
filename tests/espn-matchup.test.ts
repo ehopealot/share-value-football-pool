@@ -251,7 +251,10 @@ describe("ESPN box score", () => {
       if (value.includes("summary?event=espn-game")) return responseFor({ boxscore: { teams: [
         { homeAway: "away", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "212" }] },
         { homeAway: "home", statistics: [{ name: "totalYards", label: "Total Yards", displayValue: "150" }] }
-      ] } });
+      ] }, scoringPlays: [
+        { id: "sp-1", period: { number: 1 }, clock: "12:34", team: "ATL", text: "Drake London 15 Yd pass from Kirk Cousins", awayScore: 7, homeScore: 0 },
+        { id: "sp-2", period: { number: 2 }, clock: "5:22", team: "PIT", text: "Chris Boswell 42 Yd Field Goal", awayScore: 7, homeScore: 3 }
+      ] });
       throw new Error(`unexpected ESPN call: ${value}`);
     });
 
@@ -261,7 +264,11 @@ describe("ESPN box score", () => {
       state: "live", statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2, possession: "away", downDistance: "1st & 10 at ATL 25",
       away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
       quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
-      stats: [{ label: "Total Yards", away: "212", home: "150" }]
+      stats: [{ label: "Total Yards", away: "212", home: "150" }],
+      scoringPlays: [
+        { id: "sp-1", quarter: "Q1", clock: "12:34", team: "ATL", text: "Drake London 15 Yd pass from Kirk Cousins", away: "7", home: "0" },
+        { id: "sp-2", quarter: "Q2", clock: "5:22", team: "PIT", text: "Chris Boswell 42 Yd Field Goal", away: "7", home: "3" }
+      ]
     } });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });

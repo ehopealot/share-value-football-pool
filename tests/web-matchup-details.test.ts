@@ -62,6 +62,7 @@ const liveBox = {
   state: "live" as const, startsAt: game.startsAt, statusDetail: "2nd Qtr - 5:22", clock: "5:22", period: 2, possession: "away" as const, downDistance: "1st & 10 at ATL 25",
   away: { name: "Atlanta Falcons", score: "14" }, home: { name: "Pittsburgh Steelers", score: "10" },
   quarters: [{ label: "Q1", away: "7", home: "3" }, { label: "Q2", away: "7", home: "7" }, { label: "Q3" }, { label: "Q4" }],
+  scoringPlays: [{ id: "sp-1", quarter: "Q1", clock: "12:34", team: "ATL", text: "Drake London 15 Yd pass from Kirk Cousins", away: "7", home: "0" }, { id: "sp-2", quarter: "Q2", clock: "5:22", team: "PIT", text: "Chris Boswell 42 Yd Field Goal", away: "7", home: "3" }],
   stats: []
 };
 
@@ -72,7 +73,7 @@ describe("box score view", () => {
     expect(html).toContain("14");
     expect(html).toContain("10");
     expect(html).toContain("2nd Qtr - 5:22 · 1st &amp; 10 at ATL 25");
-    expect(html).not.toContain("Q2 5:22");
+    expect(html.match(/class="matchup-box-state"[^>]*>[^<]*/)?.[0]).not.toContain("Q2 5:22");
     expect(html).toContain("🏈");
     expect(html).toContain("Scoring by quarter");
     expect(html).toContain(">Q4<");
@@ -215,5 +216,22 @@ describe("box score lines", () => {
   it("keeps the started-game view free of board lines", () => {
     const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, lines: [boardLine("spread", [{ name: "Atlanta Falcons", point: 3.5, price: -110 }, { name: "Pittsburgh Steelers", point: -3.5, price: -110 }])] } }));
     expect(html).not.toContain("matchup-lines");
+  });
+});
+
+describe("scoring plays table", () => {
+  it("lists each scoring play with quarter, clock, team, and running score", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: liveBox }));
+    expect(html).toContain("Scoring plays");
+    expect(html).toContain("Q1 12:34");
+    expect(html).toContain("<strong>ATL</strong> — Drake London 15 Yd pass from Kirk Cousins");
+    expect(html).toContain("7-0");
+    expect(html).toContain("Q2 5:22");
+    expect(html).toContain("42 Yd Field Goal");
+  });
+
+  it("hides the section before anyone has scored", () => {
+    const html = renderToStaticMarkup(createElement(MatchupBoxScore, { box: { ...liveBox, scoringPlays: [] } }));
+    expect(html).not.toContain("Scoring plays");
   });
 });

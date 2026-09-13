@@ -284,7 +284,8 @@ export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: E
 
 export type EspnBoxQuarter = { label: string; away?: string; home?: string };
 export type EspnBoxTeam = { name: string; logo?: string; score?: string };
-export type EspnBoxScore = { state: "pregame" | "live" | "final"; startsAt: string; away: EspnBoxTeam; home: EspnBoxTeam; statusDetail: string; clock?: string; period?: number; quarters: EspnBoxQuarter[]; stats: EspnSeasonStat[] };
+export type EspnScoringPlay = { id: string; quarter: string; clock: string; team: string; text: string; away: string; home: string };
+export type EspnBoxScore = { state: "pregame" | "live" | "final"; startsAt: string; away: EspnBoxTeam; home: EspnBoxTeam; statusDetail: string; clock?: string; period?: number; possession?: "away" | "home"; downDistance?: string; quarters: EspnBoxQuarter[]; scoringPlays: EspnScoringPlay[]; stats: EspnSeasonStat[] };
 export type EspnBoxScoreResult = { status: "ok"; box: EspnBoxScore } | { status: "not-found" } | { status: "upstream-unavailable" };
 /** Live game state may lag kickoff by up to this long; box reads trade freshness for upstream protection. */
 const BOX_CACHE_SECONDS = 60;
@@ -313,17 +314,35 @@ const summaryStats = (payload: unknown): EspnSeasonStat[] => {
     return awayValue || homeValue ? [{ label, ...(awayValue ? { away: awayValue } : {}), ...(homeValue ? { home: homeValue } : {}) }] : [];
   });
 };
+/** Scoring plays come from the same summary payload that supplies team stats; scores are the running totals after each play. */
+const scoringPlaysOf = (payload: unknown): EspnScoringPlay[] => {
+  const plays = asArray(asObject(payload)?.scoringPlays) ?? [];
+  const parsed: EspnScoringPlay[] = [];
+  for (const raw of plays.slice(0, 40)) {
+    const play = asObject(raw);
+    const id = play && asText(play.id); const period = asObject(play?.period); const clock = play && asText(play.clock);
+    const team = play && asText(play.team); const text = play && asText(play.text);
+    const awayScore = play?.awayScore; const homeScore = play?.homeScore;
+    if (!play || !id || !clock || !team || !text || typeof period?.number !== "number" || typeof awayScore !== "number" || typeof homeScore !== "number") continue;
+    parsed.push({ id, quarter: quarterLabel(period.number), clock, team, text, away: String(awayScore), home: String(homeScore) });
+  }
+  return parsed;
+};
 const cachedBoxScore = (value: unknown): EspnBoxScore | undefined => {
   const box = asObject(value); const away = box && asObject(box.away); const home = box && asObject(box.home);
   const state = box?.state; const startsAt = box && asText(box.startsAt); const statusDetail = box && asText(box.statusDetail);
-  const quarters = box && asArray(box.quarters); const stats = box && asArray(box.stats);
+  const quarters = box && asArray(box.quarters); const stats = box && asArray(box.stats); const scoringPlays = box && asArray(box.scoringPlays);
   const clock = box && asText(box.clock); const period = typeof box?.period === "number" ? box.period : undefined;
   const possession = box?.possession; const downDistance = box && asText(box.downDistance);
   if ((possession !== undefined && possession !== "away" && possession !== "home") || (box?.downDistance !== undefined && !downDistance)) return undefined;
-  if (!box || !away || !home || (state !== "pregame" && state !== "live" && state !== "final") || !asText(away.name) || !asText(home.name) || !startsAt || Number.isNaN(new Date(startsAt).getTime()) || !statusDetail || !quarters || quarters.length > 10 || !stats || stats.length > BOX_STAT_LABELS.length) return undefined;
+  if (!box || !away || !home || (state !== "pregame" && state !== "live" && state !== "final") || !asText(away.name) || !asText(home.name) || !startsAt || Number.isNaN(new Date(startsAt).getTime()) || !statusDetail || !quarters || quarters.length > 10 || !scoringPlays || scoringPlays.length > 40 || !stats || stats.length > BOX_STAT_LABELS.length) return undefined;
   return { state, startsAt, statusDetail, ...(clock ? { clock } : {}), ...(period !== undefined ? { period } : {}), ...(possession === "away" || possession === "home" ? { possession } : {}), ...(downDistance ? { downDistance } : {}), away: { name: asText(away.name)!, ...(asText(away.score) ? { score: asText(away.score)! } : {}) }, home: { name: asText(home.name)!, ...(asText(home.score) ? { score: asText(home.score)! } : {}) }, quarters: quarters.flatMap((quarter) => {
       const object = asObject(quarter); const label = object && asText(object.label); const away = object && asText(object.away); const home = object && asText(object.home);
       return label ? [{ label, ...(away ? { away } : {}), ...(home ? { home } : {}) }] : [];
+    }), scoringPlays: scoringPlays.flatMap((play) => {
+      const object = asObject(play); const id = object && asText(object.id); const quarter = object && asText(object.quarter); const clock = object && asText(object.clock);
+      const team = object && asText(object.team); const text = object && asText(object.text); const awayScore = object && asText(object.away); const homeScore = object && asText(object.home);
+      return id && quarter && clock && team && text && awayScore !== undefined && homeScore !== undefined ? [{ id, quarter, clock, team, text, away: awayScore, home: homeScore }] : [];
     }), stats: stats.flatMap((stat) => {
       const object = asObject(stat); const label = object && asText(object.label); const away = object && asText(object.away); const home = object && asText(object.home);
       return label && (away || home) ? [{ label, ...(away ? { away } : {}), ...(home ? { home } : {}) }] : [];
@@ -352,7 +371,9 @@ export async function lookupEspnBoxScore(input: EspnMatchupInput, dependencies: 
     const awayValue = event.away.lineScores?.[index]; const homeValue = event.home.lineScores?.[index];
     return { label: quarterLabel(index + 1), ...(typeof awayValue === "number" ? { away: String(awayValue) } : {}), ...(typeof homeValue === "number" ? { home: String(homeValue) } : {}) };
   });
-  const stats = state !== "pregame" ? summaryStats(await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/summary?event=${encodeURIComponent(event.id)}`)) : [];
+  const summary = state !== "pregame" ? await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/summary?event=${encodeURIComponent(event.id)}`) : undefined;
+  const stats = summary ? summaryStats(summary) : [];
+  const scoringPlays = summary ? scoringPlaysOf(summary) : [];
   const box: EspnBoxScore = {
     state, startsAt: input.startsAt,
     away: { name: event.away.team.displayName, ...(event.away.team.logo ? { logo: event.away.team.logo } : {}), ...(event.away.score ? { score: event.away.score } : {}) },
@@ -360,7 +381,7 @@ export async function lookupEspnBoxScore(input: EspnMatchupInput, dependencies: 
     statusDetail: event.statusDetail ?? (state === "final" ? "Final" : state === "live" ? "In progress" : "Pregame"),
     ...(state === "live" && event.clock ? { clock: event.clock } : {}), ...(state === "live" && event.period ? { period: event.period } : {}),
     ...(state === "live" && event.possessionSide ? { possession: event.possessionSide } : {}), ...(state === "live" && event.downDistance ? { downDistance: event.downDistance } : {}),
-    quarters, stats
+    quarters, scoringPlays, stats
   };
   try { await dependencies.cache?.put(key, Response.json(box, { headers: { "cache-control": `public, max-age=${BOX_CACHE_SECONDS}` } })); } catch { /* Cache failure must not fail a box read. */ }
   return { status: "ok", box };
