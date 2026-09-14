@@ -217,7 +217,7 @@ describe("T11 member read boundaries over the Worker API", () => {
     const regrade = await owner.fetch(request(`/api/p/${slug}/admin/corrections/same-game-wager/regrade`, { reason: "Official correction", correctedResults: [result("official-2", 17, 24)], idempotencyKey: "same-game-regrade" }));
     expect(regrade.status).toBe(200);
     const manual = await authenticatedExport(member);
-    expect(manual.wagers[0]).toMatchObject({ status: "lost", outcome: "lost", returnMicros: "0", profitMicros: "0", legs: [expect.objectContaining({ grade: "loss", resultVersion: "provider-1" }), expect.objectContaining({ grade: "win", resultVersion: "provider-1" })] });
+    expect(manual.wagers[0]).toMatchObject({ status: "lost", outcome: "lost", returnMicros: "0", profitMicros: "0", legs: [expect.objectContaining({ grade: "loss", resultVersion: "provider-1", homeScore: 17, awayScore: 24 }), expect.objectContaining({ grade: "win", resultVersion: "provider-1", homeScore: 17, awayScore: 24 })] });
     expect(manual.settlements.map(({ outcome }) => outcome)).toEqual(["win", "reversal", "loss"]);
     expect(manual.wagerCorrections).toEqual([expect.objectContaining({ wagerId: "same-game-wager", actorId: "owner", reason: "Official correction", commandId: "same-game-regrade", sourceResult: [result("provider-1", 24, 17)], replacementResult: expect.objectContaining({ correctedResults: [result("official-2", 17, 24)], derived: { outcome: "loss", odds: null } }) })]);
     expect(manual.administrationAudit).toEqual([expect.objectContaining({ actorId: "owner", action: "regrade_wager", subjectId: "same-game-wager", reason: "Official correction", commandId: "same-game-regrade" })]);

@@ -222,6 +222,21 @@ describe("PoolDO wagers and settlement", () => {
     expect((mine.wagers as any[]).find((wager) => wager.wagerId === "teaser-partial-win")!.legs[0]).toMatchObject({ grade: "win" });
   }, 90_000);
 
+  it("publishes complete graded scores, including zero, and replaces them after a correction", async () => {
+    const slug = await fundedPool();
+    await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-scored", actorId: "member", wagerId: "teaser-scored", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("scored-now"), adjustedLine: 3 }, { ...leg("scored-later"), adjustedLine: 3 }] });
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("scored-now", "score-v1", 0, 17)]));
+    const firstRead = await direct(slug, { type: "ReadMyWagers", commandId: "read-scored-v1", actorId: "member" });
+    const firstLegs = (firstRead.wagers as any[]).find((wager) => wager.wagerId === "teaser-scored").legs;
+    expect(firstLegs[0]).toMatchObject({ grade: "loss", resultVersion: "score-v1", homeScore: 0, awayScore: 17 });
+    expect(firstLegs[1]).not.toHaveProperty("homeScore");
+    expect(firstLegs[1]).not.toHaveProperty("awayScore");
+
+    await storage(slug, (state) => settleWagers(state.storage.sql, [final("scored-now", "score-v2", 24, 17)]));
+    const correctedRead = await direct(slug, { type: "ReadMyWagers", commandId: "read-scored-v2", actorId: "member" });
+    expect((correctedRead.wagers as any[]).find((wager) => wager.wagerId === "teaser-scored").legs[0]).toMatchObject({ grade: "win", resultVersion: "score-v2", homeScore: 24, awayScore: 17 });
+  }, 90_000);
+
   it("settles a teaser as soon as one final leg loses", async () => {
     const slug = await fundedPool();
     await send(slug, { type: "PlaceTeaserWager", commandId: "teaser-early-loss", actorId: "member", wagerId: "teaser-early-loss", seasonId: "s1", riskMicros: "1000000", acceptedOdds: -110, teaserPoints: 6, rulesetVersion: "SHARE_POOL_2026_V1", legs: [{ ...leg("teaser-loss"), adjustedLine: 3 }, { ...leg("teaser-pending"), adjustedLine: 3 }] });

@@ -14,10 +14,12 @@ describe("My wagers page", () => {
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>Payout</th><th>P&amp;L</th>');
     expect(source).toContain('displayWagerStartTimes(wager)');
     expect(source).toContain('sortWagerLegsByStartTime(wager.legs)');
-    expect(source).toContain('formatActivityLeg(leg)');
-    expect(source).toContain('activityLegGradeClass(leg.grade)');
-    expect(source).toContain('className={gradeClass}');
-    expect(source).toContain('<strong key={index}>{segment.text}</strong>');
+    expect(source).toContain('import { WagerLine } from "../components/WagerLine"');
+    const sharedLine = readFileSync(resolve(import.meta.dirname, "../src/web/components/WagerLine.tsx"), "utf8");
+    expect(sharedLine).toContain('formatActivityLeg');
+    expect(sharedLine).toContain('activityLegGradeClass(leg.grade)');
+    expect(sharedLine).toContain('className={activityLegGradeClass(leg.grade)}');
+    expect(sharedLine).toContain('<strong key={index}>{segment.text}</strong>');
     expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
     expect(source).toContain('className="wager-start-time"');
     expect(source).toContain('<td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink></td>');

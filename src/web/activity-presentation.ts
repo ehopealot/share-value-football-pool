@@ -121,11 +121,21 @@ export function hasActiveActivityGame(wager: Wager, now: number): boolean {
 const signedLine = (line: string | undefined) => line && !line.startsWith("-") ? `+${line}` : line ?? "";
 const teams = (leg: Leg) => ({ away: displayTeamName(leg.league, leg.awayTeam ?? "Away"), home: displayTeamName(leg.league, leg.homeTeam ?? "Home") });
 
+/** Score suffixes are all-or-nothing so a partial result never appears as a final score. */
+export function gradedLegScoreSuffixes(leg: Pick<Leg, "grade" | "homeScore" | "awayScore">): { away: string; home: string } | undefined {
+  const { homeScore, awayScore } = leg;
+  if (leg.grade === undefined || homeScore === undefined || awayScore === undefined || !Number.isSafeInteger(homeScore) || homeScore < 0 || !Number.isSafeInteger(awayScore) || awayScore < 0) return undefined;
+  return { away: ` (${awayScore})`, home: ` (${homeScore})` };
+}
+
 /** Returns text segments so Activity can emphasize only the selected side or total. */
 export function formatActivityLeg(leg: Leg): ActivityLegLine {
   const { away, home } = teams(leg);
   const line = leg.adjustedLine ?? leg.originalLine;
-  if (leg.market === "total") return { hidden: false, segments: [{ text: `${away} at ${home} `, selected: false }, { text: `${leg.selection === "over" ? "O" : "U"}${line ?? ""}`, selected: true }] };
-  if (leg.selection === "away") return { hidden: false, segments: [{ text: `${away}${line === undefined ? "" : ` (${signedLine(line)})`}`, selected: true }, { text: ` at ${home}`, selected: false }] };
-  return { hidden: false, segments: [{ text: `${away} at `, selected: false }, { text: `${home}${line === undefined ? "" : ` (${signedLine(line)})`}`, selected: true }] };
+  const scores = gradedLegScoreSuffixes(leg);
+  const awayScore = scores?.away ?? "";
+  const homeScore = scores?.home ?? "";
+  if (leg.market === "total") return { hidden: false, segments: [{ text: `${away}${awayScore} at ${home}${homeScore} `, selected: false }, { text: `${leg.selection === "over" ? "O" : "U"}${line ?? ""}`, selected: true }] };
+  if (leg.selection === "away") return { hidden: false, segments: [{ text: `${away}${line === undefined ? "" : ` (${signedLine(line)})`}${awayScore}`, selected: true }, { text: ` at ${home}${homeScore}`, selected: false }] };
+  return { hidden: false, segments: [{ text: `${away}${awayScore} at `, selected: false }, { text: `${home}${line === undefined ? "" : ` (${signedLine(line)})`}${homeScore}`, selected: true }] };
 }
