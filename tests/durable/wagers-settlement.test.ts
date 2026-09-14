@@ -743,7 +743,7 @@ describe("PoolDO wagers and settlement", () => {
     expect(await stableBusiness()).toBe(stableCorrection);
   }, 120_000);
 
-  it("rejects malformed or mismatched correction result evidence without mutation", async () => {
+  it("rejects malformed, unsafe, or mismatched correction result evidence without mutation", async () => {
     const slug = await fundedPool();
     await send(slug, { type: "PlaceStraightWager", commandId: "evidence-place", actorId: "member", wagerId: "evidence-wager", seasonId: "s1", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", leg: leg("evidence-event") });
     const snapshot = () => storage(slug, (state) => Object.fromEntries(["pool", "season", "share_account", "wager", "wager_leg", "settlement", "wager_correction", "ledger_entry", "administration_audit", "processed_command"].map((table) => [table, JSON.stringify([...state.storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`)])])));
@@ -751,6 +751,12 @@ describe("PoolDO wagers and settlement", () => {
     const before = await snapshot();
     expect((await direct(slug, { type: "RegradeWager", commandId: "malformed-evidence", actorId: "owner", wagerId: "evidence-wager", reason: "Bad evidence", correctedResults: [{ eventId: "evidence-event", league: "nfl", status: "final", homeScore: null, awayScore: 17, correctionVersion: "manual-1" }] })).code).toBe("INVALID_COMMAND");
     expect(await snapshot()).toEqual(before);
+    expect((await direct(slug, { type: "RegradeWager", commandId: "unsafe-evidence", actorId: "owner", wagerId: "evidence-wager", reason: "Unsafe score", correctedResults: [correctionEvidence("evidence-event", "manual-unsafe", Number.MAX_SAFE_INTEGER + 1, Number.MAX_SAFE_INTEGER + 1)] })).code).toBe("INVALID_COMMAND");
+    expect(await snapshot()).toEqual(before);
+    const memberRead = await direct(slug, { type: "ReadMyWagers", commandId: "read-after-unsafe-rejection", actorId: "member" });
+    const memberLeg = (memberRead.wagers as any[]).find((wager) => wager.wagerId === "evidence-wager").legs[0];
+    expect(memberLeg).not.toHaveProperty("homeScore");
+    expect(memberLeg).not.toHaveProperty("awayScore");
     expect((await direct(slug, { type: "RegradeWager", commandId: "mismatched-evidence", actorId: "owner", wagerId: "evidence-wager", reason: "Wrong event", correctedResults: [correctionEvidence("another-event", "manual-2")] })).code).toBe("CORRECTION_RESULT_MISMATCH");
     expect(await snapshot()).toEqual(before);
   }, 90_000);

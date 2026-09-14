@@ -20,7 +20,7 @@ const [teaser6, teaser6_5, teaser7, teaser7_5, teaser10] = TEASER_POINT_OPTIONS;
 export const teaserPoints = z.union([z.literal(teaser6), z.literal(teaser6_5), z.literal(teaser7), z.literal(teaser7_5), z.literal(teaser10)]);
 /** Canonical correction evidence contains public event results only, never immutable wager selections. */
 export const correctedEventResult = z.discriminatedUnion("status", [
-  z.object({ eventId: z.string().min(1).max(128), league: z.enum(["nfl", "ncaaf"]), status: z.literal("final"), homeScore: z.number().int().nonnegative(), awayScore: z.number().int().nonnegative(), correctionVersion: z.string().min(1).max(500) }).strict(),
+  z.object({ eventId: z.string().min(1).max(128), league: z.enum(["nfl", "ncaaf"]), status: z.literal("final"), homeScore: z.number().int().nonnegative().safe(), awayScore: z.number().int().nonnegative().safe(), correctionVersion: z.string().min(1).max(500) }).strict(),
   z.object({ eventId: z.string().min(1).max(128), league: z.enum(["nfl", "ncaaf"]), status: z.enum(["cancelled", "no_contest"]), homeScore: z.null(), awayScore: z.null(), correctionVersion: z.string().min(1).max(500) }).strict()
 ]);
 export type CorrectedEventResult = z.infer<typeof correctedEventResult>;

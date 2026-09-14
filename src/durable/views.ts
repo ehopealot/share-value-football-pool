@@ -2,6 +2,8 @@ import { weekStartOf } from "../domain/betting-week";
 
 type Row = Record<string, SqlStorageValue>;
 
+const isSafeNonnegativeScore = (value: SqlStorageValue): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
 /** Removes undefined branches recursively so redacted JSON cannot retain a hidden nested field. */
 export function redactRecursively(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactRecursively);
@@ -38,7 +40,7 @@ function shapeWagersWithPolicy(sql: SqlStorage, viewerId: string, now: Date, own
       .filter((leg) => (ownsTicket && legRevealPolicy === "owner-or-started") || new Date(String(leg.event_starts_at)).getTime() <= now.getTime())
       .map((leg) => {
         const grade = leg.grade === null ? undefined : String(leg.grade);
-        const scores = grade !== undefined && leg.home_score !== null && leg.away_score !== null ? { homeScore: Number(leg.home_score), awayScore: Number(leg.away_score) } : {};
+        const scores = grade !== undefined && isSafeNonnegativeScore(leg.home_score) && isSafeNonnegativeScore(leg.away_score) ? { homeScore: leg.home_score, awayScore: leg.away_score } : {};
         return { eventId: String(leg.event_id), league: String(leg.league), canonicalBook: String(leg.canonical_book), retrievedAt: String(leg.retrieved_at), policyVersion: String(leg.policy_version), offerVersion: String(leg.offer_version), market: String(leg.market), selection: String(leg.selection), originalLine: leg.original_line === null ? undefined : String(leg.original_line), originalOdds: Number(leg.original_odds), teaserAdjustment: leg.teaser_adjustment === null ? undefined : String(leg.teaser_adjustment), adjustedLine: leg.adjusted_line === null ? undefined : String(leg.adjusted_line), eventStartsAt: String(leg.event_starts_at), ...(leg.home_team === null ? {} : { homeTeam: String(leg.home_team), awayTeam: String(leg.away_team) }), grade, resultVersion: leg.result_version === null ? undefined : String(leg.result_version), ...scores };
       });
     const hiddenLegCount = includeHiddenLegCount && !ownsTicket ? legs.length - revealed.length : 0;
