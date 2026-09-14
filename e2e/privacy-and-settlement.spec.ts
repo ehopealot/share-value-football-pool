@@ -664,7 +664,7 @@ test("fixture close archives the season for members with append-only commissione
     const memberWagerRow = member.getByRole("heading", { name: `${commissionerName} — straight wager` }).locator("..");
     await expect(memberWagerRow).toContainText("won");
     await expect(memberWagerRow).toContainText("Settled");
-    await expect(memberWagerRow.getByRole("row", { name: /local-nfl-upcoming/ })).toContainText("Local Away at Local Home");
+    await expect(memberWagerRow.getByRole("row", { name: /local-nfl-upcoming/ })).toContainText("Local Away (24) at Local Home (17)");
     await expect(member.getByText("No annotations yet.")).toBeVisible();
     await expect(member.getByLabel("Add annotation")).toHaveCount(0);
     // The page-wide button count would include only the session-derived "Log out" nav control (Layout),

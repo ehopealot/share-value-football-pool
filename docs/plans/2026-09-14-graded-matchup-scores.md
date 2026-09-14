@@ -12,4 +12,4 @@
 
 ## Residuals
 
-Already-graded historical legs have no persisted score snapshot, so they intentionally continue to omit scores unless a later correction regrades them. No live-score display or polling behavior is introduced.
+Already-graded legs, including active-season legs at deployment, have no persisted score snapshot, so they intentionally continue to omit scores unless a later correction regrades them. No live-score display or polling behavior is introduced.
