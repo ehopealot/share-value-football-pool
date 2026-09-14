@@ -152,9 +152,16 @@ export type EspnBoxScoreResponse = z.infer<typeof EspnBoxScoreResponse>;
 const wagerType = z.enum(["straight", "teaser", "parlay"]);
 const wagerStatus = z.enum(["open", "won", "lost", "refunded"]);
 const settledOdds = z.number().int().safe().refine((odds) => odds !== 0);
-const wagerLeg = z.object({ eventId: z.string(), league: z.string(), canonicalBook: z.string(), retrievedAt: z.string().datetime(), policyVersion: z.string(), offerVersion: z.string(), market: z.string(), selection: z.string(), originalLine: z.string().optional(), originalOdds: z.number(), teaserAdjustment: z.string().optional(), adjustedLine: z.string().optional(), eventStartsAt: z.string().datetime(), homeTeam: z.string().optional(), awayTeam: z.string().optional(), grade: z.string().optional(), resultVersion: z.string().optional() });
-const ownerWagerLeg = wagerLeg.strict();
-const activityWagerLeg = wagerLeg.strict();
+const wagerLegShape = { eventId: z.string(), league: z.string(), canonicalBook: z.string(), retrievedAt: z.string().datetime(), policyVersion: z.string(), offerVersion: z.string(), market: z.string(), selection: z.string(), originalLine: z.string().optional(), originalOdds: z.number(), teaserAdjustment: z.string().optional(), adjustedLine: z.string().optional(), eventStartsAt: z.string().datetime(), homeTeam: z.string().optional(), awayTeam: z.string().optional(), grade: z.string().optional(), resultVersion: z.string().optional(), homeScore: z.number().int().nonnegative().safe().optional(), awayScore: z.number().int().nonnegative().safe().optional() };
+const wagerLeg = z.object(wagerLegShape);
+const visibleWagerLeg = z.object(wagerLegShape).strict().superRefine((leg, ctx) => {
+  const hasScore = leg.homeScore !== undefined || leg.awayScore !== undefined;
+  if (!hasScore) return;
+  if (leg.grade === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Scores require a graded leg." });
+  if (leg.homeScore === undefined || leg.awayScore === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Scores must include both teams." });
+});
+const ownerWagerLeg = visibleWagerLeg;
+const activityWagerLeg = visibleWagerLeg;
 
 /** Authoritative member reads use canonical accounting text and may omit protected ticket fields. */
 export const memberWager = z.object({

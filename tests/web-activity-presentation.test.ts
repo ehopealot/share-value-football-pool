@@ -81,6 +81,16 @@ describe("activity presentation", () => {
     expect(formatActivityLeg(leg({ market: "total", selection: "over", originalLine: "44.5" }))).toEqual({ hidden: false, segments: [{ text: "UCLA at Arizona ", selected: false }, { text: "O44.5", selected: true }] });
   });
 
+  it("adds complete final scores to graded sides, totals, and moneylines without changing selection emphasis", () => {
+    const final = { grade: "win", homeScore: 0, awayScore: 17 };
+    expect(formatActivityLeg(leg(final))).toEqual({ hidden: false, segments: [{ text: "UCLA (-7.5) (17)", selected: true }, { text: " at Arizona (0)", selected: false }] });
+    expect(formatActivityLeg(leg({ ...final, selection: "home", originalLine: "7.5" }))).toEqual({ hidden: false, segments: [{ text: "UCLA (17) at ", selected: false }, { text: "Arizona (+7.5) (0)", selected: true }] });
+    expect(formatActivityLeg(leg({ ...final, market: "total", selection: "over", originalLine: "44.5" }))).toEqual({ hidden: false, segments: [{ text: "UCLA (17) at Arizona (0) ", selected: false }, { text: "O44.5", selected: true }] });
+    expect(formatActivityLeg(leg({ ...final, market: "moneyline", originalLine: undefined }))).toEqual({ hidden: false, segments: [{ text: "UCLA (17)", selected: true }, { text: " at Arizona (0)", selected: false }] });
+    expect(formatActivityLeg(leg({ homeScore: 0, awayScore: 17 }))).toEqual({ hidden: false, segments: [{ text: "UCLA (-7.5)", selected: true }, { text: " at Arizona", selected: false }] });
+    expect(formatActivityLeg(leg({ grade: "win", homeScore: 0 }))).toEqual({ hidden: false, segments: [{ text: "UCLA (-7.5)", selected: true }, { text: " at Arizona", selected: false }] });
+  });
+
   it("uses concise NCAA names in wager legs", () => {
     expect(formatActivityLeg(leg({ league: "ncaaf", awayTeam: "Texas Longhorns", homeTeam: "Oklahoma Sooners" }))).toEqual({ hidden: false, segments: [{ text: "Texas (-7.5)", selected: true }, { text: " at Oklahoma", selected: false }] });
   });

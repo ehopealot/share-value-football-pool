@@ -59,6 +59,11 @@ describe("owner ticket presentation", () => {
     expect(displayWagerDateLabel(malformed)).toBe("Upcoming");
   });
 
+  it("shows complete final scores in archived wager details", () => {
+    const details = renderToStaticMarkup(createElement(WagerDetails, { wager: { wagerId: "scored", memberDisplayName: "Member", type: "straight", status: "won", legs: [{ eventId: "event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2030-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "moneyline", selection: "away", originalOdds: 100, eventStartsAt: "2030-01-02T00:00:00.000Z", homeTeam: "Home", awayTeam: "Away", grade: "win", homeScore: 0, awayScore: 17 }], confirmedAt: "2030-01-01T00:00:00.000Z", performanceMicros: "1000000", seasonId: "s", memberId: "member" } as any }));
+    expect(details).toContain("Away (17) at Home (0)");
+  });
+
   it("renders parlay confirmation terms and owner settlement details", () => {
     const leg = { eventId: "event", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2030-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", canonicalOfferProof: { offerId: "event:spread:home", eventId: "event", offerVersion: "v1", canonicalBook: "DraftKings", market: "spread", selection: "home", odds: 100, line: -3 }, market: "spread", selection: "home", originalLine: -3, adjustedLine: -3, originalOdds: 100, eventStartsAt: "2030-01-02T00:00:00.000Z", homeTeam: "Home", awayTeam: "Away" } as const;
     const total = { ...leg, canonicalOfferProof: { ...leg.canonicalOfferProof, offerId: "event:total:over", market: "total" as const, selection: "over" as const, line: 47 }, market: "total" as const, selection: "over" as const, originalLine: 47, adjustedLine: 47 };

@@ -81,7 +81,11 @@ describe("T11 member read contracts", () => {
     const ownerLeg = { eventId: "event-1", league: "nfl", canonicalBook: "DraftKings", retrievedAt: "2026-01-01T00:00:00.000Z", policyVersion: "CANONICAL_BOOKS_2026_V1", offerVersion: "v1", market: "spread", selection: "home", originalLine: "-3", originalOdds: 100, eventStartsAt: "2026-01-02T00:00:00.000Z" };
     const openOwner = { ...wager, status: "open", riskMicros: "1000000", acceptedOdds: 100, rulesetVersion: "SHARE_POOL_2026_V1", legs: [ownerLeg] };
     const historicalOwner = { ...openOwner, status: "won", outcome: "won", returnMicros: "2000000", profitMicros: "1000000", settledAt: "2026-01-02T00:00:00.000Z", settledOdds: null };
-    expect(ReadMyWagers.parse({ commandVersion: "1", wagers: [openOwner, historicalOwner] }).wagers.map((ticket) => ticket.status)).toEqual(["open", "won"]);
+    const scoredOwner = { ...openOwner, legs: [{ ...ownerLeg, grade: "win", homeScore: 0, awayScore: 17 }] };
+    expect(ReadMyWagers.parse({ commandVersion: "1", wagers: [openOwner, historicalOwner, scoredOwner] }).wagers.map((ticket) => ticket.status)).toEqual(["open", "won", "open"]);
+    expect(ReadMyWagers.parse({ commandVersion: "1", wagers: [scoredOwner] }).wagers[0].legs[0]).toMatchObject({ grade: "win", homeScore: 0, awayScore: 17 });
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...scoredOwner, legs: [{ ...ownerLeg, homeScore: 0, awayScore: 17 }] }] })).toThrow();
+    expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [{ ...scoredOwner, legs: [{ ...ownerLeg, grade: "win", homeScore: 0 }] }] })).toThrow();
     for (const field of ["riskMicros", "acceptedOdds", "rulesetVersion", "legs"] as const) {
       const { [field]: _missing, ...incomplete } = openOwner;
       expect(() => ReadMyWagers.parse({ commandVersion: "1", wagers: [incomplete] })).toThrow();

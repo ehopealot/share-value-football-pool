@@ -4,22 +4,16 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
-import { activityLegGradeClass, activityWagerPerformanceClass, formatActivityLeg, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityWagerPerformanceClass, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
 import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
+import { WagerLine } from "../components/WagerLine";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
-type Leg = Wager["legs"][number];
 
 const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
-
-function WagerLine({ leg }: { leg: Leg }) {
-  const line = formatActivityLeg(leg);
-  const gradeClass = activityLegGradeClass(leg.grade);
-  return <span className={gradeClass}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}</span>;
-}
 
 function Staked({ wager }: { wager: Wager }) {
   const stake = formatActivityStake(wager);
