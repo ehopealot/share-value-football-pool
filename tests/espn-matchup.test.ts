@@ -89,7 +89,7 @@ describe("ESPN matchup lookup", () => {
     const result = await lookupEspnMatchup(input, { fetcher });
 
     expect(result).toMatchObject({ status: "ok", matchup: { away: { recentResults: [] }, home: { recentResults: [] }, seasonStats: [] } });
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(6);
     expect(fetcher.mock.calls.map((call) => String(call[0])).some((url) => url.includes("/schedule?season="))).toBe(false);
     expect(fetcher.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("statistics?season=2026")).length).toBe(2);
   });
@@ -122,20 +122,50 @@ describe("ESPN matchup lookup", () => {
         ]
       }
     });
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(6);
     expect(cache.entries.get(matchupCacheRequest(input).url)).toBeDefined();
   });
 
-  it("queries the preceding UTC day through kickoff day so late US slates are discoverable", async () => {
+  it("queries each adjacent UTC day independently so late US slates remain discoverable", async () => {
     const lateGame = { ...input, startsAt: "2025-09-08T00:20:00.000Z" };
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const value = String(url);
-      if (value.includes("scoreboard")) return responseFor({ events: value.includes("dates=20250907-20250908") ? [game({ date: lateGame.startsAt })] : [] });
+      if (value.includes("scoreboard")) {
+        if (value.includes("dates=20250907")) return responseFor({ events: [game({ date: lateGame.startsAt })] });
+        if (value.includes("dates=20250908")) return responseFor({ events: [] });
+        return responseFor({ code: 400, message: "Failed to get events endpoint." }, { status: 400 });
+      }
       return responseFor({ results: { stats: { categories: [] } }, events: [] });
     });
 
     await expect(lookupEspnMatchup(lateGame, { fetcher })).resolves.toMatchObject({ status: "ok", matchup: { startsAt: lateGame.startsAt } });
-    expect(fetcher.mock.calls[0]![0]).toContain("dates=20250907-20250908");
+    const scoreboardUrls = fetcher.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("scoreboard"));
+    expect(scoreboardUrls).toEqual(expect.arrayContaining([expect.stringContaining("dates=20250907"), expect.stringContaining("dates=20250908")]));
+    expect(scoreboardUrls).not.toContain(expect.stringMatching(/dates=\d{8}-\d{8}/));
+  });
+
+  it("fails closed when either adjacent scoreboard day is unavailable", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (!value.includes("scoreboard")) return responseFor({ results: { stats: { categories: [] } }, events: [] });
+      if (value.includes("dates=20260912")) return responseFor({ events: [game()] });
+      if (value.includes("dates=20260913")) return responseFor({ message: "down" }, { status: 503 });
+      return responseFor({ events: [game()] });
+    });
+
+    await expect(lookupEspnMatchup(input, { fetcher })).resolves.toEqual({ status: "upstream-unavailable" });
+    const scoreboardUrls = fetcher.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("scoreboard"));
+    expect(scoreboardUrls).toEqual(expect.arrayContaining([expect.stringContaining("dates=20260912"), expect.stringContaining("dates=20260913")]));
+  });
+
+  it("deduplicates an ESPN event repeated across adjacent scoreboards", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) return responseFor({ events: value.includes("dates=20260912-20260913") ? [game(), game()] : [game()] });
+      return responseFor({ results: { stats: { categories: [] } }, events: [] });
+    });
+
+    await expect(lookupEspnMatchup(input, { fetcher })).resolves.toMatchObject({ status: "ok", matchup: { startsAt: input.startsAt } });
   });
 
   it("reads the cached blob before requesting ESPN and keys it by league, both teams, and game date", async () => {
@@ -189,7 +219,7 @@ describe("ESPN matchup lookup", () => {
   });
 
   it("never selects an ambiguous or reversed ESPN event", async () => {
-    const fetcher = vi.fn(async () => responseFor({ events: [game(), game()] }));
+    const fetcher = vi.fn(async () => responseFor({ events: [game(), game({ id: "other-espn-game" })] }));
     const reversed = vi.fn(async () => responseFor({ events: [game({ competitions: [{ competitors: [
       { homeAway: "home", team: team("away", "Atlanta Falcons"), records: [] },
       { homeAway: "away", team: team("home", "Pittsburgh Steelers"), records: [] }
@@ -237,10 +267,33 @@ describe("ESPN matchup lookup", () => {
   });
 });
 
-const boxEvent = (status: Record<string, unknown>, competitors: Record<string, unknown>[], situation?: Record<string, unknown>) => ({ events: [{ id: "espn-game", date: input.startsAt, status, competitions: [{ venue: { fullName: "Acrisure Stadium" }, ...(situation ? { situation } : {}), competitors }] }] });
+const boxEvent = (status: Record<string, unknown>, competitors: Record<string, unknown>[], situation?: Record<string, unknown>, date = input.startsAt) => ({ events: [{ id: "espn-game", date, status, competitions: [{ venue: { fullName: "Acrisure Stadium" }, ...(situation ? { situation } : {}), competitors }] }] });
 const boxCompetitor = (side: "away" | "home", name: string, score: string, linescores: Array<number | null>) => ({ homeAway: side, team: team(side, name), score, linescores: linescores.map((value) => ({ value })) });
 
 describe("ESPN box score", () => {
+  it("loads a late US box score from the preceding UTC day without a range query", async () => {
+    const lateGame = { ...input, startsAt: "2025-09-08T00:20:00.000Z" };
+    const competitors = [
+      boxCompetitor("away", "Atlanta Falcons", "14", [7, 7]),
+      boxCompetitor("home", "Pittsburgh Steelers", "10", [3, 7])
+    ];
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("scoreboard")) {
+        if (value.includes("dates=20250907")) return responseFor(boxEvent({ type: { state: "in", shortDetail: "2nd Qtr - 5:22" }, displayClock: "5:22", period: { number: 2 } }, competitors, undefined, lateGame.startsAt));
+        if (value.includes("dates=20250908")) return responseFor({ events: [] });
+        return responseFor({ code: 400, message: "Failed to get events endpoint." }, { status: 400 });
+      }
+      if (value.includes("summary?event=espn-game")) return responseFor({ boxscore: { teams: [] } });
+      throw new Error(`unexpected ESPN call: ${value}`);
+    });
+
+    await expect(lookupEspnBoxScore(lateGame, { fetcher })).resolves.toMatchObject({ status: "ok", box: { state: "live", away: { score: "14" }, home: { score: "10" } } });
+    const scoreboardUrls = fetcher.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("scoreboard"));
+    expect(scoreboardUrls).toEqual(expect.arrayContaining([expect.stringContaining("dates=20250907"), expect.stringContaining("dates=20250908")]));
+    expect(scoreboardUrls).not.toContain(expect.stringMatching(/dates=\d{8}-\d{8}/));
+  });
+
   it("serves a live box score with in-progress team stats from the summary endpoint", async () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const value = String(url);
@@ -270,7 +323,7 @@ describe("ESPN box score", () => {
         { id: "sp-2", quarter: "Q2", clock: "5:22", team: "PIT", text: "Chris Boswell 42 Yd Field Goal", away: "7", home: "3" }
       ]
     } });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("adds curated team stats from the summary payload once final", async () => {
@@ -302,7 +355,7 @@ describe("ESPN box score", () => {
       ]
     } });
     expect("clock" in (result as { status: "ok"; box: Record<string, unknown> }).box).toBe(false);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("keeps pregame box reads cheap: no quarters, no summary call", async () => {
@@ -315,7 +368,7 @@ describe("ESPN box score", () => {
     });
 
     await expect(lookupEspnBoxScore(input, { fetcher })).resolves.toMatchObject({ status: "ok", box: { state: "pregame", statusDetail: "Sun 1:00 PM", quarters: [], stats: [] } });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("keys scores and linescores by side, not ESPN's raw competitor order", async () => {
