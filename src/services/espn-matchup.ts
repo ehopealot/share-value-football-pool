@@ -54,12 +54,12 @@ const gameDate = (startsAt: string): string | undefined => {
   const date = new Date(startsAt);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString().slice(0, 10);
 };
-/** ESPN groups late US games under the preceding local slate, so include both adjacent UTC days. */
-const scoreboardDateRange = (startsAt: string): string | undefined => {
+/** ESPN groups late US games under the preceding local slate. Its range parameter fails, so request both UTC days separately. */
+const scoreboardDates = (startsAt: string): string[] | undefined => {
   const kickoff = new Date(startsAt);
   if (Number.isNaN(kickoff.getTime())) return undefined;
   const priorDay = new Date(kickoff.getTime() - 24 * 60 * 60 * 1000);
-  return [priorDay, kickoff].map((date) => date.toISOString().slice(0, 10).replaceAll("-", "")).join("-");
+  return [priorDay, kickoff].map((date) => date.toISOString().slice(0, 10).replaceAll("-", ""));
 };
 const cacheName = (name: string) => canonicalTeamName(name).replace(/ /g, "-");
 
@@ -143,6 +143,22 @@ const responseJson = async (fetcher: typeof fetch, url: string): Promise<unknown
     if (!response.ok) return undefined;
     return await response.json();
   } catch { return undefined; }
+};
+/** A failed day means the event identity cannot be established across the complete adjacent-day slate. */
+const adjacentScoreboard = async (league: EspnLeague, dates: string[], fetcher: typeof fetch): Promise<{ events: unknown[] } | undefined> => {
+  const payloads = await Promise.all(dates.map((date) => responseJson(fetcher, `${ESPN_BASE}/${leaguePath(league)}/scoreboard?dates=${date}`)));
+  const events: unknown[] = []; const seenIds = new Set<string>();
+  for (const payload of payloads) {
+    const dayEvents = asArray(asObject(payload)?.events);
+    if (!dayEvents) return undefined;
+    for (const event of dayEvents) {
+      const id = asText(asObject(event)?.id);
+      if (id && seenIds.has(id)) continue;
+      if (id) seenIds.add(id);
+      events.push(event);
+    }
+  }
+  return { events };
 };
 const displayStat = (stat: JsonObject, perGame = false): string | undefined => perGame ? asText(stat.perGameDisplayValue) ?? asText(stat.displayValue) : asText(stat.displayValue);
 const findStatObject = (payload: unknown, name: string, category?: string): JsonObject | undefined => {
@@ -255,10 +271,10 @@ export async function lookupEspnMatchup(input: EspnMatchupInput, dependencies: E
   const key = matchupCacheRequest(input, dependencies.cacheScope); const fromCache = await readCache(dependencies.cache, key);
   if (fromCache) return { status: "ok", matchup: fromCache };
   const fetcher = dependencies.fetcher ?? fetch;
-  const date = gameDate(input.startsAt); const dates = scoreboardDateRange(input.startsAt);
-  if (!date || !dates) return { status: "not-found" };
-  const scoreboard = await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/scoreboard?dates=${dates}`);
-  if (!scoreboard || !asArray(asObject(scoreboard)?.events)) return { status: "upstream-unavailable" };
+  const dates = scoreboardDates(input.startsAt);
+  if (!dates) return { status: "not-found" };
+  const scoreboard = await adjacentScoreboard(input.league, dates, fetcher);
+  if (!scoreboard) return { status: "upstream-unavailable" };
   const event = findEspnEvent(scoreboard, input);
   if (!event) return { status: "not-found" };
   const base = `${ESPN_BASE}/${leaguePath(input.league)}/teams`;
@@ -358,10 +374,10 @@ export async function lookupEspnBoxScore(input: EspnMatchupInput, dependencies: 
     if (parsed) return { status: "ok", box: parsed };
   } catch { /* Cache failures must not fail a box read. */ }
   const fetcher = dependencies.fetcher ?? fetch;
-  const dates = scoreboardDateRange(input.startsAt);
+  const dates = scoreboardDates(input.startsAt);
   if (!dates) return { status: "not-found" };
-  const scoreboard = await responseJson(fetcher, `${ESPN_BASE}/${leaguePath(input.league)}/scoreboard?dates=${dates}`);
-  if (!scoreboard || !asArray(asObject(scoreboard)?.events)) return { status: "upstream-unavailable" };
+  const scoreboard = await adjacentScoreboard(input.league, dates, fetcher);
+  if (!scoreboard) return { status: "upstream-unavailable" };
   const event = findEspnEvent(scoreboard, input);
   if (!event) return { status: "not-found" };
   const state = event.state === "in" ? "live" : event.state === "post" ? "final" : "pregame";
