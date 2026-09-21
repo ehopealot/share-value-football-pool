@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { localE2eClientBuildEnvironment } from "../../scripts/e2e-client-build";
+import { availableLoopbackPort } from "../../scripts/network-port";
 import { cleanupOwnedResources, createOwnerControl, installOwnedSignalCleanup, runOwnedProcess, stopOwnedProcess } from "../../scripts/owned-process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,7 +21,7 @@ export const stop = stopOwnedProcess;
 /** The Playwright fixture and opt-in owner harness intentionally share this lifecycle. */
 export async function runLocalWorkerOwner(use: (worker: LocalWorker) => Promise<void>) {
   const persistence = await mkdtemp(join(tmpdir(), "share-value-pool-owned-e2e-"));
-  const port = 31000 + Math.floor(Math.random() * 4000);
+  const port = await availableLoopbackPort();
   const control = createOwnerControl();
   const e2eEnvironment = localE2eClientBuildEnvironment(process.env);
   let child: ChildProcess | undefined;
