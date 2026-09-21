@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MatchupDetails, MatchupBoxScore, MatchupLines, PoolExposure, matchupUnavailableMessage, matchupPageView } from "../src/web/pages/MatchupDetailsPage";
 import type { EspnBoxScoreResponse as EspnBoxScore, PoolExposureResponse } from "../src/contracts/http";
 import { MatchupLegLink } from "../src/web/components/MatchupLegLink";
@@ -87,7 +87,11 @@ describe("box score view", () => {
     expect(html).toContain("Total Yards");
   });
 
-  it("links current-week legs to their matchup without an underline and leaves other weeks as text", () => {
+  it("links current-week legs to their matchup without an underline and leaves other weeks as text", (context) => {
+    vi.useFakeTimers();
+    context.onTestFinished(() => { vi.useRealTimers(); });
+    // Keep the fixture's betting week independent of the date CI runs.
+    vi.setSystemTime(new Date("2026-09-13T18:00:00.000Z"));
     const currentWeekLeg = { eventId: "leg-1", eventStartsAt: "2026-09-13T17:00:00.000Z" };
     const priorWeekLeg = { eventId: "leg-2", eventStartsAt: "2026-08-30T17:00:00.000Z" };
     const html = renderToStaticMarkup(createElement(MemoryRouter, {}, createElement("div", {},
