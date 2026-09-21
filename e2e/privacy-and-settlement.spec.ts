@@ -284,7 +284,7 @@ test("canonical Super Bowl confirmation and final result automatically close the
 
     await page.goto(`${worker.baseURL}/p/${slug}/admin/season`);
     await expect(page.getByText("Super Bowl candidate: T11 Local Super Bowl LXI.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Confirm Super Bowl" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "End season after Super Bowl" })).toBeVisible();
 
     const confirmProbe = (actor: Page, eventId: string) => actor.evaluate(async ({ poolSlug, seasonId, eventId }) => {
       const response = await fetch(`/api/p/${poolSlug}/admin/seasons/${seasonId}/super-bowl/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ eventId, idempotencyKey: crypto.randomUUID() }) });
@@ -306,11 +306,11 @@ test("canonical Super Bowl confirmation and final result automatically close the
     const beforeConfirmation = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { commandVersion: string }, slug);
     expect(await page.evaluate(async (pathname) => (await fetch("/__local-test/response-barrier", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "drop", pathname }) })).status, `/api/p/${slug}/admin/seasons/${seasonId}/super-bowl/confirm`)).toBe(200);
     const droppedConfirmationAt = Date.now();
-    await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
+    await page.getByRole("button", { name: "End season after Super Bowl" }).click();
     await expect(page.getByRole("alert")).toHaveText("Service unavailable.", { timeout: 8_000 });
     expect(Date.now() - droppedConfirmationAt).toBeLessThan(10_000);
-    await page.getByRole("button", { name: "Confirm Super Bowl" }).click();
-    await expect(page.getByText(/Super Bowl candidate: T11 Local Super Bowl LXI\. Confirmed\./)).toBeVisible();
+    await page.getByRole("button", { name: "End season after Super Bowl" }).click();
+    await expect(page.getByText(/Super Bowl candidate: T11 Local Super Bowl LXI\. Acknowledged:/)).toBeVisible();
     expect(confirmationBodies).toHaveLength(2);
     expect(confirmationBodies[1]).toEqual(confirmationBodies[0]);
     const afterConfirmation = await page.evaluate(async (poolSlug) => await (await fetch(`/api/p/${poolSlug}/view`)).json() as { commandVersion: string }, slug);
