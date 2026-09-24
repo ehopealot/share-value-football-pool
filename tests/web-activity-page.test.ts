@@ -17,7 +17,7 @@ describe("Activity page", () => {
     expect(source).toContain('<label>Week <select');
     expect(source).toContain('wagerWeekOptions(data.activity.wagers.map((wager) => wager.weekStart), currentWeek)');
     expect(source).toContain('const currentWeek = weekStartOf(new Date()).toISOString();');
-    expect(source).toContain('const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);');
+    expect(source).toContain('const week = live ? currentWeek : selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);');
     expect(source).toContain('<option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map');
     expect(source).toContain('groupActivityMembers(data.activity.wagers, week)');
     expect(source).toContain('className="activity-member-ribbon"');
