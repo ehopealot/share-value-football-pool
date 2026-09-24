@@ -52,18 +52,24 @@ export function ActivityPage() {
   return <ActivityPageBody key={slug} slug={slug}/>;
 }
 
-export function ActivityPageBody({ slug }: { slug: string }) {
+export function LiveGamesPage() {
+  const { slug = "" } = useParams();
+  return <ActivityPageBody key={slug} slug={slug} mode="live"/>;
+}
+
+export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mode?: "activity" | "live" }) {
+  const live = mode === "live";
+  const title = live ? "Live games" : "Activity";
   const [data, setData] = useState<import("../../contracts/http").ReadActivity>();
   const [selectedWeek, setSelectedWeek] = useState("");
-  const [activeOnly, setActiveOnly] = useState(false);
+  const activeOnly = mode === "live";
   const [groupByDay, setGroupByDay] = useState(false);
   const [error, setError] = useState("");
-  const compact = useCompactWagerViewport();
   const errorRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => { void api.activity(slug).then(setData).catch((e) => setError(errorMessage(e))); }, [slug]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  if (error) return <Layout><h1>Activity</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
-  if (!data) return <Layout><p role="status">Loading activity…</p></Layout>;
+  if (error) return <Layout><h1>{title}</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
+  if (!data) return <Layout><p role="status">{live ? "Loading live games…" : "Loading activity…"}</p></Layout>;
   const currentWeek = weekStartOf(new Date()).toISOString();
   const weeks = wagerWeekOptions(data.activity.wagers.map((wager) => wager.weekStart), currentWeek);
   const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);
@@ -74,12 +80,11 @@ export function ActivityPageBody({ slug }: { slug: string }) {
   // Derive daily P&L before filtering, as with the weekly member ribbons above.
   const weeklyDays = groupActivityDaysForWeek(data.activity.wagers, week, now);
   const days = activeOnly ? filterActivityDaysForActiveGames(weeklyDays, now) : weeklyDays;
-  const controls = <><label className="activity-active-toggle"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Active games only</label><label className="activity-group-toggle"><input type="checkbox" checked={groupByDay} onChange={(event) => setGroupByDay(event.target.checked)} /> Group by day</label></>;
-  return <Layout><div className="activity-page"><h1 className="visually-hidden">Activity</h1>
-    <section><h2>All bets</h2>
+  return <Layout><div className="activity-page"><h1 className="visually-hidden">{title}</h1>
+    <section><h2>{live ? "Live games" : "All bets"}</h2>
       <div className="activity-filters">
         <label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
-        {compact ? <details className="activity-options"><summary>Options</summary><div>{controls}</div></details> : controls}
+        <label className="activity-group-toggle"><input type="checkbox" checked={groupByDay} onChange={(event) => setGroupByDay(event.target.checked)} /> Group by day</label>
       </div>
       {(week === undefined || week === currentWeek) && <MatchupHint/>}
       {groupByDay ? days.length ? days.map((day) => <DayActivitySection key={day.key} day={day} memberProfilePath={(memberId) => `/p/${slug}/member/${memberId}`} slug={slug}/>) : <p role="status">There are no bets right now</p> : members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} slug={slug} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}

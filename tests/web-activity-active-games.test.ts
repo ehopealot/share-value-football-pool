@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadActivity } from "../src/contracts/http";
 import { ActivityPageBody, MemberActivitySection } from "../src/web/pages/ActivityPage";
 
-// Exercise the page's actual controls and render output with a small hook-state harness.
+// Exercise the page's permanently selected view mode with a small hook-state harness.
 const hooks = vi.hoisted(() => ({ cursor: 0, values: [] as unknown[] }));
 vi.mock("react", async (importOriginal) => ({
   ...await importOriginal<typeof import("react")>(),
@@ -44,13 +44,8 @@ function elements(node: ReactNode): ReactElement<Record<string, any>>[] {
   if (!isValidElement<Record<string, any>>(node)) return [];
   return [node, ...elements(node.props.children)];
 }
-function renderPage() { hooks.cursor = 0; return ActivityPageBody({ slug: "pool" }); }
-function toggle(page: ReactNode, checked: boolean) {
-  const control = elements(page).find((element) => element.type === "input" && element.props.type === "checkbox");
-  expect(control, "Active games only checkbox").toBeDefined();
-  control!.props.onChange({ target: { checked } });
-  return renderPage();
-}
+function renderActivityPage() { hooks.cursor = 0; return ActivityPageBody({ slug: "pool" }); }
+function renderLiveGamesPage() { hooks.cursor = 0; return ActivityPageBody({ slug: "pool", mode: "live" }); }
 function members(page: ReactNode) {
   return elements(page).filter((element) => element.type === MemberActivitySection).map((element) => element.props.member);
 }
@@ -62,53 +57,61 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
-describe("Activity active games toggle", () => {
-  it("defaults off, retains full matching tickets and weekly P&L, and restores all bets when disabled", () => {
-    const initial = renderPage();
-    expect(elements(initial).find((element) => element.type === "input")?.props.checked).toBe(false);
-    expect(members(initial)).toHaveLength(3);
-    const active = toggle(initial, true);
-    expect(members(active)).toEqual([expect.objectContaining({ memberId: "member", performanceMicros: "500000000", wagers: [mixed] })]);
-    const html = renderToStaticMarkup(active);
-    expect(html).toContain("Active games only");
+describe("Activity and Live games views", () => {
+  it("keeps Activity unfiltered and exposes only the Group by day checkbox", () => {
+    const page = renderActivityPage();
+    const html = renderToStaticMarkup(page);
+
+    expect(members(page)).toHaveLength(3);
+    expect(html).toContain('<h1 class="visually-hidden">Activity</h1>');
+    expect(html).toContain("<h2>All bets</h2>");
+    expect(html).toContain("Group by day");
+    expect(html).not.toContain("Active games only");
+    expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toEqual([expect.objectContaining({ props: expect.objectContaining({ checked: false }) })]);
+  });
+
+  it("permanently filters Live games while retaining full-week member P&L", () => {
+    const page = renderLiveGamesPage();
+    const html = renderToStaticMarkup(page);
+
+    expect(members(page)).toEqual([expect.objectContaining({ memberId: "member", performanceMicros: "500000000", wagers: [mixed] })]);
+    expect(html).toContain('<h1 class="visually-hidden">Live games</h1>');
+    expect(html).toContain("<h2>Live games</h2>");
     expect(html).toContain("Live");
     expect(html).toContain("Future");
     expect(html).toContain("Graded");
     expect(html).toContain("1 other selection hidden until game time.");
     expect(html).not.toContain("FutureOnly");
     expect(html).not.toContain("OldWeek");
-    expect(members(toggle(active, false))).toEqual(members(initial));
+    expect(html).not.toContain("Active games only");
   });
 
-  it("shows +0.00 shares when a member's weekly wins and losses cancel out", () => {
+  it("shows +0.00 shares in Live games when a member's weekly wins and losses cancel out", () => {
     hooks.values[0] = { commandVersion: "1", activity: { orders: [], wagers: [mixed, fixtures[1], wager("loss", { status: "lost", performanceMicros: "-500000000", legs: [leg("Loss", undefined, "loss")] })] } };
-    const initial = renderPage();
-    expect(renderToStaticMarkup(initial)).toContain("Member<small>+0.00 shares</small>");
-    expect(renderToStaticMarkup(toggle(initial, true))).toContain("Member<small>+0.00 shares</small>");
+    expect(renderToStaticMarkup(renderLiveGamesPage())).toContain("Member<small>+0.00 shares</small>");
   });
 
-  it("keeps week selection and the toggle available when no games match", () => {
+  it("keeps week selection and Group by day available when no Live games match", () => {
     hooks.values[0] = { commandVersion: "1", activity: { orders: [], wagers: [fixtures[2]] } };
-    const active = toggle(renderPage(), true);
-    expect(members(active)).toEqual([]);
-    expect(renderToStaticMarkup(active)).toContain("There are no bets right now");
-    expect(elements(active).some((element) => element.type === "select")).toBe(true);
-    expect(members(toggle(active, false))).toHaveLength(1);
+    const page = renderLiveGamesPage();
+    expect(members(page)).toEqual([]);
+    expect(renderToStaticMarkup(page)).toContain("There are no bets right now");
+    expect(elements(page).some((element) => element.type === "select")).toBe(true);
+    expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(1);
   });
 
-  it("applies the filter within the selected week without removing week options", () => {
-    const active = toggle(renderPage(), true);
-    const select = elements(active).find((element) => element.type === "select")!;
+  it("applies Live filtering within the selected week without removing week options", () => {
+    const page = renderLiveGamesPage();
+    const select = elements(page).find((element) => element.type === "select")!;
     expect(select.props.value).toBe(week);
     expect(elements(select).filter((element) => element.type === "option").map((option) => option.props.value)).toEqual(["all", week, "2026-08-25T07:00:00.000Z"]);
     select.props.onChange({ target: { value: "2026-08-25T07:00:00.000Z" } });
-    expect(members(renderPage())[0].wagers.map((row: Wager) => row.wagerId)).toEqual(["old-week"]);
+    expect(members(renderLiveGamesPage())[0].wagers.map((row: Wager) => row.wagerId)).toEqual(["old-week"]);
   });
 
-  it("uses the exact empty message even when there are no bets at all", () => {
+  it("uses the exact empty message in both views when there are no bets", () => {
     hooks.values[0] = { commandVersion: "1", activity: { orders: [], wagers: [] } };
-    const page = renderPage();
-    expect(renderToStaticMarkup(page)).toContain("There are no bets right now");
-    expect(renderToStaticMarkup(toggle(page, true))).toContain("There are no bets right now");
+    expect(renderToStaticMarkup(renderActivityPage())).toContain("There are no bets right now");
+    expect(renderToStaticMarkup(renderLiveGamesPage())).toContain("There are no bets right now");
   });
 });
