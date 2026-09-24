@@ -72,7 +72,7 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
   if (!data) return <Layout><p role="status">{live ? "Loading live games…" : "Loading activity…"}</p></Layout>;
   const currentWeek = weekStartOf(new Date()).toISOString();
   const weeks = wagerWeekOptions(data.activity.wagers.map((wager) => wager.weekStart), currentWeek);
-  const week = selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);
+  const week = live ? currentWeek : selectedWeekOrCurrent(selectedWeek, weeks, currentWeek);
   const now = Date.now();
   // Group before filtering so ribbons retain the full selected period's member P&L.
   const weeklyMembers = groupActivityMembers(data.activity.wagers, week);
@@ -82,12 +82,12 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
   const days = activeOnly ? filterActivityDaysForActiveGames(weeklyDays, now) : weeklyDays;
   return <Layout><div className="activity-page"><h1 className="visually-hidden">{title}</h1>
     <section><h2>{live ? "Live games" : "All bets"}</h2>
-      <div className="activity-filters">
+      {!live && <div className="activity-filters">
         <label>Week <select value={week ?? ALL_WEEKS_VALUE} onChange={(event) => setSelectedWeek(event.target.value)}><option value={ALL_WEEKS_VALUE}>All weeks</option>{weeks.map((start) => <option key={start} value={start}>{weekNumberLabel(start)}</option>)}</select></label>
         <label className="activity-group-toggle"><input type="checkbox" checked={groupByDay} onChange={(event) => setGroupByDay(event.target.checked)} /> Group by day</label>
-      </div>
+      </div>}
       {(week === undefined || week === currentWeek) && <MatchupHint/>}
-      {groupByDay ? days.length ? days.map((day) => <DayActivitySection key={day.key} day={day} memberProfilePath={(memberId) => `/p/${slug}/member/${memberId}`} slug={slug}/>) : <p role="status">There are no bets right now</p> : members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} slug={slug} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}
+      {!live && groupByDay ? days.length ? days.map((day) => <DayActivitySection key={day.key} day={day} memberProfilePath={(memberId) => `/p/${slug}/member/${memberId}`} slug={slug}/>) : <p role="status">There are no bets right now</p> : members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} slug={slug} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}
     </section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;

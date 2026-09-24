@@ -140,13 +140,13 @@ describe("Activity Group by day control and tables", () => {
     expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>');
   });
 
-  it("preserves a daily P&L ribbon after permanent Live filtering", () => {
-    const grouped = toggleGroupByDay(renderPage("live"), true, "live");
-    const html = renderToStaticMarkup(grouped);
+  it("does not carry Activity day grouping into Live", () => {
+    toggleGroupByDay(renderPage(), true);
+    const html = renderToStaticMarkup(renderPage("live"));
 
-    expect(html).toContain("Sun");
+    expect(html).not.toContain("activity-day-ribbon");
+    expect(html).not.toContain("Group by day");
     expect(html).toContain("Member");
-    expect(html).toContain("+200.00 shares");
     expect(html).toContain("live-sun");
     expect(html).not.toContain("won-sun");
   });

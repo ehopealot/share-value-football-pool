@@ -91,22 +91,22 @@ describe("Activity and Live games views", () => {
     expect(renderToStaticMarkup(renderLiveGamesPage())).toContain("Member<small>+0.00 shares</small>");
   });
 
-  it("keeps week selection and Group by day available when no Live games match", () => {
+  it("omits week selection and Group by day when no Live games match", () => {
     hooks.values[0] = { commandVersion: "1", activity: { orders: [], wagers: [fixtures[2]] } };
     const page = renderLiveGamesPage();
     expect(members(page)).toEqual([]);
     expect(renderToStaticMarkup(page)).toContain("There are no bets right now");
-    expect(elements(page).some((element) => element.type === "select")).toBe(true);
-    expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(1);
+    expect(elements(page).some((element) => element.type === "select")).toBe(false);
+    expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(0);
   });
 
-  it("applies Live filtering within the selected week without removing week options", () => {
+  it("keeps Live on the current week and grouped by member regardless of Activity filters", () => {
+    hooks.values[1] = "2026-08-25T07:00:00.000Z";
+    hooks.values[2] = true;
     const page = renderLiveGamesPage();
-    const select = elements(page).find((element) => element.type === "select")!;
-    expect(select.props.value).toBe(week);
-    expect(elements(select).filter((element) => element.type === "option").map((option) => option.props.value)).toEqual(["all", week, "2026-08-25T07:00:00.000Z"]);
-    select.props.onChange({ target: { value: "2026-08-25T07:00:00.000Z" } });
-    expect(members(renderLiveGamesPage())[0].wagers.map((row: Wager) => row.wagerId)).toEqual(["old-week"]);
+    expect(members(page)[0].wagers.map((row: Wager) => row.wagerId)).toEqual(["mixed"]);
+    expect(elements(page).some((element) => element.type === "select")).toBe(false);
+    expect(renderToStaticMarkup(page)).not.toContain("Group by day");
   });
 
   it("uses the exact empty message in both views when there are no bets", () => {
