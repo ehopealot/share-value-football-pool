@@ -75,11 +75,11 @@ function elements(node: ReactNode): ReactElement<Record<string, any>>[] {
   if (!isValidElement<Record<string, any>>(node)) return [];
   return [node, ...elements(node.props.children)];
 }
-function renderPage() { hooks.cursor = 0; return ActivityPageBody({ slug: "pool" }); }
-function toggleCheckbox(page: ReactNode, index: number, checked: boolean) {
-  const controls = elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox");
-  controls[index]!.props.onChange({ target: { checked } });
-  return renderPage();
+function renderPage(mode: "activity" | "live" = "activity") { hooks.cursor = 0; return ActivityPageBody({ slug: "pool", mode }); }
+function toggleGroupByDay(page: ReactNode, checked: boolean, mode: "activity" | "live" = "activity") {
+  const control = elements(page).find((element) => element.type === "input" && element.props.type === "checkbox");
+  control!.props.onChange({ target: { checked } });
+  return renderPage(mode);
 }
 
 beforeEach(() => {
@@ -91,15 +91,15 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Activity Group by day control and tables", () => {
-  it("is an independent desktop checkbox and renders player-linked in-table daily ribbons", () => {
+  it("is a directly visible desktop checkbox and renders player-linked in-table daily ribbons", () => {
     const initial = renderPage();
     const controls = elements(initial).filter((element) => element.type === "input" && element.props.type === "checkbox");
-    expect(controls).toHaveLength(2);
-    expect(controls.map((control) => control.props.checked)).toEqual([false, false]);
+    expect(controls).toHaveLength(1);
+    expect(controls.map((control) => control.props.checked)).toEqual([false]);
     expect(renderToStaticMarkup(initial)).toContain("Group by day");
     expect(renderToStaticMarkup(initial)).not.toContain("<details");
 
-    const grouped = toggleCheckbox(initial, 1, true);
+    const grouped = toggleGroupByDay(initial, true);
     const html = renderToStaticMarkup(grouped);
     expect(html).toContain('<section class="activity-day-section">');
     expect(html).toContain('<h3 class="activity-day-ribbon">Thu<small>Pool net -150.00 shares</small></h3>');
@@ -111,21 +111,21 @@ describe("Activity Group by day control and tables", () => {
     expect(html).toContain('<a href="/p/pool/member/future">Future</a>');
   });
 
-  it("uses one accessible Options disclosure with both checkbox options on compact viewports", () => {
+  it("keeps Group by day directly visible without an Options disclosure on compact viewports", () => {
     hooks.compact = true;
     const page = renderPage();
     const html = renderToStaticMarkup(page);
 
-    expect(html).toContain('<details class="activity-options">');
-    expect(html).toContain("<summary>Options</summary>");
-    expect(html).toContain("Active games only");
+    expect(html).not.toContain("<details");
+    expect(html).not.toContain("Options");
+    expect(html).not.toContain("Active games only");
     expect(html).toContain("Group by day");
-    expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(2);
+    expect(elements(page).filter((element) => element.type === "input" && element.props.type === "checkbox")).toHaveLength(1);
   });
 
   it("renders no per-wager date ribbons in the Upcoming table", () => {
     hooks.compact = true;
-    const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
+    const html = renderToStaticMarkup(toggleGroupByDay(renderPage(), true));
     const upcoming = html.split('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>')[1]!;
     expect(upcoming).not.toContain("wager-date-row");
   });
@@ -135,14 +135,13 @@ describe("Activity Group by day control and tables", () => {
     const select = elements(initial).find((element) => element.type === "select")!;
     const allWeeks = elements(select.props.children).find((element) => element.type === "option" && element.props.children === "All weeks")!;
     select.props.onChange({ target: { value: allWeeks.props.value } });
-    const html = renderToStaticMarkup(toggleCheckbox(renderPage(), 1, true));
+    const html = renderToStaticMarkup(toggleGroupByDay(renderPage(), true));
     expect(html).toContain('<h3 class="activity-day-ribbon">Thu<small>Pool net -150.00 shares</small></h3>');
     expect(html).toContain('<h3 class="activity-day-ribbon">Upcoming<small>Pool net +0.00 shares</small></h3>');
   });
 
-  it("preserves a daily P&L ribbon after filtering to an active ticket", () => {
-    const active = toggleCheckbox(renderPage(), 0, true);
-    const grouped = toggleCheckbox(active, 1, true);
+  it("preserves a daily P&L ribbon after permanent Live filtering", () => {
+    const grouped = toggleGroupByDay(renderPage("live"), true, "live");
     const html = renderToStaticMarkup(grouped);
 
     expect(html).toContain("Sun");

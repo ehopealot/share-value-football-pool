@@ -46,7 +46,7 @@ const poolNavigationCache = new PoolNavigationCache();
 
 /** Navigation is derived from the server session, never from a route's caller. */
 export function PoolNavigation({ slug, view }: { slug: string; view: ReadPoolView }) {
-  return <><NavLink to={`/p/${slug}/overview`}>{view.pool.name}</NavLink><NavLink to={`/p/${slug}/odds`}>Odds board</NavLink><NavLink to={`/p/${slug}/my-wagers`}>My bets</NavLink><NavLink to={`/p/${slug}/standings`}>Standings</NavLink><NavLink to={`/p/${slug}/activity`}>Activity</NavLink><NavLink to={`/p/${slug}/rules`}>Rules</NavLink><NavLink to={`/p/${slug}/board`}>Message board{view.currentMember.hasUnreadBoard && <><span aria-hidden="true"> </span><span className="nav-new">New</span></>}</NavLink></>;
+  return <><NavLink to={`/p/${slug}/overview`}>{view.pool.name}</NavLink><NavLink to={`/p/${slug}/odds`}>Odds board</NavLink><NavLink to={`/p/${slug}/my-wagers`}>My bets</NavLink><NavLink to={`/p/${slug}/standings`}>Standings</NavLink><NavLink to={`/p/${slug}/activity`}>Activity</NavLink><NavLink to={`/p/${slug}/live`}>Live</NavLink><NavLink to={`/p/${slug}/rules`}>Rules</NavLink><NavLink to={`/p/${slug}/board`}>Message board{view.currentMember.hasUnreadBoard && <><span aria-hidden="true"> </span><span className="nav-new">New</span></>}</NavLink></>;
 }
 
 /** A member-authorized notice is informative, not an interrupting live alert. */

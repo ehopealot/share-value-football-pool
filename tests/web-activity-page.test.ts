@@ -5,12 +5,15 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(resolve(import.meta.dirname, "../src/web/pages/ActivityPage.tsx"), "utf8");
 
 describe("Activity page", () => {
-  it("keeps an accessible Activity heading without displaying a duplicate page title", () => {
-    expect(source).toContain('<h1 className="visually-hidden">Activity</h1>');
+  it("shares one page body between Activity and Live games modes", () => {
+    expect(source).toContain('export function LiveGamesPage()');
+    expect(source).toContain('mode="live"');
+    expect(source).toContain('const activeOnly = mode === "live";');
+    expect(source).toContain('live ? "Live games" : "Activity"');
   });
 
   it("offers a week selector and renders a compact wager table beneath every member ribbon", () => {
-    expect(source).toContain('<h2>All bets</h2>');
+    expect(source).toContain('<h2>{live ? "Live games" : "All bets"}</h2>');
     expect(source).toContain('<label>Week <select');
     expect(source).toContain('wagerWeekOptions(data.activity.wagers.map((wager) => wager.weekStart), currentWeek)');
     expect(source).toContain('const currentWeek = weekStartOf(new Date()).toISOString();');
@@ -28,11 +31,13 @@ describe("Activity page", () => {
     expect(source).not.toContain('Week of {weekLabel(start)}');
   });
 
-  it("keeps filter labels on one inline baseline so the checkbox aligns with the week select", () => {
+  it("keeps the one visible Group by day control aligned with the week select", () => {
     const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
     expect(styles).toContain('.activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }');
     expect(styles).toContain('.activity-filters label { flex-direction: row; align-items: center; gap: var(--space-1); margin: 0; }');
-    expect(styles).toMatch(/\.activity-active-toggle \{[^}]*min-height:\s*44px/);
+    expect(styles).toMatch(/\.activity-group-toggle \{[^}]*min-height:\s*44px/);
+    expect(styles).not.toContain("activity-active-toggle");
+    expect(styles).not.toContain("activity-options");
   });
 
   it("colors each selected leg from its own grade and preserves hidden tickets", () => {
