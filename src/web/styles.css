@@ -132,8 +132,8 @@ fieldset label { display: flex; flex-direction: row; align-items: center; }
 .site-shell:has(.odds-board) { width: 100%; border-inline: 0; }
 .odds-board .odds-game-top > td, .odds-board .odds-game-top > th { border-top: 2px solid var(--ink); }
 .odds-start { white-space: nowrap; color: #3b4046; }
-/* Bet slip pinned to the viewport bottom with compact amount inputs. */
-.selection-tray { position: sticky; bottom: 0; z-index: 2; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
+/* Bet slip pinned above the scrolling odds layer; its own compositor surface keeps mobile hit testing aligned with what is visible. */
+.selection-tray { position: sticky; bottom: 0; z-index: 2; isolation: isolate; transform: translateZ(0); touch-action: manipulation; pointer-events: auto; background: var(--paper); border-top: 2px solid var(--ink); margin: var(--space-2) 0 0; padding: var(--space-1) 0; }
 .selection-tray h2 { margin: 0; font-size: 1rem; }
 .pool-balance { margin: 0.15rem 0; font-size: 0.8rem; white-space: nowrap; }
 .selection-tray-list li { flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
