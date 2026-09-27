@@ -16,6 +16,8 @@ import { ticketReturns } from "../wager-presentation";
 import { formatCurrentShareValue } from "../share-value";
 import { displayTeamName } from "../team-display";
 import { PageGeneration } from "../page-generation";
+import { SelectionTrayHitGuard } from "../selection-tray-hit-guard";
+export { pointInsideSelectionTray } from "../selection-tray-hit-guard";
 import { useBettingWindow } from "../betting-window";
 import { BETTING_CLOSED_MESSAGE, isBettingOpen, inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 export { inWeek, nextWeekStart, SEASON_WEEK1_ANCHOR, weekNumberLabel, weekStartOf } from "../../domain/betting-week";
@@ -29,9 +31,6 @@ export type OddsBoardTableProps = { games: GameRow[]; currentWeek: string; selec
 const samePickIds = (left: string[], right: string[]) => left.length === right.length && left.every((id, index) => id === right[index]);
 /** Details follow the actual Pacific current-week identity, never the board's selected week filter. */
 export const matchupDetailsAvailable = (startsAt: string, currentWeek: string): boolean => inWeek(startsAt, currentWeek);
-type ClientRectBounds = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
-/** A board-targeted pointer inside the overlaid slip is a browser hit-testing error, not an odds selection. */
-export const pointInsideSelectionTray = (clientX: number, clientY: number, bounds: ClientRectBounds): boolean => clientX >= bounds.left && clientX <= bounds.right && clientY >= bounds.top && clientY <= bounds.bottom;
 /** Risk edits must not reconcile a whole odds table; only changed selections affect its cells. */
 export const oddsBoardTablePropsAreEqual = (previous: OddsBoardTableProps, next: OddsBoardTableProps) => previous.games === next.games && previous.currentWeek === next.currentWeek && previous.selectionDisabled === next.selectionDisabled && previous.onToggle === next.onToggle && previous.slug === next.slug && samePickIds(previous.selectedPickIds, next.selectedPickIds);
 export const OddsBoardTable = memo(function OddsBoardTable({ games, currentWeek, selectedPickIds, selectionDisabled = false, onToggle, slug }: OddsBoardTableProps) {
@@ -302,9 +301,15 @@ export function OddsPage() {
   // Team filtering only changes the rendered rows; risk edits retain this memoized game list.
   const games = useMemo(() => filterGamesByTeam(weekGames, teamFilter), [weekGames, teamFilter]);
   const selectedPickIds = tray.map(pickId);
+  const selectionTrayHitGuard = useRef(new SelectionTrayHitGuard());
+  const captureSelectionTrayPointer = useCallback((event: React.PointerEvent) => {
+    selectionTrayHitGuard.current.pointerDown(event, selectionTrayRef.current?.getBoundingClientRect());
+  }, []);
+  const cancelSelectionTrayPointer = useCallback((event: React.PointerEvent) => {
+    selectionTrayHitGuard.current.pointerCancel(event.pointerId);
+  }, []);
   const blockSelectionTrayClickThrough = useCallback((event: React.MouseEvent) => {
-    const bounds = selectionTrayRef.current?.getBoundingClientRect();
-    if (!bounds || !pointInsideSelectionTray(event.clientX, event.clientY, bounds)) return;
+    if (!selectionTrayHitGuard.current.blocksClick(event.nativeEvent, selectionTrayRef.current?.getBoundingClientRect())) return;
     event.preventDefault();
     event.stopPropagation();
   }, []);
@@ -434,9 +439,9 @@ export function OddsPage() {
     <label>Week <select value={week} onChange={e => setSelectedWeek(e.target.value)}>{weekOptions.map((option) => <option key={option} value={option}>{weekNumberLabel(option)}{option === currentWeek ? " (current)" : ""}</option>)}</select></label>
     <label>Filter teams <input type="search" value={teamFilter} placeholder="Search team names" onChange={e => setTeamFilter(e.target.value)} /></label></div>
     {week === currentWeek && <MatchupHint/>}
-    <div onClickCapture={blockSelectionTrayClickThrough}><OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={!bettingOpen || parlayTransferPending} onToggle={toggle} slug={slug}/></div>
+    <div onPointerDownCapture={captureSelectionTrayPointer} onPointerCancelCapture={cancelSelectionTrayPointer} onClickCapture={blockSelectionTrayClickThrough}><OddsBoardTable games={games} currentWeek={currentWeek} selectedPickIds={selectedPickIds} selectionDisabled={!bettingOpen || parlayTransferPending} onToggle={toggle} slug={slug}/></div>
     {board && games.length === 0 && <p>{teamFilter.trim() ? "No teams match this filter." : "No games to show for this week."}</p>}
-    <section ref={selectionTrayRef} aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
+    <section ref={selectionTrayRef} onPointerDownCapture={captureSelectionTrayPointer} onPointerCancelCapture={cancelSelectionTrayPointer} aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
       {tray.length > 0 && <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board ?? {}, item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label"><SelectedLegDisplay league={resolved.offer.league} awayTeam={resolved.offer.awayTeam} homeTeam={resolved.offer.homeTeam} market={resolved.offer.market} selection={item.selection} selectedDetail={displayedBoardValue(resolved.offer, resolved.outcome, item.selection)} /></span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
         <span className="tray-actions"><button disabled={!bettingOpen || parlayTransferPending || teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
         <button disabled={!bettingOpen || parlayTransferPending || tray.length < 2 || tray.length > 6} onClick={() => void addToParlay()}>{parlayTransferPending ? "Loading current odds…" : "Build parlay"}</button>
