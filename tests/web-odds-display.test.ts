@@ -167,6 +167,10 @@ describe("member-facing odds display", () => {
     expect(pointInsideSelectionTray(311, 600, bounds)).toBe(false);
     expect(oddsPageSource).toContain("onClickCapture={blockSelectionTrayClickThrough}");
     expect(oddsPageSource).toContain("ref={selectionTrayRef}");
+    // Record both board and slip gestures, including correctly targeted slip taps.
+    expect(oddsPageSource.match(/onPointerDownCapture=\{captureSelectionTrayPointer\}/g)).toHaveLength(2);
+    expect(oddsPageSource.match(/onPointerCancelCapture=\{cancelSelectionTrayPointer\}/g)).toHaveLength(2);
+    expect(oddsPageSource).toContain("blocksClick(event.nativeEvent,");
     expect(styles).toMatch(/\.selection-tray\s*\{[^}]*isolation:\s*isolate;[^}]*transform:\s*translateZ\(0\);[^}]*touch-action:\s*manipulation;[^}]*pointer-events:\s*auto;/);
   });
 
