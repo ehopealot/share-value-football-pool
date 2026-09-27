@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { formatAmericanOdds, formatKickoff } from "../src/web/odds-format";
-import { batchAfterPopState, filterGamesByTeam, groupBoardByEvent, OddsBoardTable, oddsBoardTablePropsAreEqual, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
+import { batchAfterPopState, filterGamesByTeam, groupBoardByEvent, OddsBoardTable, oddsBoardTablePropsAreEqual, pointInsideSelectionTray, selectionTrayDisplayLabel, straightReviewDetails, type GameRow } from "../src/web/pages/OddsPage";
 
 const oddsPageSource = readFileSync(resolve(import.meta.dirname, "../src/web/pages/OddsPage.tsx"), "utf8");
 const styles = readFileSync(resolve(import.meta.dirname, "../src/web/styles.css"), "utf8");
@@ -157,6 +157,17 @@ describe("member-facing odds display", () => {
   it("keeps the mobile bet slip summary compact and omits empty-tray instructions", () => {
     expect(oddsPageSource).toContain('Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong>');
     expect(oddsPageSource).not.toContain('Check options on the board to build straight wagers, a teaser, or a parlay.');
+  });
+
+  it("shields odds selections from taps within the sticky bet slip", () => {
+    const bounds = { left: 10, right: 310, top: 500, bottom: 700 };
+    expect(pointInsideSelectionTray(200, 600, bounds)).toBe(true);
+    expect(pointInsideSelectionTray(10, 500, bounds)).toBe(true);
+    expect(pointInsideSelectionTray(200, 499, bounds)).toBe(false);
+    expect(pointInsideSelectionTray(311, 600, bounds)).toBe(false);
+    expect(oddsPageSource).toContain("onClickCapture={blockSelectionTrayClickThrough}");
+    expect(oddsPageSource).toContain("ref={selectionTrayRef}");
+    expect(styles).toMatch(/\.selection-tray\s*\{[^}]*isolation:\s*isolate;[^}]*transform:\s*translateZ\(0\);[^}]*touch-action:\s*manipulation;[^}]*pointer-events:\s*auto;/);
   });
 
   it("explains last-known odds beside the pool context and offers a reload after failed refreshes", () => {
