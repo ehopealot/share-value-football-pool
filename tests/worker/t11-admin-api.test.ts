@@ -380,8 +380,12 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     expect((await owner.fetch(request(`/api/p/${slug}/admin/corrections/w1/regrade`, { reason: "Official regrade", correctedResults: [{ eventId: "w1", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "official-v2" }], idempotencyKey: "regrade" })))).toMatchObject({ status: 200 });
     const regraded = await (await member.fetch(request(`/api/p/${slug}/wagers`, undefined, "GET"))).json() as any;
     expect(regraded.wagers[0]).toMatchObject({ wagerId: "w1", status: "won", outcome: "won", returnMicros: "2000000", profitMicros: "1000000" });
+    // Exercise timestamp ties deterministically: corrections can land in the same millisecond.
+    await storage(poolId, (state) => {
+      state.storage.sql.exec("UPDATE settlement SET created_at = '2026-01-01T00:00:00.000Z' WHERE wager_id = 'w1'");
+    });
     // Corrected history stays immutable: the void, its reversal, and the regrade all remain on the ledger.
-    expect(await storage(poolId, (state) => [...state.storage.sql.exec("SELECT outcome, return_micros FROM settlement WHERE wager_id = 'w1' ORDER BY created_at")].map((row) => ({ outcome: String(row.outcome), returnMicros: String(row.return_micros) })))).toEqual([
+    expect(await storage(poolId, (state) => [...state.storage.sql.exec("SELECT outcome, return_micros FROM settlement WHERE wager_id = 'w1' ORDER BY created_at, rowid")].map((row) => ({ outcome: String(row.outcome), returnMicros: String(row.return_micros) })))).toEqual([
       { outcome: "refund", returnMicros: "1000000" },
       { outcome: "reversal", returnMicros: "-1000000" },
       { outcome: "win", returnMicros: "2000000" }
