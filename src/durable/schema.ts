@@ -34,6 +34,11 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, event_type TEXT NOT NULL, version TEXT NOT NULL, payload_json TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, delivered_at TEXT, last_error TEXT, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS season_annotation (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, actor_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS processed_command (id TEXT PRIMARY KEY, type TEXT NOT NULL, actor_id TEXT NOT NULL, request_json TEXT NOT NULL, response_json TEXT NOT NULL, expires_at TEXT NOT NULL)`,
+  /** Bound repeated settlement/view lookups and expired-command cleanup to matching rows. */
+  `CREATE INDEX IF NOT EXISTS wager_leg_by_wager ON wager_leg(wager_id, id)`,
+  `CREATE INDEX IF NOT EXISTS settlement_by_wager ON settlement(wager_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS settlement_by_reversal ON settlement(reversal_of)`,
+  `CREATE INDEX IF NOT EXISTS processed_command_by_expiry ON processed_command(expires_at)`,
   /** Authoritative quote bindings survive D1 changes and are compared before any placement mutation. */
   `CREATE TABLE IF NOT EXISTS wager_quote (actor_id TEXT NOT NULL, quote_key TEXT NOT NULL, fingerprint TEXT NOT NULL, wager_id TEXT NOT NULL, kind TEXT NOT NULL, terms_json TEXT NOT NULL, command_version TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(actor_id, quote_key))`
 ] as const;
