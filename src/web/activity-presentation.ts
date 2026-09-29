@@ -113,8 +113,9 @@ export function activityLegGradeClass(grade: string | undefined): string {
   return grade === "win" ? "activity-leg-win" : grade === "loss" ? "activity-leg-loss" : grade === "push" ? "activity-leg-push" : "activity-leg-neutral";
 }
 
-/** Active matches the black/neutral legs already shown on Activity, excluding future owner-visible selections. */
+/** Active excludes already-lost tickets and future owner-visible selections. */
 export function hasActiveActivityGame(wager: Wager, now: number): boolean {
+  if (terminalOutcome(wager) === "lost") return false;
   return (wager.legs ?? []).some((leg) => activityLegGradeClass(leg.grade) === "activity-leg-neutral" && Date.parse(leg.eventStartsAt) <= now);
 }
 

@@ -10,6 +10,16 @@ const wager = (overrides: Record<string, unknown> = {}) => ({ wagerId: "wager", 
 describe("activity presentation", () => {
   describe("active games", () => {
     const now = Date.parse("2026-09-06T20:00:00.000Z");
+    it.each(["parlay", "teaser"])("excludes a graded lost %s despite an ongoing leg", (type) => {
+      for (const eventStartsAt of ["2026-09-06T15:00:00.000Z", "2026-09-05T20:00:00.000Z"]) {
+        for (const settlement of [{ status: "lost" }, { status: "settled", outcome: "lost" }]) {
+          expect(hasActiveActivityGame(wager({ type, ...settlement, legs: [leg({ grade: "loss", eventStartsAt }), leg({ eventId: "ongoing" })] }), now)).toBe(false);
+        }
+      }
+    });
+    it("keeps an open multi-leg bet with a winning leg and an ongoing leg", () => {
+      expect(hasActiveActivityGame(wager({ type: "parlay", status: "open", legs: [leg({ grade: "win" }), leg({ eventId: "ongoing" })] }), now)).toBe(true);
+    });
     it.each([
       ["started ungraded", [leg({ eventStartsAt: "2026-09-06T19:00:00.000Z" })], true],
       ["exact kickoff", [leg()], true],
