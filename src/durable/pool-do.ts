@@ -548,13 +548,24 @@ export class PoolDO {
     }
     const rows = [...sql.exec<Row>("SELECT m.user_id, m.display_name, a.available_micros, a.locked_micros FROM member m JOIN share_account a ON a.member_id = m.user_id WHERE a.season_id = ?", seasonId)].map((row) => {
       const holdings = BigInt(String(row.available_micros)) + BigInt(String(row.locked_micros));
-      const issuedMicros = [...sql.exec<Row>("SELECT value_micros FROM share_order WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", seasonId, row.user_id)].reduce((sum, order) => sum + BigInt(String(order.value_micros)), 0n);
       const riskedMicros = riskedByMember.get(String(row.user_id)) ?? 0n;
-      // The immutable ledger, not orders alone, records every holdings transition (including settlement).
-      let running = 0n; let attained = "";
-      for (const entry of sql.exec<Row>("SELECT available_delta, locked_delta, created_at FROM ledger_entry WHERE season_id = ? AND member_id = ? ORDER BY created_at, rowid", seasonId, row.user_id)) { running += BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta)); if (!attained && running === holdings) attained = String(entry.created_at); }
-      return { row, holdings, attained, issuedMicros, riskedMicros };
+      return { row, holdings, attained: "", running: 0n, issuedMicros: 0n, riskedMicros };
     });
+    if (!rows.length) return [];
+    const byMember = new Map(rows.map((member) => [String(member.row.user_id), member]));
+    // Read each history once, not once per member. Keep integer arithmetic in BigInt.
+    for (const order of sql.exec<Row>("SELECT member_id, value_micros FROM share_order WHERE season_id = ?", seasonId)) {
+      const member = byMember.get(String(order.member_id));
+      if (member) member.issuedMicros += BigInt(String(order.value_micros));
+    }
+    // The immutable ledger, not orders alone, records every holdings transition (including settlement).
+    // Global chronological/append order preserves each member's earliest attainment exactly.
+    for (const entry of sql.exec<Row>("SELECT member_id, available_delta, locked_delta, created_at FROM ledger_entry WHERE season_id = ? ORDER BY created_at, rowid", seasonId)) {
+      const member = byMember.get(String(entry.member_id));
+      if (!member) continue;
+      member.running += BigInt(String(entry.available_delta)) + BigInt(String(entry.locked_delta));
+      if (!member.attained && member.running === member.holdings) member.attained = String(entry.created_at);
+    }
     const gain = (row: typeof rows[number]) => divideRoundHalfEven(row.holdings * price, MICROS_PER_UNIT) - row.issuedMicros;
     rows.sort((a, b) => gain(a) === gain(b) ? (a.holdings === b.holdings ? (a.attained || "~").localeCompare(b.attained || "~") || String(a.row.display_name).localeCompare(String(b.row.display_name)) : a.holdings > b.holdings ? -1 : 1) : gain(a) > gain(b) ? -1 : 1);
     return rows.map(({ row, holdings, issuedMicros, riskedMicros }, index) => {
