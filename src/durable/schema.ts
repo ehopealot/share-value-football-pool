@@ -32,6 +32,8 @@ export const poolSchema = [
   `CREATE TABLE IF NOT EXISTS season_super_bowl_reconciliation (season_id TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, error_attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, last_error TEXT)`,
   seasonClosureReminderDdl,
   `CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, event_type TEXT NOT NULL, version TEXT NOT NULL, payload_json TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, delivered_at TEXT, last_error TEXT, created_at TEXT NOT NULL)`,
+  /** Matches the retryable predicate in outbox.ts; delivered/exhausted history stays out of hot reads. */
+  `CREATE INDEX IF NOT EXISTS outbox_pending_retry_idx ON outbox(next_attempt_at) WHERE delivered_at IS NULL AND attempts < 5`,
   `CREATE TABLE IF NOT EXISTS season_annotation (id TEXT PRIMARY KEY, season_id TEXT NOT NULL, actor_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS processed_command (id TEXT PRIMARY KEY, type TEXT NOT NULL, actor_id TEXT NOT NULL, request_json TEXT NOT NULL, response_json TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   /** Bound repeated settlement/view lookups and expired-command cleanup to matching rows. */

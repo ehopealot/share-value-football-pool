@@ -13,7 +13,7 @@ export function enqueueOutbox(sql: SqlStorage, event: PoolOutboxMessage): void {
 
 /** Drains committed rows after the command transaction. Exhausted rows remain only for audit and manual repair. */
 export async function drainOutbox(state: DurableObjectState, queue?: Queue<PoolOutboxMessage>, now = new Date(), db?: D1Database): Promise<{ pending: boolean }> {
-  const rows = [...state.storage.sql.exec<Row>(`SELECT id, event_type, version, payload_json, attempts FROM outbox WHERE delivered_at IS NULL AND attempts < ${MAX_OUTBOX_ATTEMPTS} AND next_attempt_at <= ? ORDER BY created_at LIMIT 25`, now.toISOString())];
+  const rows = [...state.storage.sql.exec<Row>(`SELECT id, event_type, version, payload_json, attempts FROM outbox WHERE delivered_at IS NULL AND attempts < ${MAX_OUTBOX_ATTEMPTS} AND next_attempt_at <= ? ORDER BY created_at, rowid LIMIT 25`, now.toISOString())];
   if (!queue) return { pending: rows.length > 0 };
   for (const row of rows) {
     let payload: unknown;
