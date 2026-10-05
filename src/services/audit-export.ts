@@ -6,6 +6,15 @@ const text = (value: SqlStorageValue | undefined | null) => value === null || va
 
 /** Point-in-time typed member snapshot; integer accounting and version fields retain canonical database text. */
 export function memberAuditExport(sql: SqlStorage, memberId: string, currentTime = new Date()): Record<string, unknown> {
+  return {
+    ...sharedAuditExport(sql),
+    // Portable exports retain requester-owned exact values, but no requester receives future event identity.
+    ...shapeAuditExportWagers(sql, memberId, currentTime)
+  };
+}
+
+/** Shared fields only: infrastructure backups must not build and discard the member wager view. */
+function sharedAuditExport(sql: SqlStorage): Record<string, unknown> {
   const pool = rows(sql, "SELECT id, slug, name, commissioner_id, signups_open, command_version FROM pool LIMIT 1")[0];
   if (!pool) throw new Error("POOL_NOT_INITIALIZED");
   return {
@@ -20,8 +29,6 @@ export function memberAuditExport(sql: SqlStorage, memberId: string, currentTime
     wagerCorrections: rows(sql, "SELECT id, wager_id, actor_id, reason, source_result_json, replacement_result_json, command_id, created_at FROM wager_correction ORDER BY created_at, rowid").map((row) => ({ id: String(row.id), wagerId: String(row.wager_id), actorId: String(row.actor_id), reason: String(row.reason), sourceResult: JSON.parse(String(row.source_result_json)), replacementResult: JSON.parse(String(row.replacement_result_json)), commandId: String(row.command_id), createdAt: String(row.created_at) })),
     administrationAudit: rows(sql, "SELECT id, actor_id, action, subject_id, reason, command_id, created_at FROM administration_audit ORDER BY created_at, rowid").map((row) => ({ id: String(row.id), actorId: String(row.actor_id), action: String(row.action), subjectId: String(row.subject_id), reason: String(row.reason), commandId: String(row.command_id), createdAt: String(row.created_at) })),
     seasonAnnotations: rows(sql, "SELECT id, season_id, actor_id, text, created_at FROM season_annotation ORDER BY created_at, rowid").map((row) => ({ id: String(row.id), seasonId: String(row.season_id), actorId: String(row.actor_id), text: String(row.text), createdAt: String(row.created_at) })),
-    // Portable exports retain requester-owned exact values, but no requester receives future event identity.
-    ...shapeAuditExportWagers(sql, memberId, currentTime)
   };
 }
 
@@ -31,7 +38,7 @@ export function infrastructureAuditExport(sql: SqlStorage): Record<string, unkno
   if (orphanSnapshot) throw new Error(`WAGER_LEG_SNAPSHOT_ORPHAN:${String(orphanSnapshot.wager_leg_id)}`);
   const missingSnapshot = rows(sql, "SELECT wager_leg.id FROM wager_leg LEFT JOIN wager_leg_snapshot ON wager_leg_snapshot.wager_leg_id = wager_leg.id WHERE wager_leg_snapshot.wager_leg_id IS NULL LIMIT 1")[0];
   if (missingSnapshot) throw new Error(`WAGER_LEG_SNAPSHOT_MISSING:${String(missingSnapshot.id)}`);
-  const base = memberAuditExport(sql, "__backup_infrastructure__");
+  const base = sharedAuditExport(sql);
   return {
     ...base,
     wagers: rows(sql, "SELECT id, season_id, owner_id, type, risk_micros, accepted_odds, status, ruleset_version, settled_result_version, confirmed_at FROM wager ORDER BY confirmed_at, rowid"),
