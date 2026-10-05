@@ -2,6 +2,7 @@ import { applyD1Migrations, env, runInDurableObject } from "cloudflare:test";
 import migration from "../../src/db/migrations/0001_initial.sql?raw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../../src/worker/app";
+import { infrastructureAuditExport, memberAuditExport } from "../../src/services/audit-export";
 import { backupConfigured, backupPools, decodeBackupKey, encryptBackup, runBackupCron } from "../../src/worker/backup-cron";
 
 const bindings = env as unknown as { DB: D1Database; POOL_DO: DurableObjectNamespace; BACKUPS: R2Bucket; POOL_COMMAND_AUTHENTICATOR_KEY: string; POOL_BACKUP_SERVICE_TOKEN: string };
@@ -175,6 +176,44 @@ describe("member export and encrypted infrastructure backup", () => {
       expect(wagers.find((wager) => wager.wagerId === "straight-hidden")).not.toHaveProperty("outcome");
     }
   }, 90_000);
+
+  it("keeps backup query count constant as wagers grow without shaping member wagers", async () => {
+    const poolId = `backup-queries-${crypto.randomUUID()}`;
+    await pool(poolId, "backup-queries");
+    await stateFor(poolId, (state) => {
+      const sql = state.storage.sql;
+      const statements: string[] = [];
+      // Execute real DO SQLite queries, recording only the export's statements.
+      const measuredSql = { exec: (statement: string, ...params: SqlStorageValue[]) => {
+        statements.push(statement);
+        return sql.exec(statement, ...params);
+      } } as SqlStorage;
+      infrastructureAuditExport(measuredSql);
+      const emptyQueryCount = statements.length;
+      for (let i = 0; i < 3; i++) {
+        const id = `ticket-${i}`;
+        sql.exec("INSERT INTO wager VALUES (?, 'season', 'member', 'straight', '2500000', 125, 'open', 'SHARE_POOL_2026_V1', NULL, '2026-01-02T00:00:00.000Z')", id);
+        sql.exec("INSERT INTO wager_leg (id, wager_id, event_id, league, canonical_book, retrieved_at, policy_version, offer_version, market, selection, original_odds, event_starts_at) VALUES (?, ?, ?, 'nfl', 'DraftKings', '2026-01-02T00:00:00.000Z', 'policy', 'offer', 'moneyline', 'home', 125, '2099-01-02T00:00:00.000Z')", `${id}:leg`, id, `event-${i}`);
+        sql.exec("INSERT INTO wager_leg_snapshot VALUES (?, 'Home', 'Away')", `${id}:leg`);
+      }
+      statements.length = 0;
+      const backup = infrastructureAuditExport(measuredSql);
+      expect(statements).toHaveLength(emptyQueryCount);
+      expect(statements.some((statement) => statement.includes("activity_week_start") || statement.includes("WHERE wager_id = ?") || statement.includes("WHERE s.wager_id = ?"))).toBe(false);
+
+      const { wagers: memberWagers, ...sharedFields } = memberAuditExport(sql, "member", new Date("2026-01-03T00:00:00.000Z"));
+      const { wagers, wagerLegs, wagerLegSnapshots, messageBoardEntries, messageBoardReadStates, ...backupFields } = backup;
+      expect(backupFields).toEqual(sharedFields);
+      expect(wagers).toEqual([...sql.exec("SELECT * FROM wager ORDER BY confirmed_at, rowid")]);
+      expect(wagerLegs).toHaveLength(3);
+      expect(wagerLegSnapshots).toEqual([0, 1, 2].map((i) => ({ wagerLegId: `ticket-${i}:leg`, homeTeam: "Home", awayTeam: "Away" })));
+      expect(messageBoardEntries).toEqual([]);
+      expect(messageBoardReadStates).toEqual([]);
+      expect(memberWagers).toHaveLength(3);
+      expect(JSON.stringify(memberWagers)).not.toMatch(/event-[012]|Home|Away/);
+      expect(JSON.stringify(wagerLegs)).toContain("event-0");
+    });
+  });
 
   it("strictly validates backup keys and stores independently nonce-encrypted self-describing envelopes", async () => {
     expect(() => decodeBackupKey("not base64")).toThrow("BACKUP_KEY_INVALID");
