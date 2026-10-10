@@ -27,8 +27,8 @@ describe("in-app matchup details", () => {
   it("presents records, season stats, venue, and recent results with table and heading semantics", () => {
     const html = renderToStaticMarkup(createElement(MatchupDetails, { matchup: {
       league: "nfl", startsAt: game.startsAt, venue: "Acrisure Stadium · Pittsburgh, PA",
-      away: { name: "Atlanta Falcons", record: "1-0", recentResults: [{ date: "2026-09-06T17:00:00.000Z", opponent: "Pittsburgh Steelers", result: "W 24-17" }] },
-      home: { name: "Pittsburgh Steelers", record: "0-1", recentResults: [{ date: "2026-09-06T17:00:00.000Z", opponent: "Atlanta Falcons", result: "L 17-24" }] },
+      away: { name: "Atlanta Falcons", record: "1-0", recentResults: [{ date: "2026-09-06T17:00:00.000Z", opponent: "Pittsburgh Steelers", result: "W 24-17", homeAway: "home" }] },
+      home: { name: "Pittsburgh Steelers", record: "0-1", recentResults: [{ date: "2026-09-06T17:00:00.000Z", opponent: "Atlanta Falcons", result: "L 17-24", homeAway: "away" }] },
       seasonStats: [{ label: "Yards/game", away: "350", home: "300" }]
     } }));
 
@@ -40,7 +40,8 @@ describe("in-app matchup details", () => {
     expect(html).toContain('<th scope="col">Atlanta Falcons</th>');
     expect(html).toContain("<h2 class=\"table-ribbon\">Recent results</h2>");
     expect(html).toContain("matchup-team-ribbon");
-    expect(html).toContain("W 24-17");
+    expect(html).toContain("W 24-17 vs Pittsburgh Steelers");
+    expect(html).toContain("L 17-24 at Atlanta Falcons");
   });
 
   it("uses a truthful unavailable message when ESPN cannot match a current-week game", () => {
