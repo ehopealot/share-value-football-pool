@@ -21,7 +21,7 @@ vi.mock("../src/web/admin-command", async original => ({
   ...await original<typeof import("../src/web/admin-command")>(),
   useFrozenAdminCommand: () => ({ get pending() { return command.pending; }, run: command.run.bind(command), retire: command.retire.bind(command) })
 }));
-vi.mock("../src/web/api", () => ({ api: { command: vi.fn() }, errorMessage: (error: Error) => error.message }));
+vi.mock("../src/web/api", async original => ({ ...await original<typeof import("../src/web/api")>(), api: { command: vi.fn() } }));
 
 const wager: CorrectionWager = {
   wagerId: "w", seasonId: "s", memberId: "m", memberDisplayName: "Alice", type: "straight", status: "won", confirmedAt: "2020-01-01T00:00:00Z", weekStart: "2019-12-31T08:00:00Z", performanceMicros: "0",
@@ -63,6 +63,13 @@ describe("wager correction form", () => {
     expect(renderToStaticMarkup(render())).toContain("Enter a nonnegative whole-number score for Kansas City Chiefs.");
   });
 
+  it.each(["24.0", "2e1", "9007199254740992"])("keeps local score feedback actionable for %s", async score => {
+    change("reason", "Official review"); change("homeScore-0", score); await submit();
+    expect(api.command).not.toHaveBeenCalled();
+    expect(renderToStaticMarkup(render())).toContain("Enter a nonnegative whole-number score for Kansas City Chiefs.");
+    expect(renderToStaticMarkup(render())).not.toContain("Service unavailable.");
+  });
+
   it("submits typed evidence with a hidden generated version and announces success", async () => {
     change("reason", "Official review"); change("awayScore-0", "27"); await submit();
     expect(api.command).toHaveBeenCalledWith("pool", "/admin/corrections/w/regrade", {
@@ -75,6 +82,7 @@ describe("wager correction form", () => {
     vi.mocked(api.command).mockRejectedValue(new Error("Network unavailable"));
     change("reason", "Official review"); await submit();
     expect(onSuccess).not.toHaveBeenCalled(); expect(field("reason").props.value).toBe("Official review");
+    expect(renderToStaticMarkup(render())).toContain("Service unavailable.");
     await submit();
     const first = vi.mocked(api.command).mock.calls[0][2];
     expect(vi.mocked(api.command).mock.calls[1][2]).toEqual(first);

@@ -48,3 +48,13 @@ Files: `e2e/same-game-export.spec.ts`, `e2e/privacy-and-settlement.spec.ts`.
 ## Residuals
 
 No live score polling is added. Started-game eligibility uses the loaded authorized projection and browser time for UX; the server remains authoritative. A failed or lost response retains retry identity until an edit/cancel, matching existing admin command behavior.
+
+## Validation and review
+
+- 55 focused node tests passed across correction drafts/forms/page and browser API helpers.
+- 58 Worker integration tests passed in `tests/worker/t11-admin-api.test.ts` and `tests/worker/api.test.ts`, including unchanged transfer/password recent-auth gates.
+- `npm run typecheck` (including e2e types) and `git diff --check` passed.
+- Static Playwright screenshots at 1280px and 375px showed no document overflow. No e2e tests were run locally.
+- Mechanical UI detector reported only existing Arial/font-direction and unrelated message-board border warnings; no new form warnings.
+- Read-only review identified three issues, all addressed: align browser fixture clocks with advanced PoolDO time, block reopening forms until all post-command reads complete, and preserve actionable local validation messages using the real API error formatter in tests. Deferred-refresh and validation regressions were observed failing before fixes and passing afterward.
+- Full CI/e2e remains the merge/deploy gate.

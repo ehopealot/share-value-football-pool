@@ -29,8 +29,10 @@ export function correctionEvents(wager: CorrectionWager, now = Date.now()): Corr
   return [...events.values()];
 }
 
+export class CorrectionInputError extends Error {}
+
 function score(value: string, team: string): number {
-  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error(`Enter a nonnegative whole-number score for ${team}.`);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new CorrectionInputError(`Enter a nonnegative whole-number score for ${team}.`);
   return Number(value);
 }
 

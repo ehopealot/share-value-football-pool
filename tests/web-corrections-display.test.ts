@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadActivity } from "../src/contracts/http";
 import { AdminCorrectionsPage } from "../src/web/pages/AdminCorrectionsPage";
+import { api } from "../src/web/api";
+import { WagerCorrectionForm } from "../src/web/components/WagerCorrectionForm";
 
 const hooks = vi.hoisted(() => ({ cursor: 0, values: [] as unknown[] }));
 vi.mock("react", async (original) => ({
@@ -81,6 +83,28 @@ describe("correction wager identification", () => {
     expect(html).toContain('value="event-spread"');
     expect(html).toContain('value="NCAAF"');
     expect(html).toContain("Submit regrade");
+  });
+
+  it("blocks reopening correction drafts until the post-command refresh completes", async () => {
+    render([wager()]); hooks.cursor = 0;
+    nodes(AdminCorrectionsPage()).find(node => node.type === "button" && node.props.children === "Regrade")!.props.onClick({ currentTarget: null });
+    let resolveActivity!: (value: ReadActivity) => void;
+    vi.spyOn(api, "activity").mockReturnValue(new Promise(resolve => { resolveActivity = resolve; }));
+    vi.spyOn(api, "poolView").mockResolvedValue(view as Awaited<ReturnType<typeof api.poolView>>);
+    vi.spyOn(api, "auditExport").mockResolvedValue({ wagers: [], settlements: [], wagerCorrections: [] } as unknown as Awaited<ReturnType<typeof api.auditExport>>);
+    hooks.cursor = 0;
+    nodes(AdminCorrectionsPage()).find(node => node.type === WagerCorrectionForm)!.props.onSuccess();
+    hooks.cursor = 0;
+    for (const button of nodes(AdminCorrectionsPage()).filter(node => node.type === "button")) expect(button.props.disabled).toBe(true);
+    resolveActivity({ commandVersion: "2", activity: { orders: [], wagers: [wager({ legs: [{ ...leg, homeScore: 17, awayScore: 24 }] })] } });
+    await vi.waitFor(() => {
+      hooks.cursor = 0;
+      expect(nodes(AdminCorrectionsPage()).find(node => node.type === "button" && node.props.children === "Regrade")!.props.disabled).toBe(false);
+    });
+    hooks.cursor = 0;
+    nodes(AdminCorrectionsPage()).find(node => node.type === "button" && node.props.children === "Regrade")!.props.onClick({ currentTarget: null });
+    hooks.cursor = 0;
+    expect(nodes(AdminCorrectionsPage()).find(node => node.type === WagerCorrectionForm)!.props.wager.legs[0]).toMatchObject({ homeScore: 17, awayScore: 24 });
   });
 
   it("keeps regrade disabled for hidden or future legs but permits selecting Void", () => {

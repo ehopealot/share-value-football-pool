@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 import { useFrozenAdminCommand } from "../admin-command";
-import { correctedResults, correctionEvents, type CorrectionEvent, type CorrectionWager } from "../correction-results";
+import { correctedResults, correctionEvents, CorrectionInputError, type CorrectionEvent, type CorrectionWager } from "../correction-results";
 import { CorrectionWagerSummary } from "./CorrectionWagerSummary";
 
 export function WagerCorrectionForm({ slug, wager, action, onCancel, onSuccess }: {
@@ -34,7 +34,7 @@ export function WagerCorrectionForm({ slug, wager, action, onCancel, onSuccess }
         return { reason: reason.trim(), idempotencyKey, ...(action === "regrade" ? { correctedResults: correctedResults(events, idempotencyKey) } : {}) };
       }, body => api.command(slug, `/admin/corrections/${wager.wagerId}/${action}`, body));
       onSuccess();
-    } catch (error) { setError(errorMessage(error)); }
+    } catch (error) { setError(error instanceof CorrectionInputError ? error.message : errorMessage(error)); }
   };
   return <form className="correction-form" aria-labelledby="correction-form-title" onSubmit={async event => { event.preventDefault(); await submit(); }}>
     <h2 id="correction-form-title" ref={headingRef} tabIndex={-1}>{action === "regrade" ? "Regrade wager" : "Void wager"}</h2>
