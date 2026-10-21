@@ -78,6 +78,7 @@ async function settleFixtureResult(page: Page, poolSlug: string, homeScore: numb
   expect(await controlStatus(page, "/__local-test/result", { eventId: "local-nfl-upcoming", homeScore, awayScore })).toBe(200);
   expect(await controlStatus(page, "/__local-test/alarm", { poolSlug, currentTime })).toBe(200);
   expect(await controlStatus(page, "/__local-test/current-time", { poolSlug, currentTime })).toBe(200);
+  return currentTime;
 }
 
 const lastWagerId = async (page: Page, poolSlug: string) => page.evaluate(async (slug) => {
@@ -519,7 +520,9 @@ test("commissioner corrections require reasons, preserve every result version, a
   await page.getByLabel("Reason").fill("Refund pending official review");
   await page.getByRole("button", { name: "Confirm void" }).click();
   await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("refunded");
-  await settleFixtureResult(page, slug, 17, 24);
+  const correctionTime = await settleFixtureResult(page, slug, 17, 24);
+  // Keep browser eligibility aligned with the fixture's advanced PoolDO clock.
+  await page.clock.setFixedTime(new Date(correctionTime));
   await page.reload();
   const authorizedRow = page.getByRole("table", { name: "Eligible active-season wagers" }).locator("tbody tr").filter({ hasText: /nfl|ncaaf/ }).first();
   const authorizedCells = authorizedRow.locator("th, td");

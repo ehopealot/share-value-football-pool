@@ -52,6 +52,8 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   expect(await trigger(alarmAt)).toBe(200);
   expect(await page.evaluate(async ({ poolSlug, currentTime }) => (await fetch("/__local-test/current-time", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolSlug, currentTime }) })).status, { poolSlug: slug, currentTime: alarmAt.toISOString() })).toBe(200);
 
+  // Match the fixture's authoritative time for the browser's started-game eligibility check.
+  await page.clock.setFixedTime(alarmAt);
   await page.goto(`${worker.baseURL}/p/${slug}/admin/corrections`);
   await expect(page.getByRole("heading", { name: "Immutable correction history" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "win", exact: true })).toBeVisible();
