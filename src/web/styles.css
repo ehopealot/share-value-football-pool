@@ -183,6 +183,20 @@ button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.st
 .correction-wager-summary { min-width: 12rem; }
 .correction-wager-leg + .correction-wager-leg { margin-top: 0.35rem; }
 .correction-wager-id { margin-top: 0.35rem; }
+.correction-form { margin-block: var(--space-3); padding: var(--space-2); border: 1px solid var(--line); }
+.correction-form h2 { margin: 0 0 var(--space-2); font-size: 1.2rem; }
+.correction-form h2:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+.correction-form fieldset { min-width: 0; padding: var(--space-2); }
+.correction-form legend, .correction-form .correction-wager-id { overflow-wrap: anywhere; }
+.correction-event-fields, .correction-score-fields { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.correction-form label { display: flex; flex-direction: column; align-items: stretch; margin: 0; min-width: 0; }
+.correction-event-fields label { flex: 1 1 10rem; }
+.correction-score-fields { margin-top: var(--space-2); }
+.correction-score-fields label { flex: 1 1 12rem; }
+.correction-form input, .correction-form select { width: 100%; min-height: 44px; }
+.correction-form input[readonly] { background: var(--table-gray); color: var(--ink); }
+.correction-form .correction-reason { margin-block: var(--space-2); }
+.correction-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 @media (max-width: 600px) { .corrections-page table { font-size: 0.875rem; } .corrections-page th, .corrections-page td { padding: 0.35rem; } .corrections-page .table-scroll button { font-size: inherit; padding: 0.35rem; white-space: normal; } }
 .admin-member-email { white-space: nowrap; }
 .admin-members-table .admin-member-action { max-width: 7.5rem; min-height: 2.25rem; padding: 0.35rem 0.5rem; white-space: normal; line-height: 1.2; }

@@ -496,8 +496,8 @@ test("commissioner corrections require reasons, preserve every result version, a
 
   await page.goto(`${worker.baseURL}/p/${slug}/admin/corrections`);
   await expect(page.getByRole("heading", { name: "Wager corrections" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Void with reason" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Regrade with reason" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Void", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Regrade", exact: true })).toBeDisabled();
   const eligibleTable = page.getByRole("table", { name: "Eligible active-season wagers" });
   // This commissioner owns the wager, so Activity's authorized terms are visible before kickoff.
   await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("Local Away");
@@ -512,8 +512,12 @@ test("commissioner corrections require reasons, preserve every result version, a
   const blankReason = await page.evaluate(async ({ poolSlug, wagerId }) => { const response = await fetch(`/api/p/${poolSlug}/admin/corrections/${wagerId}/void`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "   ", idempotencyKey: crypto.randomUUID() }) }); return { status: response.status, code: (await response.json() as { code: string }).code }; }, { poolSlug: slug, wagerId });
   expect(blankReason).toEqual({ status: 400, code: "INVALID_REQUEST" });
 
+  // An older authenticated session can perform both corrections without signing in again.
+  expect(await expireRecentAuth(page, await sessionUserId(page))).toBe(200);
+  await page.getByRole("button", { name: "Void", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Confirm void" })).toBeDisabled();
   await page.getByLabel("Reason").fill("Refund pending official review");
-  await page.getByRole("button", { name: "Void with reason" }).click();
+  await page.getByRole("button", { name: "Confirm void" }).click();
   await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("refunded");
   await settleFixtureResult(page, slug, 17, 24);
   await page.reload();
@@ -526,15 +530,20 @@ test("commissioner corrections require reasons, preserve every result version, a
   expect(authorizedLeague).toBe("nfl");
   await expect(authorizedRow).toContainText("Local Away");
   await expect(authorizedRow).toContainText("Local Home");
+  await page.getByRole("button", { name: "Regrade", exact: true }).click();
+  await expect(page.getByLabel("Event ID")).toHaveValue(authorizedEventId);
+  await expect(page.getByLabel("League")).toHaveValue(authorizedLeague.toUpperCase());
+  await expect(page.getByRole("button", { name: "Submit regrade" })).toBeDisabled();
   await page.getByLabel("Reason").fill("Official review awarded the wager");
-  const sourceDerivedCorrections = [renderedAuthorizedResult(17, 24, "official-win-v3"), renderedAuthorizedResult(24, 17, "official-loss-v4")];
-  expect(sourceDerivedCorrections.map(({ eventId, league }) => ({ eventId, league }))).toEqual([{ eventId: authorizedEventId, league: authorizedLeague }, { eventId: authorizedEventId, league: authorizedLeague }]);
-  await page.getByLabel("Corrected event results").fill(JSON.stringify([sourceDerivedCorrections[0]]));
-  await page.getByRole("button", { name: "Regrade with reason" }).click();
+  await page.getByLabel("Local Home score").fill("17");
+  await page.getByLabel("Local Away score").fill("24");
+  await page.getByRole("button", { name: "Submit regrade" }).click();
   await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("won");
+  await page.getByRole("button", { name: "Regrade", exact: true }).click();
   await page.getByLabel("Reason").fill("Final stat correction reversed the award");
-  await page.getByLabel("Corrected event results").fill(JSON.stringify([sourceDerivedCorrections[1]]));
-  await page.getByRole("button", { name: "Regrade with reason" }).click();
+  await page.getByLabel("Local Home score").fill("24");
+  await page.getByLabel("Local Away score").fill("17");
+  await page.getByRole("button", { name: "Submit regrade" }).click();
   await expect(eligibleTable.getByRole("row", { name: "straight" })).toContainText("lost");
 
   const history = page.getByRole("region", { name: "Immutable correction history" });
@@ -552,8 +561,8 @@ test("commissioner corrections require reasons, preserve every result version, a
   expect(await controlStatus(page, "/__local-test/season", { poolSlug: slug, state: "closed" })).toBe(200);
   await page.reload();
   await expect(page.getByText("No eligible active-season wagers are available for correction.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Void with reason" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Regrade with reason" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Void", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Regrade", exact: true })).toHaveCount(0);
   const closedCorrection = renderedAuthorizedResult(17, 24, "closed-v5");
   const closedDenied = await page.evaluate(async ({ poolSlug, wagerId, correctedResult }) => { const response = await fetch(`/api/p/${poolSlug}/admin/corrections/${wagerId}/regrade`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "Closed boundary attempt", correctedResults: [correctedResult], idempotencyKey: crypto.randomUUID() }) }); return { status: response.status, code: (await response.json() as { code: string }).code }; }, { poolSlug: slug, wagerId, correctedResult: closedCorrection });
   expect(closedDenied).toEqual({ status: 400, code: "SEASON_NOT_ACTIVE" });

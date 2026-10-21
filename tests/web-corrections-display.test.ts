@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { createElement, type ReactNode } from "react";
+import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReadActivity } from "../src/contracts/http";
@@ -10,7 +10,10 @@ vi.mock("react", async (original) => ({
   ...await original<typeof import("react")>(),
   useEffect: () => {},
   useRef: () => ({ current: null }),
-  useState: (initial: unknown) => [hooks.values[hooks.cursor++] ?? initial, () => {}]
+  useState: (initial: unknown) => {
+    const index = hooks.cursor++;
+    return [hooks.values[index] ?? (typeof initial === "function" ? initial() : initial), (value: unknown) => { hooks.values[index] = value; }];
+  }
 }));
 vi.mock("react-router", () => ({ useParams: () => ({ slug: "pool" }), Link: ({ children }: { children: ReactNode }) => children }));
 vi.mock("../src/web/components/Layout", () => ({ Layout: ({ children }: { children: ReactNode }) => children }));
@@ -33,7 +36,12 @@ function render(wagers: Wager[], audit: Record<string, unknown> = {}) {
   hooks.values = [{ activity: { wagers } }, view, { wagers, settlements: [], wagerCorrections: [], ...audit }];
   return renderToStaticMarkup(createElement(AdminCorrectionsPage));
 }
-beforeEach(() => { hooks.cursor = 0; hooks.values = []; });
+beforeEach(() => { hooks.cursor = 0; hooks.values = []; vi.restoreAllMocks(); vi.spyOn(Date, "now").mockReturnValue(Date.parse("2031-01-01T00:00:00Z")); });
+function nodes(node: ReactNode): ReactElement<Record<string, any>>[] {
+  if (Array.isArray(node)) return node.flatMap(nodes);
+  if (!isValidElement<Record<string, any>>(node)) return [];
+  return [node, ...nodes(node.props.children)];
+}
 
 describe("correction wager identification", () => {
   it("uses standings-sized mobile tables and contains scrolling for history", () => {
@@ -56,8 +64,32 @@ describe("correction wager identification", () => {
     expect(html).toContain("+100");
     expect(html).toContain("Alice");
     expect(html).toContain("event-spread");
-    expect(html).toContain("Void with reason");
-    expect(html).toContain("Regrade with reason");
+    expect(html).toContain(">Void</button>");
+    expect(html).toContain(">Regrade</button>");
+    expect(html).not.toContain("Corrected event results");
+    expect(html).not.toContain("textarea");
+  });
+
+  it("opens a prefilled inline form from Regrade without requiring a reason first", () => {
+    render([wager()]); hooks.cursor = 0;
+    const regrade = nodes(AdminCorrectionsPage()).find(node => node.type === "button" && node.props.children === "Regrade")!;
+    expect(regrade.props.disabled).toBe(false);
+    regrade.props.onClick({ currentTarget: null }); hooks.cursor = 0;
+    const html = renderToStaticMarkup(createElement(AdminCorrectionsPage));
+    expect(html).toContain("Regrade wager");
+    expect(html).toContain("Texas Longhorns score");
+    expect(html).toContain('value="event-spread"');
+    expect(html).toContain('value="NCAAF"');
+    expect(html).toContain("Submit regrade");
+  });
+
+  it("keeps regrade disabled for hidden or future legs but permits selecting Void", () => {
+    for (const value of [wager({ legs: undefined }), wager({ hiddenLegCount: 1 }), wager({ legs: [{ ...leg, eventStartsAt: "2032-01-01T00:00:00Z" }] })]) {
+      render([value]); hooks.cursor = 0;
+      const buttons = nodes(AdminCorrectionsPage()).filter(node => node.type === "button");
+      expect(buttons.find(node => node.props.children === "Regrade")!.props.disabled).toBe(true);
+      expect(buttons.find(node => node.props.children === "Void")!.props.disabled).toBe(false);
+    }
   });
 
   it("shows every parlay and teaser leg with its selected total or adjusted line", () => {
@@ -113,7 +145,7 @@ describe("correction wager identification", () => {
     const html = renderToStaticMarkup(createElement(AdminCorrectionsPage));
     expect(html).toContain("Only the commissioner can correct eligible active-season wagers.");
     expect(html).not.toContain("Texas");
-    expect(html).not.toContain("Regrade with reason");
+    expect(html).not.toContain(">Regrade</button>");
   });
 
   it("preserves hidden-selection messaging and does not expose audit-only legs in eligible rows", () => {

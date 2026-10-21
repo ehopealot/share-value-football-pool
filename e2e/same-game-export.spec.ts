@@ -71,10 +71,17 @@ test("authenticated browser parser consumes the real same-game teaser export acr
   await expect(authorizedRow).toContainText("Local Home");
   await expect(authorizedRow).toContainText("(+3)");
   await expect(authorizedRow).toContainText("O39.5");
-  const correctedResults = [{ eventId: authorizedEventId, league: authorizedLeague, status: "final", homeScore: 17, awayScore: 24, correctionVersion: "official-2" }];
-  await page.getByLabel("Reason").fill("Official correction");
-  await page.getByLabel("Corrected event results").fill(JSON.stringify(correctedResults));
-  await page.getByRole("button", { name: "Regrade with reason" }).click();
+  const correctedResults = [{ eventId: authorizedEventId, league: authorizedLeague, status: "final", homeScore: 17, awayScore: 24, correctionVersion: expect.stringMatching(/^commissioner:/) }];
+  await page.getByRole("button", { name: "Regrade", exact: true }).click();
+  const form = page.getByRole("form", { name: "Regrade wager" });
+  // Spread and total on the same game share exactly one result form.
+  await expect(form.getByLabel("Event ID")).toHaveCount(1);
+  await expect(form.getByLabel("Event ID")).toHaveValue(authorizedEventId);
+  await expect(form.getByLabel("League")).toHaveValue(authorizedLeague.toUpperCase());
+  await form.getByLabel("Local Home score").fill("17");
+  await form.getByLabel("Local Away score").fill("24");
+  await form.getByLabel("Reason").fill("Official correction");
+  await form.getByRole("button", { name: "Submit regrade" }).click();
   await expect.poll(async () => (await exported()).settlements.length).toBe(3);
   const manual = await exported();
   expect(manual.wagers[0]).toMatchObject({ status: "lost", outcome: "lost", returnMicros: "0", profitMicros: "0" });
