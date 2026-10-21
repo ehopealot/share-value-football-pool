@@ -356,16 +356,21 @@ describe("T11 administration HTTP commands and prohibitions", () => {
     expect((await owner.fetch(request(`/api/p/${slug}/admin/settings`, { idempotencyKey: "empty" })))).toMatchObject({ status: 400 });
   }, 120_000);
 
-  it("void and regrade require reason, recent auth, commissioner role, and an active season", async () => {
+  it("void and regrade accept older sessions but require reason, commissioner role, and an active season", async () => {
     const poolId = `t11-corrections-${crypto.randomUUID()}`; const slug = "t11-corrections-pool";
     await setupPool(poolId, slug);
     await fund(poolId);
     await placeWager(poolId, "member", "w1");
-    const member = app({ id: "member", name: "Member" }, async () => true);
-    const owner = app({ id: "owner", name: "Owner" }, async () => true);
-    const stale = app({ id: "owner", name: "Owner" }, async () => false);
-    expect((await member.fetch(request(`/api/p/${slug}/admin/corrections/w1/void`, { reason: "Nope", idempotencyKey: "member" })))).toMatchObject({ status: 403 });
-    expect((await stale.fetch(request(`/api/p/${slug}/admin/corrections/w1/void`, { reason: "Official void", idempotencyKey: "stale" })))).toMatchObject({ status: 403 });
+    const member = app({ id: "member", name: "Member" }, async () => false);
+    const owner = app({ id: "owner", name: "Owner" }, async () => false);
+    const correctedResults = [{ eventId: "w1", league: "nfl", status: "final", homeScore: 24, awayScore: 17, correctionVersion: "official-v2" }];
+    for (const action of ["void", "regrade"]) {
+      const body = { reason: "Official correction", idempotencyKey: `denied-${action}`, ...(action === "regrade" ? { correctedResults } : {}) };
+      const path = `/api/p/${slug}/admin/corrections/w1/${action}`;
+      expect((await app(null).fetch(request(path, body))).status).toBe(401);
+      expect((await member.fetch(request(path, body))).status).toBe(403);
+      expect((await owner.fetch(request(path, { ...body, reason: "   " }))).status).toBe(400);
+    }
     expect((await owner.fetch(request(`/api/p/${slug}/admin/corrections/w1/void`, { idempotencyKey: "no-reason" })))).toMatchObject({ status: 400 });
     expect((await owner.fetch(request(`/api/p/${slug}/admin/corrections/w1/void`, { reason: "   ", idempotencyKey: "blank-reason" })))).toMatchObject({ status: 400 });
     expect(await (await owner.fetch(request(`/api/p/${slug}/admin/corrections/ghost/void`, { reason: "Official void", idempotencyKey: "ghost" }))).json()).toEqual({ code: "WAGER_NOT_FOUND" });
