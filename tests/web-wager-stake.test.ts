@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,13 @@ const stake = (changes: Partial<Wager> = {}) => renderToStaticMarkup(createEleme
 const details = (changes: Partial<Wager> = {}) => renderToStaticMarkup(createElement(MultiWagerLegs, { wager: { ...wager, ...changes } }));
 
 describe("multi stake details", () => {
+  it("keeps tappable stakes styled as plain text", () => {
+    const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
+    const rule = css.match(/button\.wager-stake-button\s*\{([^}]+)\}/)?.[1];
+    expect(rule).toContain("color: var(--ink)");
+    expect(rule).toContain("text-decoration: none");
+    expect(rule).toContain("background: transparent");
+  });
   it.each(["parlay", "teaser"] as const)("makes a %s stake a labeled dialog button without mounting hidden details", (type) => {
     const html = stake({ type });
     expect(html).toContain('<button type="button"');
