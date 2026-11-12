@@ -143,6 +143,9 @@ describe("pool exposure table", () => {
     expect(html).toContain("+90.00 shares");
     expect(html).toContain("Atlanta (+3.5)");
     expect(html).toContain("O40.5");
+    expect(html.match(/aria-haspopup="dialog"/g)).toHaveLength(1);
+    expect(html).toContain('aria-label="View parlay legs: 50 shares at +280"');
+    expect(html).not.toContain("<dialog");
   });
 
   it("shows a truthful notice when the pool has no bets on the game", () => {

@@ -20,7 +20,8 @@ describe("My wagers page", () => {
     expect(sharedLine).toContain('activityLegGradeClass(leg.grade)');
     expect(sharedLine).toContain('className={activityLegGradeClass(leg.grade)}');
     expect(sharedLine).toContain('<strong key={index}>{segment.text}</strong>');
-    expect(source).toContain('<span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span>');
+    expect(source).toContain('import { WagerStake as Staked } from "../components/WagerStake";');
+    expect(source).toContain('<Staked wager={wager}/>');
     expect(source).toContain('className="wager-start-time"');
     expect(source).toContain('<td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink></td>');
     expect(source).toContain('rowSpan={legs.length}');

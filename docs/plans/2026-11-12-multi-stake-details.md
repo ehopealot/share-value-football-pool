@@ -21,3 +21,11 @@ The user approved a small modal rather than a tooltip. Preserve the square, comp
 ## Residuals
 
 Source odds are immutable original per-leg snapshots, not house-adjusted parlay pricing; label them explicitly. The existing backend remains the authority for leg visibility and ticket-term redaction. Native dialog requires a modern browser, consistent with the app's Vite browser target.
+
+## Verification record
+
+- All 351 web unit tests passed (`npx vitest run --project=node 'tests/web-'`), along with TypeScript and the Vite build. Build reports existing Wrangler `bindings` and missing local Turnstile-site-key warnings.
+- An isolated component fixture (not the application e2e suite) passed desktop/mobile Chromium checks for keyboard open, Close/Escape/backdrop dismissal, reopen, native focus containment, explicit trigger focus restoration, line details, and six-leg overflow. It ran in React StrictMode. The probe caught and verified fixes for queued native close events during StrictMode effect replay and pointer activation without browser focus; the latter was also identified by independent code review.
+- Inspected desktop parlay and mobile teaser screenshots. The design detector flagged only existing Arial and message-board border rules, outside this feature.
+- Native WebKit verification was unavailable: the installed browser lacks the system `libgstreamer-1.0.so.0` dependency. The no-pointer-focus case was reproduced in Chromium by preventing mousedown focus, then verified against the explicit trigger ref.
+- No e2e suite run; CI remains the full-suite gate.

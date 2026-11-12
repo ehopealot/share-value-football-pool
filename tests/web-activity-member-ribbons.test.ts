@@ -54,7 +54,7 @@ describe("Activity member ribbons", () => {
     expect(firstKickoff).toBeLessThan(firstMatchup);
     expect(firstMatchup).toBeLessThan(secondKickoff);
     expect(secondKickoff).toBeLessThan(secondMatchup);
-    expect(html).toContain('<td rowSpan="2"><span class="activity-staked">');
+    expect(html).toContain('<td rowSpan="2"><button type="button" class="activity-staked wager-stake-button" aria-haspopup="dialog"');
     expect(html).toContain("Oregon");
     expect(html.indexOf("Oregon")).toBeLessThan(html.indexOf("UCLA"));
     expect(styles).toContain('.activity-table .activity-wager-leg-row > td { border-top: 0; padding-top: 0; }');
@@ -72,7 +72,7 @@ describe("Activity member ribbons", () => {
     expect(html).toContain('class="activity-leg-loss"');
     expect(html).toContain('<span class="activity-leg-neutral">2 other selections hidden until game time.</span>');
     expect(html.match(/class="wager-start-time"/g)).toHaveLength(2);
-    expect(html).toContain('<td rowSpan="3"><span class="activity-staked">');
+    expect(html).toContain('<td rowSpan="3"><button type="button" class="activity-staked wager-stake-button" aria-haspopup="dialog"');
     expect(html).toContain('<td class="activity-performance-won" rowSpan="3">+500.00</td>');
   });
 
