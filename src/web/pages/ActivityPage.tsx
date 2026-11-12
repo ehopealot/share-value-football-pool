@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activityWagerPerformanceClass, filterActivityDaysForActiveGames, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityDaysForWeek, groupActivityMembers, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
+import { activityWagerPerformanceClass, filterActivityDaysForActiveGames, formatActivityPerformance, formatActivityWagerPerformance, groupActivityDaysForWeek, groupActivityMembers, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
 import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { WagerLine } from "../components/WagerLine";
+import { WagerStake as Staked } from "../components/WagerStake";
 import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
@@ -16,11 +17,6 @@ export function WagerLines({ wager, slug = "" }: { wager: Wager; slug?: string }
   const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   if (!legs.length) return <>Selection hidden until game time.</>;
   return <div className="activity-wager-lines">{legs.map((leg) => <MatchupLegLink key={`${leg.eventId}:${leg.market}:${leg.selection}`} slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink>)}</div>;
-}
-
-function Staked({ wager }: { wager: Wager }) {
-  const stake = formatActivityStake(wager);
-  return stake ? <span className="activity-staked">{stake.amount}{stake.odds && <> <small className="activity-staked-odds">{stake.odds}</small></>}</span> : null;
 }
 
 function WagerRows({ wager, dayAnchorStartsAt, slug = "" }: { wager: Wager; dayAnchorStartsAt?: string; slug?: string }) {

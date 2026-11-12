@@ -6,8 +6,9 @@ import { api } from "../api";
 import { Layout } from "../components/Layout";
 import { formatKickoff } from "../odds-format";
 import { WagerLines } from "./ActivityPage";
+import { WagerStake } from "../components/WagerStake";
 import { groupBoardByEvent, type MarketCell } from "./OddsPage";
-import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityWagerPerformance } from "../activity-presentation";
 import { parseIntegerText } from "../../domain/fixed-point";
 
 /** A missing ESPN event and an inactive-week event share this safe, accurate member-facing state. */
@@ -29,7 +30,7 @@ export function PoolExposure({ wagers, slug }: { wagers: PoolExposureResponse["w
     {wagers.length === 0 ? <p className="state-notice">No pool bets on this game.</p> : <div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Wager</th><th>Staked</th><th>P&L</th></tr></thead>
       {ordered.map((member) => <tbody key={member.memberId}>
         <tr className="activity-day-member-ribbon"><th colSpan={3} scope="rowgroup"><span>{member.name}<small>{formatActivityPerformance(member.netMicros.toString())}</small></span></th></tr>
-        {member.wagers.map((wager) => { const stake = formatActivityStake(wager); return <tr key={wager.wagerId}><td><WagerLines wager={wager} slug={slug}/></td><td>{stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : "—"}</td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>; })}
+        {member.wagers.map((wager) => <tr key={wager.wagerId}><td><WagerLines wager={wager} slug={slug}/></td><td><WagerStake wager={wager} fallback="—"/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>)}
       </tbody>)}
     </table></div>}
   </section>;

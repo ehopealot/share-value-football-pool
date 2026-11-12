@@ -4,21 +4,17 @@ import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
 import { formatMicros, parseIntegerText } from "../../domain/fixed-point";
 import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
-import { activityWagerPerformanceClass, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityWagerPerformanceClass, formatActivityWagerPerformance } from "../activity-presentation";
 import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime, ticketReturns } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
 import { WagerLine } from "../components/WagerLine";
+import { WagerStake as Staked } from "../components/WagerStake";
 
 type Wager = import("../../contracts/http").ReadMyWagers["wagers"][number];
 
 const shares = (value: string) => formatMicros(parseIntegerText(value), 2);
-
-function Staked({ wager }: { wager: Wager }) {
-  const stake = formatActivityStake(wager);
-  return stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : null;
-}
 
 function WagerRows({ wager, slug = "" }: { wager: Wager; slug?: string }) {
   const payout = wager.status === "open" ? ticketReturns(wager.riskMicros, wager.acceptedOdds).total : shares(wager.returnMicros);

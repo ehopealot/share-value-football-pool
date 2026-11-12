@@ -26,7 +26,7 @@ describe("table ribbons", () => {
     expect(overview).toContain('className="table-ribbon">Current account</h2>');
     expect(orders).toContain('className="table-ribbon">Order history</h2>');
     // Standings sort headers must stay excluded from the generic solid-blue button hover to keep inherited text readable.
-    expect(styles).toContain('button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):hover:not(:disabled) { background: #2f5f9e; }');
+    expect(styles).toContain('button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):not(.wager-stake-button):hover:not(:disabled) { background: #2f5f9e; }');
     expect(members).toContain('className="table-ribbon">Active and suspended members</h2>');
     expect(corrections).toContain('className="table-ribbon">Eligible active-season wagers</h2>');
     expect(corrections).toContain('<table aria-label="Eligible active-season wagers">');
