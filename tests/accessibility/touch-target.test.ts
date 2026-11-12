@@ -41,6 +41,7 @@ describe("narrow-screen touch targets", () => {
   it("keeps mobile ribbon controls compact while preserving 44px action targets", () => {
     expect(mobileRule(".nav-bar a, .nav-button")).toMatch(/(?:^|;)\s*min-height:\s*36px\s*(?:;|$)/);
     expect(mobileRule("button:not(.nav-button), .primary-action, .secondary-action")).toMatch(/(?:^|;)\s*min-height:\s*44px\s*(?:;|$)/);
+    expect(mobileRule("button.wager-stake-button")).toMatch(/(?:^|;)\s*min-height:\s*44px\s*(?:;|$)/);
   });
 
   it("uses smaller selected-pick text while keeping the Remove control touch-sized on mobile", () => {
@@ -49,7 +50,7 @@ describe("narrow-screen touch targets", () => {
     expect(remove).toMatch(/(?:^|;)\s*background:\s*transparent\s*(?:;|$)/);
     expect(remove).toMatch(/(?:^|;)\s*text-decoration:\s*underline\s*(?:;|$)/);
     expect(mobileRule(".selection-tray-remove")).toMatch(/(?:^|;)\s*min-height:\s*44px\s*(?:;|$)/);
-    expect(baseRule("button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):hover:not(:disabled)"))
+    expect(baseRule("button:not(.primary-action):not(.nav-button):not(.selection-tray-remove):not(.standings-sort):not(.wager-stake-button):hover:not(:disabled)"))
       .toMatch(/(?:^|;)\s*background:\s*#2f5f9e\s*(?:;|$)/);
   });
 
