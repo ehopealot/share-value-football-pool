@@ -23,7 +23,7 @@ describe("My wagers page", () => {
     expect(source).toContain('import { WagerStake as Staked } from "../components/WagerStake";');
     expect(source).toContain('<Staked wager={wager}/>');
     expect(source).toContain('className="wager-start-time"');
-    expect(source).toContain('<td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink></td>');
+    expect(source).toContain('<td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg} wagerType={wager.type}/></MatchupLegLink></td>');
     expect(source).toContain('rowSpan={legs.length}');
     expect(source).toContain('activity-wager-leg-row-leading');
     expect(source).toContain('<td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td>');

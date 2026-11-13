@@ -128,7 +128,7 @@ describe("correction wager identification", () => {
   it("shows tied/pushed legs in black with only the selection bolded", () => {
     const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
     const html = render([wager({ status: "refunded", legs: [{ ...leg, grade: "push" }] })]);
-    expect(html).toContain('<span class="activity-leg-push"><strong>Texas (-7.5)</strong><span> at Alabama</span></span>');
+    expect(html).toContain('<span class="activity-leg-push"><strong>Texas (-7.5)</strong><span> at Alabama</span> (+100)</span>');
     expect(css).toContain(".corrections-page .activity-leg-push { color: var(--ink); }");
   });
 

@@ -22,7 +22,7 @@ function WagerRows({ wager, slug = "" }: { wager: Wager; slug?: string }) {
   const starts = displayWagerStartTimes(wager);
   const mobileStarts = displayWagerStartTimeOnly(wager);
   const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < legs.length - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
-  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink></td>{index === 0 && <><td rowSpan={legs.length}><Staked wager={wager}/></td><td rowSpan={legs.length}>{payout}</td><td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}</>;
+  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg} wagerType={wager.type}/></MatchupLegLink></td>{index === 0 && <><td rowSpan={legs.length}><Staked wager={wager}/></td><td rowSpan={legs.length}>{payout}</td><td className={activityWagerPerformanceClass(wager)} rowSpan={legs.length}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}</>;
 }
 
 export function MyWagersPage() {
