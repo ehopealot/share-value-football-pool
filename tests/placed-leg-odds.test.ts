@@ -14,9 +14,15 @@ function shaped(type: string, legs = [leg()], owner = "viewer") {
   } } as unknown as SqlStorage;
   return shapeActivityWagers(sql, "viewer", new Date("2026-09-07T00:00:00.000Z")).wagers[0] as any;
 }
-const markup = (wager: any) => renderToStaticMarkup(createElement(WagerLine, { leg: wager.legs[0], wagerType: wager.type }));
+const markup = (wager: any) => renderToStaticMarkup(createElement(WagerLine, { leg: wager.legs[0], wagerType: wager.type, showOdds: true }));
 
 describe("placed wager leg odds", () => {
+  it.each(["straight", "parlay", "teaser"])("omits odds from default %s wager lines", (type) => {
+    const wager = shaped(type);
+    const html = renderToStaticMarkup(createElement(WagerLine, { leg: wager.legs[0], wagerType: wager.type }));
+    expect(html).not.toContain("(+100)");
+    expect(html).toContain("44");
+  });
   it.each(["spread", "total", "moneyline"])("shows +100 for every straight %s regardless of source odds", (market) => {
     const wager = shaped("straight", [leg(market, { original_odds: 220 })]);
     expect(wager.legs[0].placementOdds).toBe(100);
