@@ -5,8 +5,8 @@ import { activityLegGradeClass, formatActivityLeg } from "../activity-presentati
 type Leg = NonNullable<ReadActivity["activity"]["wagers"][number]["legs"]>[number];
 
 /** Shared selected-side emphasis and per-leg grade colors. */
-export function WagerLine({ leg, wagerType }: { leg: Leg; wagerType: "straight" | "parlay" | "teaser" }) {
+export function WagerLine({ leg, wagerType, showOdds = false }: { leg: Leg; wagerType: "straight" | "parlay" | "teaser"; showOdds?: boolean }) {
   const line = formatActivityLeg(leg);
   const odds = wagerType === "straight" ? 100 : wagerType === "parlay" ? leg.placementOdds : undefined;
-  return <span className={activityLegGradeClass(leg.grade)}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}{odds !== undefined && <> ({formatAmericanOdds(odds)})</>}</span>;
+  return <span className={activityLegGradeClass(leg.grade)}>{line.segments.map((segment, index) => segment.selected ? <strong key={index}>{segment.text}</strong> : <span key={index}>{segment.text}</span>)}{showOdds && odds !== undefined && <> ({formatAmericanOdds(odds)})</>}</span>;
 }
