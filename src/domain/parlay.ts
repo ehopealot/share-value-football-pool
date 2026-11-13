@@ -92,7 +92,7 @@ function americanMultiplier(odds: number): Fraction {
     : reduce(absolute + 100n, absolute);
 }
 
-function effectiveLegOdds(leg: ParlayLeg, legs: readonly ParlayLeg[]): number {
+export function effectiveLegOdds(leg: Pick<ParlayLeg, "eventId" | "market" | "originalOdds">, legs: readonly Pick<ParlayLeg, "eventId" | "market">[]): number {
   if (leg.market === "spread") return 100;
   if (leg.market === "total") {
     return legs.some((candidate) => candidate.eventId === leg.eventId && (candidate.market === "spread" || candidate.market === "moneyline")) ? -133 : 100;

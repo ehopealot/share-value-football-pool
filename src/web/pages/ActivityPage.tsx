@@ -15,7 +15,7 @@ type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][n
 export function WagerLines({ wager, slug = "" }: { wager: Wager; slug?: string }) {
   const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   if (!legs.length) return <>Selection hidden until game time.</>;
-  return <div className="activity-wager-lines">{legs.map((leg) => <MatchupLegLink key={`${leg.eventId}:${leg.market}:${leg.selection}`} slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink>)}</div>;
+  return <div className="activity-wager-lines">{legs.map((leg) => <MatchupLegLink key={`${leg.eventId}:${leg.market}:${leg.selection}`} slug={slug} leg={leg}><WagerLine leg={leg} wagerType={wager.type}/></MatchupLegLink>)}</div>;
 }
 
 function Staked({ wager }: { wager: Wager }) {
@@ -31,7 +31,7 @@ function WagerRows({ wager, dayAnchorStartsAt, slug = "" }: { wager: Wager; dayA
   const mobileStarts = displayWagerStartTimeOnly(wager, dayAnchorStartsAt);
   const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < rowCount - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
   if (!legs.length) return <tr><td></td><td><WagerLines wager={wager} slug={slug}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;
-  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
+  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg} wagerType={wager.type}/></MatchupLegLink></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
 }
 
 export function MemberActivitySection({ member, title, slug = "" }: { member: ReturnType<typeof groupActivityMembersForWeek>[number]; title?: React.ReactNode; slug?: string }) {
