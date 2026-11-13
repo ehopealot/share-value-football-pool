@@ -648,7 +648,10 @@ test("a two-leg teaser uses a placement key distinct from its quote key", async 
   await expect(page.getByRole("heading", { name: "Open bets" })).toBeVisible();
   const openBets = page.getByRole("table", { name: "Open bets" });
   await expect(openBets.locator("tbody tr").filter({ hasText: /Local Away.*Local Home/ })).toHaveCount(2);
-  await expect(openBets.getByRole("row", { name: /1 [+-]\d+.*1\.91/ })).toBeVisible();
+  // The stake is now a dialog button whose accessible name includes "shares at".
+  const ticketRow = openBets.getByRole("row").filter({ has: page.getByRole("button", { name: "View teaser legs: 1 shares at -110", exact: true }) });
+  await expect(ticketRow).toBeVisible();
+  await expect(ticketRow.getByRole("cell", { name: "1.91", exact: true })).toBeVisible();
 });
 
 test("placement confirmation ingests live provider odds and preserves fail-open placement", async ({ page, worker }) => {

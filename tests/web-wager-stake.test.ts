@@ -42,6 +42,12 @@ describe("multi stake details", () => {
     expect(hiddenOdds).not.toContain("activity-staked-odds");
   });
 
+  it("passes the wager type through to placement-odds leg displays", () => {
+    const legs = [{ ...leg, placementOdds: 100 }];
+    expect(details({ type: "parlay", legs })).toContain(" (+100)</span>");
+    expect(details({ type: "teaser", legs })).not.toContain(" (+100)</span>");
+  });
+
   it("shows each parlay leg and recorded source odds in kickoff order", () => {
     const html = details({ legs: [leg, { ...leg, eventId: "early", market: "moneyline", originalLine: undefined, originalOdds: 145, eventStartsAt: "2026-09-06T18:00:00.000Z", awayTeam: "Denver Broncos" }] });
     expect(html).toContain("Source odds: -110");
