@@ -23,7 +23,7 @@ export function MultiWagerLegs({ wager }: { wager: Wager }) {
   const hidden = wager.hiddenLegCount ?? 0;
   return <>
     {legs.length > 0 && <ul className="wager-stake-legs">{legs.map((leg, index) => <li key={`${leg.eventId}:${leg.market}:${leg.selection}:${index}`}>
-      <WagerLine leg={leg}/>
+      <WagerLine leg={leg} wagerType={wager.type}/>
       <p>{wager.type === "teaser" ? teaserLineChange(leg) : `Source odds: ${formatAmericanOdds(leg.originalOdds)}`}</p>
     </li>)}</ul>}
     {hidden > 0 ? <p>{hidden} selection{hidden === 1 ? "" : "s"} hidden until game time.</p> : legs.length === 0 ? <p>Selections hidden until game time.</p> : null}
