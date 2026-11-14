@@ -23,6 +23,11 @@ describe("multi stake details", () => {
     expect(rule).toContain("text-decoration: none");
     expect(rule).toContain("background: transparent");
   });
+  it("underlines both stake amounts on hover without a background fill", () => {
+    const css = readFileSync(new URL("../src/web/styles.css", import.meta.url), "utf8");
+    expect(css).toContain("button.wager-stake-button:hover { background: transparent; }");
+    expect(css).toContain("button.wager-stake-button:hover, button.wager-stake-button:hover .activity-staked-odds { text-decoration: underline; text-underline-offset: 2px; }");
+  });
   it.each(["parlay", "teaser"] as const)("makes a %s stake a labeled dialog button without mounting hidden details", (type) => {
     const html = stake({ type });
     expect(html).toContain('<button type="button"');
