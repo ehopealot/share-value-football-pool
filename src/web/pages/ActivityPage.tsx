@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activityWagerPerformanceClass, filterActivityDaysForActiveGames, formatActivityPerformance, formatActivityWagerPerformance, groupActivityDaysForWeek, groupActivityMembers, groupActivityMembersForWeek, hasActiveActivityGame } from "../activity-presentation";
+import { activityWagerPerformanceClass, filterActivityDaysForActiveGames, formatActivityPerformance, formatActivityWagerPerformance, groupActivityDaysForWeek, groupActivityMembers, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { WagerLine } from "../components/WagerLine";
+import { hasConfirmedLiveGame, loadLiveGameStates } from "../live-game-state";
 import { WagerStake as Staked } from "../components/WagerStake";
 import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
 
@@ -57,6 +58,7 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
   const live = mode === "live";
   const title = live ? "Live games" : "Activity";
   const [data, setData] = useState<import("../../contracts/http").ReadActivity>();
+  const [liveState, setLiveState] = useState<{ liveEventIds: Set<string>; failures: number }>();
   const [selectedWeek, setSelectedWeek] = useState("");
   const activeOnly = mode === "live";
   const [groupByDay, setGroupByDay] = useState(false);
@@ -64,6 +66,21 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
   const errorRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => { void api.activity(slug).then(setData).catch((e) => setError(errorMessage(e))); }, [slug]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => {
+    if (!live || !data) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const now = Date.now();
+      const week = weekStartOf(new Date(now)).toISOString();
+      const result = await loadLiveGameStates(data.activity.wagers.filter((wager) => wager.weekStart === week), now, (eventId) => api.matchupBox(slug, eventId), () => active);
+      if (!active) return;
+      setLiveState(result);
+      timer = setTimeout(() => { void refresh(); }, 60_000);
+    };
+    void refresh();
+    return () => { active = false; clearTimeout(timer); };
+  }, [live, data, slug]);
   if (error) return <Layout><h1>{title}</h1><p ref={errorRef} tabIndex={-1} role="alert" className="error-summary">{error} <Link to={`/p/${slug}/overview`}>Return to the pool home</Link>.</p></Layout>;
   if (!data) return <Layout><p role="status">{live ? "Loading live games…" : "Loading activity…"}</p></Layout>;
   const currentWeek = weekStartOf(new Date()).toISOString();
@@ -72,7 +89,7 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
   const now = Date.now();
   // Group before filtering so ribbons retain the full selected period's member P&L.
   const weeklyMembers = groupActivityMembers(data.activity.wagers, week);
-  const members = activeOnly ? weeklyMembers.map((member) => ({ ...member, wagers: member.wagers.filter((wager) => hasActiveActivityGame(wager, now)) })).filter((member) => member.wagers.length > 0) : weeklyMembers;
+  const members = activeOnly ? weeklyMembers.map((member) => ({ ...member, wagers: member.wagers.filter((wager) => hasConfirmedLiveGame(wager, now, liveState?.liveEventIds ?? new Set())) })).filter((member) => member.wagers.length > 0) : weeklyMembers;
   // Derive daily P&L before filtering, as with the weekly member ribbons above.
   const weeklyDays = groupActivityDaysForWeek(data.activity.wagers, week, now);
   const days = activeOnly ? filterActivityDaysForActiveGames(weeklyDays, now) : weeklyDays;
@@ -83,7 +100,7 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
         <label className="activity-group-toggle"><input type="checkbox" checked={groupByDay} onChange={(event) => setGroupByDay(event.target.checked)} /> Group by day</label>
       </div>}
       {(week === undefined || week === currentWeek) && <MatchupHint/>}
-      {!live && groupByDay ? days.length ? days.map((day) => <DayActivitySection key={day.key} day={day} memberProfilePath={(memberId) => `/p/${slug}/member/${memberId}`} slug={slug}/>) : <p role="status">There are no bets right now</p> : members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} slug={slug} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">There are no bets right now</p>}
+      {!live && groupByDay ? days.length ? days.map((day) => <DayActivitySection key={day.key} day={day} memberProfilePath={(memberId) => `/p/${slug}/member/${memberId}`} slug={slug}/>) : <p role="status">There are no bets right now</p> : members.length ? members.map((member) => <MemberActivitySection key={member.memberId} member={member} slug={slug} title={<Link className="activity-member-link" to={`/p/${slug}/member/${member.memberId}`}>{member.memberDisplayName}</Link>} />) : <p role="status">{live ? !liveState ? "Checking live games…" : liveState.failures ? "Some live game statuses are unavailable. Retrying shortly…" : "There are no live bets right now" : "There are no bets right now"}</p>}
     </section>
     <Link to={`/p/${slug}/overview`}>Pool home</Link>
   </div></Layout>;
