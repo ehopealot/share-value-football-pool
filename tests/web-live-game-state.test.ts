@@ -22,6 +22,21 @@ describe("live game state", () => {
     expect(calls).toEqual(["playing"]);
     expect(wagers.map((wager) => hasConfirmedLiveGame(wager, now, result.liveEventIds))).toEqual([true, true, false, false, false, false]);
   });
+  it("stops dequeuing requests when the caller cleans up an in-flight batch", async () => {
+    let active = true;
+    const calls: string[] = [];
+    const releases: (() => void)[] = [];
+    const batch = loadLiveGameStates(Array.from({ length: 12 }, (_, i) => ticket(String(i))), now, async (id) => {
+      calls.push(id);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return { state: "live" };
+    }, () => active);
+    expect(calls).toEqual(["0", "1", "2"]);
+    active = false;
+    releases.forEach((release) => release());
+    await batch;
+    expect(calls).toEqual(["0", "1", "2"]);
+  });
   it("bounds concurrent requests", async () => {
     let pending = 0; let peak = 0;
     await loadLiveGameStates(Array.from({ length: 12 }, (_, i) => ticket(String(i))), now, async () => {

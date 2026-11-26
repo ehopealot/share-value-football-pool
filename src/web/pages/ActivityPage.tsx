@@ -77,7 +77,7 @@ export function ActivityPageBody({ slug, mode = "activity" }: { slug: string; mo
     const refresh = async () => {
       const now = Date.now();
       const week = weekStartOf(new Date(now)).toISOString();
-      const result = await loadLiveGameStates(data.activity.wagers.filter((wager) => wager.weekStart === week), now, (eventId) => api.matchupBox(slug, eventId));
+      const result = await loadLiveGameStates(data.activity.wagers.filter((wager) => wager.weekStart === week), now, (eventId) => api.matchupBox(slug, eventId), () => active);
       if (!active) return;
       setLiveState(result);
       timer = setTimeout(() => { void refresh(); }, 60_000);
