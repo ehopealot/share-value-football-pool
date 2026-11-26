@@ -25,7 +25,8 @@ describe("Activity page", () => {
     expect(source).toContain('<th>Start</th><th>Wager</th><th>Staked</th><th>P&amp;L</th>');
     expect(source).not.toContain('<th>Member</th>');
     expect(source).toContain('members.map((member) => <MemberActivitySection');
-    expect(source).toContain('<span className="activity-staked">{stake.amount}{stake.odds && <> <small className="activity-staked-odds">{stake.odds}</small></>}</span>');
+    expect(source).toContain('import { WagerStake as Staked } from "../components/WagerStake";');
+    expect(source).toContain('<Staked wager={wager}/>');
     expect(source).toContain('displayWagerStartTimes(wager)');
     expect(source).toContain('weekNumberLabel(start)');
     expect(source).not.toContain('Week of {weekLabel(start)}');

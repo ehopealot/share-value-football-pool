@@ -406,13 +406,13 @@ describe("later wager and member HTTP API", () => {
     expect(await response.json()).toMatchObject({ code: "ORDER_QUOTE_STALE", reconfirmationRequired: true, replacement: { seasonId: "s1", memberId: "member", mode: "value", amountMicros: "1234567", priceMicros: expect.any(String), commandVersion: expect.any(String), sharesMicros: expect.any(String), valueMicros: expect.any(String) } });
   }, 90_000);
 
-  it("requires commissioner, recent auth, and a bounded correction reason", async () => {
+  it("requires commissioner and a bounded correction reason without recent auth", async () => {
     const poolId = `api-correction-${crypto.randomUUID()}`;
     await setupPool(poolId, "api-correction-pool");
     const path = "/api/p/api-correction-pool/admin/corrections/missing/void";
     const body = { idempotencyKey: "correction", reason: "Official void" };
     const stale = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), recentlyAuthenticated: async () => false });
-    expect((await stale.fetch(request(path, body))).status).toBe(403);
+    expect(await (await stale.fetch(request(path, body))).json()).toEqual({ code: "WAGER_NOT_FOUND" });
     const member = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "member", name: "Member" }), recentlyAuthenticated: async () => true });
     expect((await member.fetch(request(path, body))).status).toBe(403);
     const owner = createWorkerApp({ db: bindings.DB, pools: bindings.POOL_DO, commandAuthenticatorKey: bindings.POOL_COMMAND_AUTHENTICATOR_KEY, currentUser: async () => ({ id: "owner", name: "Owner" }), recentlyAuthenticated: async () => true });

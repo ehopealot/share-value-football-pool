@@ -34,6 +34,25 @@ describe("periodic overdue-settlement alerts", () => {
     expect(calls[51]).toBe("p-00");
   });
 
+  it("allows 15 seconds per inspection and preserves the between-pool scan budget", async () => {
+    await ready("budget-a");
+    await ready("budget-b");
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+    const fetch = vi.fn().mockImplementation(async () => {
+      clock.mockReturnValue(20_000);
+      return Response.json({ overdueWagers: 0 });
+    });
+    const pools = { idFromName: (id: string) => id, get: () => ({ fetch }) } as unknown as DurableObjectNamespace;
+    const report = vi.fn();
+    try {
+      expect(await runSettlementAlertCron({ db, pools, opsServiceToken: "ops-test", alerts: { report } })).toEqual({ inspected: 1 });
+      expect(timeout).toHaveBeenCalledExactlyOnceWith(15_000);
+      expect(report).not.toHaveBeenCalled();
+      expect((await db.prepare("SELECT last_pool_id FROM settlement_alert_cursor").first<{ last_pool_id: string }>())?.last_pool_id).toBe("budget-a");
+    } finally { timeout.mockRestore(); clock.mockRestore(); }
+  });
+
   it("does not access storage without the read-only ops token", async () => {
     expect(await runSettlementAlertCron({ db: {} as D1Database, pools: {} as DurableObjectNamespace, alerts: { report: vi.fn() } })).toEqual({ inspected: 0 });
   });

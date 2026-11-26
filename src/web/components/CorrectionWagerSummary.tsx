@@ -15,7 +15,7 @@ export function CorrectionWagerSummary({ wager, showOwner = false }: { wager: Wa
     <small className="correction-wager-meta">{wager.type}{stake && <> · <span className="activity-staked">{stake.amount} shares{stake.odds && <> <span className="activity-staked-odds">{stake.odds}</span></>}</span></>}</small>
     {legs.length ? legs.map((leg, index) => <div className="correction-wager-leg" key={`${leg.eventId}:${leg.market}:${leg.selection}:${index}`}>
       <small><time dateTime={leg.eventStartsAt}>{starts[index]}</time></small>
-      <WagerLine leg={leg}/>
+      <WagerLine leg={leg} wagerType={wager.type}/>
     </div>) : <span>Selection hidden until game time.</span>}
     {!!wager.hiddenLegCount && legs.length > 0 && <small>{wager.hiddenLegCount} other selection{wager.hiddenLegCount === 1 ? "" : "s"} hidden until game time.</small>}
   </div>;

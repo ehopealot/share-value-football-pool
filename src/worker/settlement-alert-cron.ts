@@ -15,7 +15,7 @@ export async function runSettlementAlertCron({ db, pools, opsServiceToken, alert
     if (inspected && Date.now() - startedAt >= 20_000) break;
     inspected++; last = poolId;
     try {
-      const response = await pools.get(pools.idFromName(poolId)).fetch("https://pool.internal/internal/ops/overdue-settlements", { headers: { "x-ops-service-token": opsServiceToken }, signal: AbortSignal.timeout(5_000) });
+      const response = await pools.get(pools.idFromName(poolId)).fetch("https://pool.internal/internal/ops/overdue-settlements", { headers: { "x-ops-service-token": opsServiceToken }, signal: AbortSignal.timeout(15_000) });
       if (!response.ok) throw new Error("SETTLEMENT_INSPECTION_FAILED");
       const value = await response.json<{ overdueWagers?: unknown }>();
       if (!Number.isSafeInteger(value?.overdueWagers) || Number(value.overdueWagers) < 0) throw new Error("SETTLEMENT_INSPECTION_INVALID");

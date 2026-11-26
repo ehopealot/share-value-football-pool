@@ -322,8 +322,10 @@ export function OddsPage() {
       return next;
     });
   }, [slug]);
-  // Teasers need at least two legs, so the builder stays disabled for single-game slips.
-  const teaserEligibleCount = tray.filter((item) => teaserEligible(item) && resolveTrayItem(board ?? {}, item) && typeof resolveTrayItem(board ?? {}, item)!.outcome.point === "number").length;
+  // The whole slip must fit a teaser; never silently drop excess or ineligible selections.
+  const canBuildTeaser = tray.length >= 2 && tray.length <= 6 && tray.every((item) =>
+    teaserEligible(item) && typeof resolveTrayItem(board ?? {}, item)?.outcome.point === "number"
+  );
   const balance = view?.activeSeason && view.currentMember.seasonBalances.find((item: any) => item.seasonId === view.activeSeason.id);
   const riskError = straightBatchRiskError(tray, { maxSideBetMicros: view?.pool.maxSideBetMicros, availableMicros: balance?.availableMicros });
   const available = balance ? parseIntegerText(balance.availableMicros) : 0n;
@@ -382,7 +384,7 @@ export function OddsPage() {
   };
 
   const addEligibleToTeaser = () => {
-    if (parlayTransfer.current.pending) return;
+    if (parlayTransfer.current.pending || !canBuildTeaser) return;
     // Build a fresh teaser from this slip; a prior draft must never affect these selections.
     const transfer = buildTeaserTransfer(tray, board ?? {});
     writeTeaserSlip(slug, transfer.slip);
@@ -443,7 +445,7 @@ export function OddsPage() {
     {board && games.length === 0 && <p>{teamFilter.trim() ? "No teams match this filter." : "No games to show for this week."}</p>}
     <section ref={selectionTrayRef} onPointerDownCapture={captureSelectionTrayPointer} onPointerCancelCapture={cancelSelectionTrayPointer} aria-label="Selection tray" className="selection-tray"><h2>Bet slip</h2>{view?.activeSeason && <><p className="pool-balance">Shares: <strong>{formatMicros(total, 2)}</strong> · Available: <strong>{formatMicros(available, 2)}</strong> · Share price: <strong>{shareValue}</strong></p>{noIssuedShares && <p className="pool-context">No shares issued yet. First order price is $1.00 per share.</p>}</>}
       {tray.length > 0 && <><ul className="selection-tray-list">{tray.map((item) => { const resolved = resolveTrayItem(board ?? {}, item); const label = trayLabel(board ?? {}, item, resolved); const displayLabel = selectionTrayDisplayLabel(item, resolved); return <li key={pickId(item)}>{resolved ? <span className="tray-item-label"><SelectedLegDisplay league={resolved.offer.league} awayTeam={resolved.offer.awayTeam} homeTeam={resolved.offer.homeTeam} market={resolved.offer.market} selection={item.selection} selectedDetail={displayedBoardValue(resolved.offer, resolved.outcome, item.selection)} /></span> : <em className="tray-item-label">{displayLabel}</em>}<span className="selection-tray-amount"><input disabled={parlayTransferPending} type="number" min="1" step="1" value={item.risk} aria-label={`Risk in whole shares for ${label}`} onChange={e => { if (!parlayTransfer.current.pending) persist(tray.map((candidate) => pickId(candidate) === pickId(item) ? { ...candidate, risk: e.target.value } : candidate)); }} /></span><button disabled={parlayTransferPending} className="selection-tray-remove" onClick={() => { if (!parlayTransfer.current.pending) persist(removeItem(tray, item)); }}>Remove</button></li>; })}</ul>
-        <span className="tray-actions"><button disabled={!bettingOpen || parlayTransferPending || teaserEligibleCount < 2} onClick={addEligibleToTeaser}>Build teaser</button>
+        <span className="tray-actions"><button disabled={!bettingOpen || parlayTransferPending || !canBuildTeaser} onClick={addEligibleToTeaser}>Build teaser</button>
         <button disabled={!bettingOpen || parlayTransferPending || tray.length < 2 || tray.length > 6} onClick={() => void addToParlay()}>{parlayTransferPending ? "Loading current odds…" : "Build parlay"}</button>
         <button className="primary-action" disabled={!bettingOpen || parlayTransferPending || !view?.activeSeason?.id || !!riskError} onClick={() => void quoteAll()}>Place bets</button></span>
         <p className="bet-slip-error" aria-live="polite">{riskError}</p></>}

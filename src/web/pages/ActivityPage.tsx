@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api, errorMessage } from "../api";
 import { Layout } from "../components/Layout";
-import { activityWagerPerformanceClass, filterActivityDaysForActiveGames, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance, groupActivityDaysForWeek, groupActivityMembers, groupActivityMembersForWeek } from "../activity-presentation";
+import { activityWagerPerformanceClass, filterActivityDaysForActiveGames, formatActivityPerformance, formatActivityWagerPerformance, groupActivityDaysForWeek, groupActivityMembers, groupActivityMembersForWeek } from "../activity-presentation";
 import { weekNumberLabel, weekStartOf } from "../../domain/betting-week";
 import { ALL_WEEKS_VALUE, selectedWeekOrCurrent, wagerWeekOptions } from "../week-picker-presentation";
 import { displayWagerDateLabel, displayWagerStartTimeOnly, displayWagerStartTimes, sortWagerLegsByStartTime, sortWagersByAnchorTime, sortWagersByStartTime } from "../wager-presentation";
 import { useCompactWagerViewport } from "../mobile-viewport";
 import { WagerLine } from "../components/WagerLine";
 import { hasConfirmedLiveGame, loadLiveGameStates } from "../live-game-state";
+import { WagerStake as Staked } from "../components/WagerStake";
 import { MatchupHint, MatchupLegLink } from "../components/MatchupLegLink";
 
 type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][number];
@@ -16,12 +17,7 @@ type Wager = import("../../contracts/http").ReadActivity["activity"]["wagers"][n
 export function WagerLines({ wager, slug = "" }: { wager: Wager; slug?: string }) {
   const legs = sortWagerLegsByStartTime(wager.legs ?? []);
   if (!legs.length) return <>Selection hidden until game time.</>;
-  return <div className="activity-wager-lines">{legs.map((leg) => <MatchupLegLink key={`${leg.eventId}:${leg.market}:${leg.selection}`} slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink>)}</div>;
-}
-
-function Staked({ wager }: { wager: Wager }) {
-  const stake = formatActivityStake(wager);
-  return stake ? <span className="activity-staked">{stake.amount}{stake.odds && <> <small className="activity-staked-odds">{stake.odds}</small></>}</span> : null;
+  return <div className="activity-wager-lines">{legs.map((leg) => <MatchupLegLink key={`${leg.eventId}:${leg.market}:${leg.selection}`} slug={slug} leg={leg}><WagerLine leg={leg} wagerType={wager.type}/></MatchupLegLink>)}</div>;
 }
 
 function WagerRows({ wager, dayAnchorStartsAt, slug = "" }: { wager: Wager; dayAnchorStartsAt?: string; slug?: string }) {
@@ -32,7 +28,7 @@ function WagerRows({ wager, dayAnchorStartsAt, slug = "" }: { wager: Wager; dayA
   const mobileStarts = displayWagerStartTimeOnly(wager, dayAnchorStartsAt);
   const legRowClass = (index: number) => [index > 0 && "activity-wager-leg-row", index < rowCount - 1 && "activity-wager-leg-row-leading"].filter(Boolean).join(" ") || undefined;
   if (!legs.length) return <tr><td></td><td><WagerLines wager={wager} slug={slug}/></td><td><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>;
-  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg}/></MatchupLegLink></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
+  return <>{legs.map((leg, index) => <tr key={`${wager.wagerId}:${leg.eventId}:${leg.market}:${leg.selection}:${index}`} className={legRowClass(index)}><td><span className="wager-start-time">{starts[index]}</span><span className="wager-start-time-mobile">{mobileStarts[index]}</span></td><td><MatchupLegLink slug={slug} leg={leg}><WagerLine leg={leg} wagerType={wager.type}/></MatchupLegLink></td>{index === 0 && <><td rowSpan={rowCount}><Staked wager={wager}/></td><td className={activityWagerPerformanceClass(wager)} rowSpan={rowCount}>{formatActivityWagerPerformance(wager)}</td></>}</tr>)}{hiddenLegCount > 0 && <tr className={legRowClass(legs.length)}><td></td><td><span className="activity-leg-neutral">{hiddenLegCount} other selection{hiddenLegCount === 1 ? "" : "s"} hidden until game time.</span></td></tr>}</>;
 }
 
 export function MemberActivitySection({ member, title, slug = "" }: { member: ReturnType<typeof groupActivityMembersForWeek>[number]; title?: React.ReactNode; slug?: string }) {

@@ -38,6 +38,16 @@ async function readyActivePool(now: number) {
 }
 
 describe("season closure reminder cron", () => {
+  it("allows 15 seconds at each reminder authority boundary", async () => {
+    const now = Date.parse("2030-02-09T23:00:00.000Z");
+    await readyActivePool(now);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      expect(await runSeasonClosureReminderCron({ db: bindings.DB, pools: bindings.POOL_DO, settlementServiceToken: token, notifier: notifier(async () => undefined), adminOrigin: "https://officepool.football" }, () => now)).toEqual({ attemptedPools: 1, sent: 1 });
+      expect(timeout.mock.calls).toEqual([[15_000], [15_000], [15_000]]);
+    } finally { timeout.mockRestore(); }
+  }, 60_000);
+
   it("is safely disabled unless both email and lifecycle credentials are configured", () => {
     expect(seasonClosureReminderConfigured({})).toBe(false);
     expect(seasonClosureReminderConfigured({ RESEND_API_KEY: "key" })).toBe(false);

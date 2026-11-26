@@ -501,13 +501,11 @@ export function installPoolRoutes(app: Hono, dependencies: RouteDependencies): v
   app.post("/api/p/:slug/admin/corrections/:wagerId/void", (c) => mutation(c, async (user) => {
     const parsed = voidWagerRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
-    if (!(await dependencies.recentlyAuthenticated?.(c.req.raw, user))) return jsonError(c, "RECENT_AUTH_REQUIRED", 403);
     return c.json(await router.send(c.req.param("slug"), { type: "VoidWager", commandId: parsed.data.idempotencyKey, actorId: user.id, wagerId: c.req.param("wagerId"), reason: parsed.data.reason }));
   }));
   app.post("/api/p/:slug/admin/corrections/:wagerId/regrade", (c) => mutation(c, async (user) => {
     const parsed = regradeWagerRequest.safeParse(await c.req.json());
     if (!parsed.success) return jsonError(c, "INVALID_REQUEST");
-    if (!(await dependencies.recentlyAuthenticated?.(c.req.raw, user))) return jsonError(c, "RECENT_AUTH_REQUIRED", 403);
     return c.json(await router.send(c.req.param("slug"), { type: "RegradeWager", commandId: parsed.data.idempotencyKey, actorId: user.id, wagerId: c.req.param("wagerId"), reason: parsed.data.reason, correctedResults: parsed.data.correctedResults }));
   }));
   app.post("/api/p/:slug/admin/history/:seasonId/annotations", (c) => mutation(c, async (user) => {

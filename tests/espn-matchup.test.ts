@@ -44,6 +44,36 @@ const successfulFetcher = () => vi.fn(async (url: string | URL | Request) => {
 });
 
 describe("ESPN matchup lookup", () => {
+  it.each(["home", "away"])("preserves each past game's %s designation through the cache", async (homeAway) => {
+    const cache = new MemoryCache();
+    const upstream = successfulFetcher();
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("teams/away/schedule")) {
+        const payload = schedule("away", "Atlanta Falcons", "Pittsburgh Steelers");
+        payload.events[0]!.competitions[0]!.competitors[0]!.homeAway = homeAway;
+        payload.events[0]!.competitions[0]!.competitors[1]!.homeAway = homeAway === "home" ? "away" : "home";
+        return responseFor(payload);
+      }
+      return upstream(url);
+    });
+    const result = await lookupEspnMatchup(input, { fetcher, cache });
+    expect(result).toMatchObject({ status: "ok", matchup: { away: { recentResults: [{ homeAway }] } } });
+    fetcher.mockClear();
+    expect(await lookupEspnMatchup(input, { fetcher, cache })).toEqual(result);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("refetches cached recent results without a home/away designation", async () => {
+    const cache = new MemoryCache();
+    const result = await lookupEspnMatchup(input, { fetcher: successfulFetcher() });
+    if (result.status !== "ok") throw new Error("Expected matchup");
+    const legacy = JSON.parse(JSON.stringify(result));
+    delete legacy.matchup.away.recentResults[0].homeAway;
+    await cache.put(matchupCacheRequest(input), responseFor(legacy));
+    const fetcher = successfulFetcher();
+    expect(await lookupEspnMatchup(input, { fetcher, cache })).toEqual(result);
+    expect(fetcher).toHaveBeenCalled();
+  });
   it("sends a recognized client User-Agent on every outbound ESPN request", async () => {
     const fetcher = successfulFetcher();
     await lookupEspnMatchup(input, { fetcher });

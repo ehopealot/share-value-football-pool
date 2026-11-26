@@ -1,6 +1,6 @@
 export type EspnLeague = "nfl" | "ncaaf";
 export type EspnMatchupInput = { league: EspnLeague; startsAt: string; awayTeam: string; homeTeam: string };
-export type EspnRecentResult = { date: string; opponent: string; result: string };
+export type EspnRecentResult = { date: string; opponent: string; result: string; homeAway: "home" | "away" };
 export type EspnMatchupTeam = { name: string; record?: string; logo?: string; recentResults: EspnRecentResult[] };
 export type EspnSeasonStat = { label: string; away?: string; home?: string };
 export type EspnMatchup = { league: EspnLeague; startsAt: string; venue?: string; away: EspnMatchupTeam; home: EspnMatchupTeam; seasonStats: EspnSeasonStat[] };
@@ -220,7 +220,8 @@ const scheduleResults = (payload: unknown, teamId: string, before: string): Espn
     const ownTeam = own && asObject(own.team); const opponentTeam = opponent && asObject(opponent.team);
     const ownScore = scoreText(own); const opponentScore = scoreText(opponent); const opponentName = opponentTeam && asText(opponentTeam.displayName);
     if (!own || !ownTeam || !opponent || !opponentName || !ownScore || !opponentScore || typeof own.winner !== "boolean") continue;
-    results.push({ date, opponent: opponentName, result: `${own.winner ? "W" : "L"} ${ownScore}-${opponentScore}` });
+    if (own.homeAway !== "home" && own.homeAway !== "away") continue;
+    results.push({ date, opponent: opponentName, result: `${own.winner ? "W" : "L"} ${ownScore}-${opponentScore}`, homeAway: own.homeAway });
   }
   return results.sort((left, right) => right.date.localeCompare(left.date)).slice(0, 3);
 };
@@ -231,7 +232,9 @@ const cachedRecentResults = (value: unknown): EspnRecentResult[] | undefined => 
   for (const value of results) {
     const result = asObject(value); const date = result && asText(result.date); const opponent = result && asText(result.opponent); const summary = result && asText(result.result);
     if (!date || Number.isNaN(new Date(date).getTime()) || !opponent || !summary) return undefined;
-    parsed.push({ date, opponent, result: summary });
+    // Refetch old cache entries rather than guessing a game's location.
+    if (result?.homeAway !== "home" && result?.homeAway !== "away") return undefined;
+    parsed.push({ date, opponent, result: summary, homeAway: result.homeAway });
   }
   return parsed;
 };

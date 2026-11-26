@@ -38,7 +38,7 @@ const validClaimed = (value: unknown): value is Claimed => {
 
 async function reminderOperation(stub: DurableObjectStub, token: string, body: Record<string, string>): Promise<unknown> {
   const response = await stub.fetch("https://pool.internal/internal/season-closure-reminder", {
-    method: "POST", headers: { "content-type": "application/json", "x-settlement-service-token": token }, body: JSON.stringify(body), signal: AbortSignal.timeout(5_000)
+    method: "POST", headers: { "content-type": "application/json", "x-settlement-service-token": token }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000)
   });
   if (!response.ok) throw new Error("REMINDER_OPERATION_FAILED");
   return response.json();

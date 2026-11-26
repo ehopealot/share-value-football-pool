@@ -6,8 +6,9 @@ import { api } from "../api";
 import { Layout } from "../components/Layout";
 import { formatKickoff } from "../odds-format";
 import { WagerLines } from "./ActivityPage";
+import { WagerStake } from "../components/WagerStake";
 import { groupBoardByEvent, type MarketCell } from "./OddsPage";
-import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityStake, formatActivityWagerPerformance } from "../activity-presentation";
+import { activityWagerPerformanceClass, formatActivityPerformance, formatActivityWagerPerformance } from "../activity-presentation";
 import { parseIntegerText } from "../../domain/fixed-point";
 
 /** A missing ESPN event and an inactive-week event share this safe, accurate member-facing state. */
@@ -29,7 +30,7 @@ export function PoolExposure({ wagers, slug }: { wagers: PoolExposureResponse["w
     {wagers.length === 0 ? <p className="state-notice">No pool bets on this game.</p> : <div className="table-scroll" tabIndex={0}><table className="activity-table"><colgroup><col className="activity-wager-column"/><col className="activity-staked-column"/><col className="activity-pnl-column"/></colgroup><thead><tr><th>Wager</th><th>Staked</th><th>P&L</th></tr></thead>
       {ordered.map((member) => <tbody key={member.memberId}>
         <tr className="activity-day-member-ribbon"><th colSpan={3} scope="rowgroup"><span>{member.name}<small>{formatActivityPerformance(member.netMicros.toString())}</small></span></th></tr>
-        {member.wagers.map((wager) => { const stake = formatActivityStake(wager); return <tr key={wager.wagerId}><td><WagerLines wager={wager} slug={slug}/></td><td>{stake ? <span className="activity-staked">{stake.amount} <small className="activity-staked-odds">{stake.odds}</small></span> : "—"}</td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>; })}
+        {member.wagers.map((wager) => <tr key={wager.wagerId}><td><WagerLines wager={wager} slug={slug}/></td><td><WagerStake wager={wager} fallback="—"/></td><td className={activityWagerPerformanceClass(wager)}>{formatActivityWagerPerformance(wager)}</td></tr>)}
       </tbody>)}
     </table></div>}
   </section>;
@@ -86,7 +87,7 @@ export function MatchupDetails({ matchup, lines }: { matchup: EspnMatchupRespons
     </section>
     <section aria-label="Season team stats" className="table-ribbon-section"><h2 className="table-ribbon">Season team stats</h2>{matchup.seasonStats.length > 0 ? <div className="table-scroll" tabIndex={0}><table className="activity-table matchup-stats"><thead><tr><th scope="col"><span className="visually-hidden">Stat</span></th><th scope="col">{matchup.away.name}</th><th scope="col">{matchup.home.name}</th></tr></thead><tbody>{matchup.seasonStats.map((stat) => <tr key={stat.label}><th scope="row">{stat.label}</th><td>{stat.away ?? "—"}</td><td>{stat.home ?? "—"}</td></tr>)}</tbody></table></div> : <p className="state-notice">Season team stats are not available from ESPN yet.</p>}</section>
     <section aria-label="Recent results" className="table-ribbon-section"><h2 className="table-ribbon">Recent results</h2>
-      <div className="matchup-recent-results">{teams.map((team) => <section key={team.name} className="matchup-recent-team"><h3 className="matchup-team-ribbon"><span>{team.name}</span></h3>{team.recentResults.length > 0 ? <ul>{team.recentResults.map((result) => <li key={`${result.date}-${result.opponent}`}><time dateTime={result.date}>{formatKickoff(result.date)}</time> · {result.result} vs {result.opponent}</li>)}</ul> : <p>Recent results are not available.</p>}</section>)}</div>
+      <div className="matchup-recent-results">{teams.map((team) => <section key={team.name} className="matchup-recent-team"><h3 className="matchup-team-ribbon"><span>{team.name}</span></h3>{team.recentResults.length > 0 ? <ul>{team.recentResults.map((result) => <li key={`${result.date}-${result.opponent}`}><time dateTime={result.date}>{formatKickoff(result.date)}</time> · {result.result} {result.homeAway === "home" ? "vs" : "at"} {result.opponent}</li>)}</ul> : <p>Recent results are not available.</p>}</section>)}</div>
     </section>
   </article>;
 }
